@@ -41,3 +41,4 @@ state.json
 .idea/
 *.swp
 verify_setup.py
+temp/
