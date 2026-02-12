@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.env
+
+# MacOS
+.DS_Store
+
+# FeedFlux Specific
+temp/
+logs/
