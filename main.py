@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+from pathlib import Path
 from datetime import datetime
 from config import Config
 from fetcher import OutlookFetcher
