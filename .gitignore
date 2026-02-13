@@ -53,3 +53,7 @@ backend/temp/
 # Output Artifacts
 data/digests/
 data/vector_db/
+
+# Global Ignores
+.DS_Store
+node_modules/
