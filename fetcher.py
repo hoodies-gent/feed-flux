@@ -65,7 +65,7 @@ class OutlookFetcher:
         """
         params = {
             "$top": limit,
-            "$select": "id,subject,receivedDateTime,bodyPreview,isRead,from",
+            "$select": "id,subject,receivedDateTime,bodyPreview,body,isRead,from",
             "$orderby": "receivedDateTime desc",
             "$filter": "isDraft eq false" # Exclude drafts
         }
