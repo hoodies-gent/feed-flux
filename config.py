@@ -15,16 +15,17 @@ class Config:
     # Project Paths
     BASE_DIR = Path(__file__).resolve().parent
     
-    # Google OAuth
-    # The file path to the client secrets (downloaded from Google Cloud)
-    CLIENT_SECRETS_FILE = BASE_DIR / os.getenv("GOOGLE_CLIENT_SECRETS_FILE", "credentials.json")
-    
-    # The file path to store the user's access and refresh tokens
-    TOKEN_FILE = BASE_DIR / "token.json"
+    # Microsoft Graph OAuth
+    # Register your app at: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade
+    # Select "Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant) and personal Microsoft accounts"
+    MS_CLIENT_ID = os.getenv("MS_CLIENT_ID")
+    AUTHORITY = "https://login.microsoftonline.com/common"
     
     # Scopes required for the application
-    # We need read-only access to messages to fetch them
-    SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+    SCOPES = ['User.Read', 'Mail.Read']
+    
+    # Token Cache
+    TOKEN_CACHE_FILE = BASE_DIR / "token_cache.bin"
 
     # LLM Configuration
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
@@ -44,11 +45,9 @@ class Config:
         """
         if cls.LLM_PROVIDER not in ["gemini", "openai"]:
             print(f"Error: Unsupported LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be 'gemini' or 'openai'.", file=sys.stderr)
-            # We don't exit here to allow for partial usage if needed, but it's a critical warning.
         
-        # Note: We don't check for API keys here strictly because they might be loaded later or 
-        # the user might be running a sub-command that doesn't need them immediately.
-        # But for a robust app, we might want to fail early.
+        if not cls.MS_CLIENT_ID:
+             print("Warning: MS_CLIENT_ID not found in environment variables. Auth will fail.", file=sys.stderr)
         pass
 
 # Simple validation on import (optional, can be moved to main)
