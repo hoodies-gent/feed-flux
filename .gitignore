@@ -50,4 +50,6 @@ backend/temp/
 *.swp
 
 # Output Artifacts
+# Output Artifacts
 data/digests/
+data/vector_db/
