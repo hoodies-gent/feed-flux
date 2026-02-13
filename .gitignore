@@ -33,13 +33,18 @@ ENV/
 credentials.json
 token.json
 
-# Local State
+# Local State & Cache
 state.json
+token_cache.bin
+
+# Testing & Temporary
+verify_setup.py
+temp/
 
 # IDE
 .vscode/
 .idea/
 *.swp
-verify_setup.py
-temp/
-token_cache.bin
+
+# Output Artifacts
+digests/
