@@ -7,6 +7,7 @@ from app.core.config import Config
 from app.services.fetcher import OutlookFetcher
 from app.services.cleaner import ContentCleaner
 from app.services.summarizer import ContentSummarizer
+from app.services.memory import MemoryService
 
 # Configure logging
 logging.basicConfig(
@@ -39,6 +40,7 @@ def main():
         cleaner = ContentCleaner()
         if not args.dry_run:
             summarizer = ContentSummarizer()
+            memory = MemoryService()
 
         # 2. Processing Pipeline
         report_entries = []
@@ -58,8 +60,31 @@ def main():
             summary = "Skipped (Dry Run)"
             if not args.dry_run:
                 try:
+                    # 1. Retrieve Context
+                    context_docs = []
+                    try:
+                        print("   🔍 Retrieving context...")
+                        related = memory.query_related(cleaned_text, n_results=3)
+                        if related and related['documents']:
+                            context_docs = related['documents'][0]
+                            print(f"   💡 Found {len(context_docs)} related past emails.")
+                    except Exception as e:
+                        logger.warning(f"Context retrieval failed: {e}")
+
+                    # 2. Summarize (with Context)
                     print("   ⏳ Summarizing...")
-                    summary = summarizer.summarize(cleaned_text)
+                    summary = summarizer.summarize(cleaned_text, context_documents=context_docs)
+                    
+                    # 3. Ingest into Memory
+                    print("   💾 Saving to memory...")
+                    metadata = {
+                        "subject": subject,
+                        "sender": sender,
+                        "date": email.get("receivedDateTime", ""),
+                        "summary": summary[:1000] # Truncate summary for metadata if needed
+                    }
+                    memory.add_email(email.get("id"), cleaned_text, metadata)
+
                 except Exception as e:
                     logger.error(f"Summarization failed for '{subject}': {e}")
                     summary = f"[Error: Summarization failed] {e}"

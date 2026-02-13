@@ -20,9 +20,10 @@ class ContentSummarizer:
         genai.configure(api_key=Config.GOOGLE_API_KEY)
         self.model = genai.GenerativeModel(Config.GEMINI_MODEL_NAME)
 
-    def summarize(self, text):
+    def summarize(self, text, context_documents=None):
         """
         Generates a concise summary of the provided text.
+        Optional: context_documents (list of str) to provide historical context.
         """
         if not text:
             return "No content to summarize."
@@ -31,15 +32,25 @@ class ContentSummarizer:
         # Truncate text to avoid token limits
         truncated_text = text[:8000]
 
+        # Context Layer
+        context_block = ""
+        if context_documents:
+            context_items = "\n".join([f"<item>{doc}</item>" for doc in context_documents])
+            context_block = f"<history>\n{context_items}\n</history>\n"
+            logger.info(f"Injecting {len(context_documents)} context items into prompt.")
+
         # Security & Structural Layer
         # 1. Force XML encapsulation for raw content
         safe_content = f"<content>\n{truncated_text}\n</content>"
         
         # 2. System Preamble: Explicitly tell LLM about the structure
-        # This decouples the structure from the user's custom prompt.
-        system_preamble = "The content to analyze is enclosed in <content> tags. Please process it according to the instructions below."
+        system_preamble = "The content to analyze is enclosed in <content> tags."
+        if context_block:
+             system_preamble += " Relevant historical context is provided in <history> tags. Use it to identify connections but focus on the new content."
+        
+        system_preamble += " Please process it according to the instructions below."
 
-        prompt = f"{system_preamble}\n\n{Config.DEFAULT_SUMMARIZE_PROMPT}\n\n{safe_content}"
+        prompt = f"{system_preamble}\n\n{Config.DEFAULT_SUMMARIZE_PROMPT}\n\n{context_block}{safe_content}"
         
         try:
             response = self.model.generate_content(prompt)
