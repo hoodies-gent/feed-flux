@@ -4,4 +4,4 @@ beautifulsoup4
 google-generativeai
 openai
 requests
-google-generativeai
+chromadb
