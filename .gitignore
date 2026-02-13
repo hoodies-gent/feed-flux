@@ -28,18 +28,21 @@ ENV/
 
 # Environment Variables
 .env
+backend/.env
+backend/.env.local
 
 # Google OAuth
 credentials.json
 token.json
 
 # Local State & Cache
-state.json
-token_cache.bin
+data/state.json
+data/token_cache.bin
 
 # Testing & Temporary
 verify_setup.py
-temp/
+test_cleaner.py
+backend/temp/
 
 # IDE
 .vscode/
@@ -47,4 +50,4 @@ temp/
 *.swp
 
 # Output Artifacts
-digests/
+data/digests/

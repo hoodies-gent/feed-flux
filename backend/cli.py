@@ -3,10 +3,10 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
-from config import Config
-from fetcher import OutlookFetcher
-from cleaner import ContentCleaner
-from summarizer import ContentSummarizer
+from app.core.config import Config
+from app.services.fetcher import OutlookFetcher
+from app.services.cleaner import ContentCleaner
+from app.services.summarizer import ContentSummarizer
 
 # Configure logging
 logging.basicConfig(
@@ -70,9 +70,9 @@ def main():
 
         # 3. Generate Report
         if report_entries:
-            # Ensure output directory exists
-            output_dir = Path("digests")
-            output_dir.mkdir(exist_ok=True)
+            # Ensure output directory exists (use absolute path from Config)
+            output_dir = Config.DATA_DIR / "digests"
+            output_dir.mkdir(parents=True, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             report_filename = output_dir / f"feedflux_digest_{timestamp}.md"

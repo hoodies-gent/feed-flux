@@ -1,7 +1,7 @@
 import os
 import logging
 import google.generativeai as genai
-from config import Config
+from app.core.config import Config
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))

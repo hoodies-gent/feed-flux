@@ -13,7 +13,13 @@ class Config:
     """
     
     # Project Paths
-    BASE_DIR = Path(__file__).resolve().parent
+    # backend/app/core/config.py -> core -> app -> backend -> feed-flux (ROOT)
+    CORE_DIR = Path(__file__).resolve().parent
+    APP_DIR = CORE_DIR.parent
+    BACKEND_DIR = APP_DIR.parent
+    ROOT_DIR = BACKEND_DIR.parent
+    
+    DATA_DIR = ROOT_DIR / "data"
     
     # Microsoft Graph OAuth
     # Register your app at: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade
@@ -25,7 +31,7 @@ class Config:
     SCOPES = ['User.Read', 'Mail.Read']
     
     # Token Cache
-    TOKEN_CACHE_FILE = BASE_DIR / "token_cache.bin"
+    TOKEN_CACHE_FILE = DATA_DIR / "token_cache.bin"
 
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -33,7 +39,7 @@ class Config:
     GEMINI_MODEL_NAME = "gemini-flash-latest"
 
     # App Persistence
-    STATE_FILE = BASE_DIR / "state.json"
+    STATE_FILE = DATA_DIR / "state.json"
 
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

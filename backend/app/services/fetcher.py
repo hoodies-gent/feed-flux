@@ -4,8 +4,8 @@ import logging
 import requests
 import sys
 from pathlib import Path
-from config import Config
-from auth import authenticate_outlook
+from app.core.config import Config
+from app.core.auth import authenticate_outlook
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
