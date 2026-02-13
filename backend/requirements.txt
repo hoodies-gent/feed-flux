@@ -5,3 +5,5 @@ google-generativeai
 openai
 requests
 chromadb
+fastapi
+uvicorn
