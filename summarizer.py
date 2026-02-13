@@ -27,10 +27,19 @@ class ContentSummarizer:
         if not text:
             return "No content to summarize."
 
-        # Use prompt from Config
-        # Truncate text to avoid token limits (simple char limit for now)
+        # Use prompt from Config (or future user input)
+        # Truncate text to avoid token limits
         truncated_text = text[:8000]
-        prompt = Config.DEFAULT_SUMMARIZE_PROMPT.format(text=truncated_text)
+
+        # Security & Structural Layer
+        # 1. Force XML encapsulation for raw content
+        safe_content = f"<content>\n{truncated_text}\n</content>"
+        
+        # 2. System Preamble: Explicitly tell LLM about the structure
+        # This decouples the structure from the user's custom prompt.
+        system_preamble = "The content to analyze is enclosed in <content> tags. Please process it according to the instructions below."
+
+        prompt = f"{system_preamble}\n\n{Config.DEFAULT_SUMMARIZE_PROMPT}\n\n{safe_content}"
         
         try:
             response = self.model.generate_content(prompt)

@@ -42,16 +42,11 @@ class Config:
     DEFAULT_SUMMARIZE_PROMPT = """
     You are an AI assistant for FeedFlux, a tool that aggregates emails into a daily digest.
     
-    Please summarize the following email content.
+    Please summarize the content.
     - Focus on key information, events, and action items.
     - Ignore marketing fluff, boilerplate text, and unsubscribe links.
     - Format the output as a concise paragraph or bullet points.
     - If the content is very short, just return the content itself.
-    
-    Input Text:
-    {text}
-    
-    Summary:
     """
 
     @classmethod
