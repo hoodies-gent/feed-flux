@@ -4,7 +4,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+CORE_DIR = Path(__file__).resolve().parent
+BACKEND_DIR = CORE_DIR.parent.parent
+load_dotenv(BACKEND_DIR / ".env")
 
 class Config:
     """
@@ -36,7 +38,13 @@ class Config:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    GEMINI_MODEL_NAME = "gemini-flash-latest"
+
+    # Model Configuration
+    # We use 'gemini-2.0-flash-lite' as the code default because it is the standard stable version.
+    # However, for environments with strict rate limits (like current Free Tier), we override this 
+    # via the GEMINI_MODEL_NAME environment variable to use 'gemini-flash-lite-latest' (or similar).
+    # Precedence: Environment Variable > Default Value
+    GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash-lite")
 
     # App Persistence
     STATE_FILE = DATA_DIR / "state.json"
