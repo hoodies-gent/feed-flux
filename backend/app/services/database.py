@@ -124,6 +124,8 @@ class DatabaseService:
             "body_content": email.body_content,
             "body_html": email.body_html,
             "summary": email.summary,
+            "summary_model": email.summary_model,
+            "summary_generated_at": email.summary_generated_at.isoformat() if email.summary_generated_at else None,
             "is_read": email.is_read,
             "is_starred": email.is_starred,
             "is_archived": email.is_archived,

@@ -24,6 +24,8 @@ class Email(Base):
     
     # Generated content
     summary = Column(Text)
+    summary_model = Column(String)  # AI model used for summary generation
+    summary_generated_at = Column(DateTime)  # When the summary was generated
     
     # Status
     is_read = Column(Boolean, default=False)

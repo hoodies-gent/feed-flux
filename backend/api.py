@@ -195,13 +195,22 @@ async def generate_summary(request: SummaryRequest):
         # 2. Summarize
         summary = summarizer.summarize(request.text, context_documents=context_docs)
         
-        # 3. Save Summary to Database (Perspective)
-        # Assuming email_id is valid and exists in DB
-        db.update_email_status(request.email_id, summary=summary)
+        # 3. Save Summary to Database with metadata
+        from datetime import datetime
+        generated_at = datetime.utcnow()
+        
+        db.update_email_status(
+            request.email_id, 
+            summary=summary,
+            summary_model=Config.GEMINI_MODEL_NAME,
+            summary_generated_at=generated_at
+        )
         
         return {
             "summary": summary,
-            "context_count": len(context_docs)
+            "context_count": len(context_docs),
+            "model": Config.GEMINI_MODEL_NAME,
+            "generated_at": generated_at.isoformat()
         }
     except Exception as e:
         logger.error(f"Summarization failed: {e}")
