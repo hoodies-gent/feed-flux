@@ -7,13 +7,15 @@ export interface FeedItem {
     id: string;
     subject: string;
     sender: string;
-    received_datetime: string;
+    received_datetime: number;  // Unix timestamp
     body_preview: string;
 }
 
 export interface SummaryResponse {
     summary: string;
     context_count: number;
+    model: string;  // AI model name
+    generated_at: number;  // Unix timestamp
 }
 
 /**

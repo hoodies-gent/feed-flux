@@ -42,11 +42,33 @@ export default function Home() {
    * Format timestamp to human-readable relative time
    * Example: "2 hours ago", "yesterday"
    */
-  const formatTime = (datetime: string) => {
+  const formatTime = (timestamp: number) => {
     try {
-      return formatDistanceToNow(new Date(datetime), { addSuffix: true });
+      // Convert Unix timestamp (seconds) to milliseconds
+      return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
     } catch {
-      return new Date(datetime).toLocaleDateString();
+      return new Date(timestamp * 1000).toLocaleDateString();
+    }
+  };
+
+  /**
+   * Format timestamp to precise datetime string
+   * Example: "2026-02-15 17:14:23"
+   */
+  const formatDateTime = (timestamp: number) => {
+    try {
+      const date = new Date(timestamp * 1000);
+      return date.toLocaleString('en-CA', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).replace(',', '');
+    } catch {
+      return new Date(timestamp * 1000).toLocaleString();
     }
   };
 
@@ -173,13 +195,21 @@ export default function Home() {
                           </div>
                         ) : summary ? (
                           <div className="space-y-3">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">
-                                AI Summary
-                              </Badge>
-                              {summary.context_count > 0 && (
+                            {/* Generation Metadata: AI + Model (left) and Time (right) */}
+                            <div className="flex justify-between items-center gap-2 flex-wrap">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  AI Summary
+                                </Badge>
+                                {summary.model && (
+                                  <span className="text-xs text-slate-500">
+                                    by {summary.model}
+                                  </span>
+                                )}
+                              </div>
+                              {summary.generated_at && (
                                 <span className="text-xs text-slate-500">
-                                  Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
+                                  Last generated: {formatDateTime(summary.generated_at)}
                                 </span>
                               )}
                             </div>
@@ -191,11 +221,17 @@ export default function Home() {
                       </div>
                     )}
                   </CardContent>
-                  <CardFooter className="flex justify-end pt-0">
+                  <CardFooter className="flex justify-between items-center pt-0">
+                    {/* Related emails count (left side) */}
+                    {summary && summary.context_count > 0 && (
+                      <span className="text-xs text-slate-500">
+                        Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
+                      </span>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 ml-auto"
                       onClick={() => handleSummarize(item)}
                       disabled={isSummarizing}
                     >
