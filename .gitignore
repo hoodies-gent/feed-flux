@@ -38,6 +38,8 @@ token.json
 # Local State & Cache
 data/state.json
 data/token_cache.bin
+data/*.db
+data/chroma/
 
 # Testing & Temporary
 verify_setup.py
