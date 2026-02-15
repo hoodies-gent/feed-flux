@@ -123,6 +123,7 @@ class DatabaseService:
             "body_preview": email.body_preview,
             "body_content": email.body_content,
             "body_html": email.body_html,
+            "summary": email.summary,
             "is_read": email.is_read,
             "is_starred": email.is_starred,
             "is_archived": email.is_archived,

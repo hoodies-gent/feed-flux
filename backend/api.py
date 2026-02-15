@@ -117,12 +117,7 @@ async def sync_emails():
                 "subject": email.get("subject", "No Subject"),
                 "sender_name": email.get("from", {}).get("emailAddress", {}).get("name"),
                 "sender_email": email.get("from", {}).get("emailAddress", {}).get("address", ""),
-                "received_datetime": email.get("receivedDateTime"), # ISO string handled by DB service/Model? 
-                                                                  # Actually Model expects datetime object or string? 
-                                                                  # SQLAlchemy usually handles datetime objects. 
-                                                                  # Let's check if we need to parse. 
-                                                                  # Outlook returns ISO string. 
-                                                                  # If using SQLite + SQLAlchemy, passing datetime object is safest.
+                "received_datetime": email.get("receivedDateTime"), 
                 "body_preview": email.get("bodyPreview"),
                 "body_content": body_text,
                 "body_html": body_content,
@@ -133,8 +128,7 @@ async def sync_emails():
             # Parse datetime string to datetime object for SQLAlchemy
             if isinstance(email_data["received_datetime"], str):
                 from datetime import datetime
-                # Handle 'Z' if present, python fromisoformat < 3.11 might not handle it perfectly without replacement
-                # But we are on 3.13. 
+                # Handle 'Z' replacement for compatibility
                 dt_str = email_data["received_datetime"].replace('Z', '+00:00')
                 email_data["received_datetime"] = datetime.fromisoformat(dt_str)
 
@@ -200,6 +194,10 @@ async def generate_summary(request: SummaryRequest):
 
         # 2. Summarize
         summary = summarizer.summarize(request.text, context_documents=context_docs)
+        
+        # 3. Save Summary to Database (Perspective)
+        # Assuming email_id is valid and exists in DB
+        db.update_email_status(request.email_id, summary=summary)
         
         return {
             "summary": summary,

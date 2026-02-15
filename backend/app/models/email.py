@@ -22,6 +22,9 @@ class Email(Base):
     body_content = Column(Text)
     body_html = Column(Text)
     
+    # Generated content
+    summary = Column(Text)
+    
     # Status
     is_read = Column(Boolean, default=False)
     is_starred = Column(Boolean, default=False)
