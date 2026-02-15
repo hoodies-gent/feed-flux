@@ -8,6 +8,10 @@ from app.services.fetcher import OutlookFetcher
 from app.services.summarizer import ContentSummarizer
 from app.services.cleaner import ContentCleaner
 from app.services.memory import MemoryService
+from app.services.database import DatabaseService
+
+# Initialize Database Service
+db = DatabaseService()
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, Config.LOG_LEVEL))
@@ -66,27 +70,113 @@ async def app_status():
 @app.get("/api/feed", response_model=List[FeedItem])
 async def get_feed(limit: int = 5):
     """
-    Fetches recent emails from Outlook.
+    Fetches emails from the local database.
     """
     try:
-        fetcher = OutlookFetcher()
-        emails = fetcher.fetch_emails(limit=limit)
+        # Get emails from database
+        emails = db.get_emails(limit=limit)
         
         feed = []
-        cleaner = ContentCleaner()
-        
         for email in emails:
-            # Basic parsing for frontend display
+            # Map DB fields to FeedItem
             feed.append({
-                "id": email.get("id"),
-                "subject": email.get("subject", "No Subject"),
-                "sender": email.get("from", {}).get("emailAddress", {}).get("name", "Unknown"),
-                "received_datetime": email.get("receivedDateTime"),
-                "body_preview": email.get("bodyPreview", "")
+                "id": email["id"],
+                "subject": email["subject"],
+                "sender": email["sender"] or email["sender_email"],  # Use name or fallback to email
+                "received_datetime": email["received_datetime"],
+                "body_preview": email["body_preview"]
             })
         return feed
     except Exception as e:
         logger.error(f"Feed fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sync")
+async def sync_emails():
+    """
+    Manually triggers synchronization with Outlook.
+    Fetches new emails, saves them to SQLite, and indexes them in ChromaDB.
+    """
+    try:
+        fetcher = OutlookFetcher()
+        # Fetch a batch of emails (limit can be higher for sync)
+        new_emails = fetcher.fetch_emails(limit=20)
+        
+        synced_count = 0
+        memory = MemoryService()
+        cleaner = ContentCleaner()
+
+        for email in new_emails:
+            # Extract content
+            body_content = email.get("body", {}).get("content", "")
+            body_text = cleaner.clean_html(body_content) if body_content else ""
+            
+            # Prepare data for Database
+            email_data = {
+                "id": email["id"],
+                "subject": email.get("subject", "No Subject"),
+                "sender_name": email.get("from", {}).get("emailAddress", {}).get("name"),
+                "sender_email": email.get("from", {}).get("emailAddress", {}).get("address", ""),
+                "received_datetime": email.get("receivedDateTime"), # ISO string handled by DB service/Model? 
+                                                                  # Actually Model expects datetime object or string? 
+                                                                  # SQLAlchemy usually handles datetime objects. 
+                                                                  # Let's check if we need to parse. 
+                                                                  # Outlook returns ISO string. 
+                                                                  # If using SQLite + SQLAlchemy, passing datetime object is safest.
+                "body_preview": email.get("bodyPreview"),
+                "body_content": body_text,
+                "body_html": body_content,
+                "is_read": email.get("isRead", False),
+                "has_attachments": email.get("hasAttachments", False),
+            }
+            
+            # Parse datetime string to datetime object for SQLAlchemy
+            if isinstance(email_data["received_datetime"], str):
+                from datetime import datetime
+                # Handle 'Z' if present, python fromisoformat < 3.11 might not handle it perfectly without replacement
+                # But we are on 3.13. 
+                dt_str = email_data["received_datetime"].replace('Z', '+00:00')
+                email_data["received_datetime"] = datetime.fromisoformat(dt_str)
+
+            # 1. Save to Database
+            db.insert_email(email_data)
+            
+            # 2. Index in ChromaDB (RAG)
+            # Only index if it has content
+            if body_text:
+                memory.add_email(
+                    email_id=email["id"],
+                    text=f"{email_data['subject']}. {body_text}",
+                    metadata={
+                        "subject": email_data["subject"],
+                        "sender": email_data["sender_email"],
+                        "received": email["receivedDateTime"], # Keep original string for metadata
+                    }
+                )
+            
+            synced_count += 1
+            
+        logger.info(f"Synced {synced_count} emails.")
+        return {"synced": synced_count}
+    
+    except Exception as e:
+        logger.error(f"Sync failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/emails/{email_id}")
+async def get_email_detail(email_id: str):
+    """
+    Retrieves full details of a specific email.
+    """
+    try:
+        email = db.get_email_by_id(email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        return email
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching email detail: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/summarize")
@@ -106,6 +196,7 @@ async def generate_summary(request: SummaryRequest):
                 context_docs = related['documents'][0]
         except Exception as e:
             logger.warning(f"Context retrieval failed: {e}")
+            # Continue without context if retrieval fails
 
         # 2. Summarize
         summary = summarizer.summarize(request.text, context_documents=context_docs)

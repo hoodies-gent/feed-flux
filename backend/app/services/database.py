@@ -8,8 +8,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Get project root directory (3 levels up from this file)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# Get project root directory (4 levels up from this file)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 
 class DatabaseService:
