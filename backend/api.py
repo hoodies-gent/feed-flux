@@ -22,7 +22,7 @@ class FeedItem(BaseModel):
     id: str
     subject: str
     sender: str
-    received_datetime: str
+    received_datetime: int  # Unix timestamp
     body_preview: str
 
 class SummaryRequest(BaseModel):
@@ -125,12 +125,13 @@ async def sync_emails():
                 "has_attachments": email.get("hasAttachments", False),
             }
             
-            # Parse datetime string to datetime object for SQLAlchemy
+            # Parse datetime string to Unix timestamp for SQLAlchemy
             if isinstance(email_data["received_datetime"], str):
                 from datetime import datetime
                 # Handle 'Z' replacement for compatibility
                 dt_str = email_data["received_datetime"].replace('Z', '+00:00')
-                email_data["received_datetime"] = datetime.fromisoformat(dt_str)
+                email_data["received_datetime"] = int(datetime.fromisoformat(dt_str).timestamp())
+
 
             # 1. Save to Database
             db.insert_email(email_data)
@@ -197,7 +198,7 @@ async def generate_summary(request: SummaryRequest):
         
         # 3. Save Summary to Database with metadata
         from datetime import datetime
-        generated_at = datetime.utcnow()
+        generated_at = int(datetime.utcnow().timestamp())
         
         db.update_email_status(
             request.email_id, 
@@ -210,7 +211,7 @@ async def generate_summary(request: SummaryRequest):
             "summary": summary,
             "context_count": len(context_docs),
             "model": Config.GEMINI_MODEL_NAME,
-            "generated_at": generated_at.isoformat()
+            "generated_at": generated_at  # Unix timestamp
         }
     except Exception as e:
         logger.error(f"Summarization failed: {e}")

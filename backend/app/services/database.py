@@ -119,13 +119,13 @@ class DatabaseService:
             "subject": email.subject,
             "sender": email.sender_name,
             "sender_email": email.sender_email,
-            "received_datetime": email.received_datetime.isoformat() if email.received_datetime else None,
+            "received_datetime": email.received_datetime,  # Unix timestamp
             "body_preview": email.body_preview,
             "body_content": email.body_content,
             "body_html": email.body_html,
             "summary": email.summary,
             "summary_model": email.summary_model,
-            "summary_generated_at": email.summary_generated_at.isoformat() if email.summary_generated_at else None,
+            "summary_generated_at": email.summary_generated_at,  # Unix timestamp
             "is_read": email.is_read,
             "is_starred": email.is_starred,
             "is_archived": email.is_archived,

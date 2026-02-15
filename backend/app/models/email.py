@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Boolean, DateTime, JSON
+from sqlalchemy import Column, String, Text, Boolean, Integer, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
@@ -15,7 +15,7 @@ class Email(Base):
     subject = Column(Text, nullable=False)
     sender_name = Column(String)
     sender_email = Column(String, nullable=False)
-    received_datetime = Column(DateTime, nullable=False)
+    received_datetime = Column(Integer, nullable=False)  # Unix timestamp
     
     # Content
     body_preview = Column(Text)
@@ -25,7 +25,7 @@ class Email(Base):
     # Generated content
     summary = Column(Text)
     summary_model = Column(String)  # AI model used for summary generation
-    summary_generated_at = Column(DateTime)  # When the summary was generated
+    summary_generated_at = Column(Integer)  # Unix timestamp
     
     # Status
     is_read = Column(Boolean, default=False)
@@ -40,8 +40,9 @@ class Email(Base):
     metadata_json = Column('metadata', JSON)  # Reserved for future extensions
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(Integer, default=lambda: int(datetime.utcnow().timestamp()))
+    updated_at = Column(Integer, default=lambda: int(datetime.utcnow().timestamp()), 
+                        onupdate=lambda: int(datetime.utcnow().timestamp()))
     
     def __repr__(self):
         return f"<Email(id='{self.id}', subject='{self.subject}')>"
