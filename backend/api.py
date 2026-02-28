@@ -80,13 +80,13 @@ async def app_status():
     }
 
 @app.get("/api/feed", response_model=List[FeedItem])
-async def get_feed(limit: int = 5):
+async def get_feed(limit: int = 5, q: Optional[str] = None):
     """
-    Fetches emails from the local database.
+    Fetches emails from the local database, with optional keyword search.
     """
     try:
         # Get emails from database
-        emails = db.get_emails(limit=limit)
+        emails = db.get_emails(limit=limit, search_query=q)
         
         feed = []
         for email in emails:

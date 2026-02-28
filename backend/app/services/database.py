@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from sqlalchemy import create_engine, desc
+from sqlalchemy import create_engine, desc, or_
 from sqlalchemy.orm import sessionmaker
 from app.models.email import Base, Email
 from datetime import datetime
@@ -55,14 +55,25 @@ class DatabaseService:
         finally:
             session.close()
     
-    def get_emails(self, limit: int = 20, offset: int = 0, unread_only: bool = False):
-        """Get emails list with pagination"""
+    def get_emails(self, limit: int = 20, offset: int = 0, unread_only: bool = False, search_query: str = None):
+        """Get emails list with pagination and optional keyword search"""
         session = self.Session()
         try:
             query = session.query(Email)
             
             if unread_only:
                 query = query.filter(Email.is_read == False)
+                
+            if search_query:
+                search_term = f"%{search_query}%"
+                query = query.filter(
+                    or_(
+                        Email.subject.ilike(search_term),
+                        Email.sender_name.ilike(search_term),
+                        Email.sender_email.ilike(search_term),
+                        Email.body_preview.ilike(search_term)
+                    )
+                )
             
             emails = query.order_by(desc(Email.received_datetime))\
                          .limit(limit)\
