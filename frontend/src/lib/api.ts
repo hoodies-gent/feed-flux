@@ -122,3 +122,22 @@ export async function getEmailDetail(id: string): Promise<EmailDetail> {
 
     return response.json();
 }
+
+/**
+ * Manually trigger synchronization with Outlook
+ * Fetches new emails, saves them to SQLite, and indexes them in ChromaDB.
+ */
+export async function syncEmails(): Promise<{ synced: number }> {
+    const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(`Sync failed: ${response.statusText}`);
+    }
+
+    return response.json();
+}

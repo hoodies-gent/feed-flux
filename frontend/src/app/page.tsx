@@ -7,11 +7,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, type FeedItem, type SummaryResponse, type EmailDetail } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, type FeedItem, type SummaryResponse, type EmailDetail } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Search, Sparkles, X } from 'lucide-react';
+import { Search, Sparkles, X, RefreshCw } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -24,6 +24,7 @@ export default function Home() {
   const [summaries, setSummaries] = useState<Record<string, SummaryResponse>>({});
   const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Chat/RAG Drawer State
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -50,13 +51,13 @@ export default function Home() {
     }
   };
 
-  const loadFeed = async (query: string = '') => {
+  const loadFeed = async (query: string = '', silent: boolean = false) => {
     setLoading(true);
     setError(null);
     try {
       const data = await getFeed(20, query);
       setFeed(data);
-      if (!query) {
+      if (!query && !silent) {
         toast.success(`Loaded ${data.length} emails`);
       }
     } catch (err) {
@@ -65,6 +66,21 @@ export default function Home() {
       toast.error(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      const result = await syncEmails();
+      toast.success(`Successfully synced ${result.synced} new emails from Outlook`);
+      // Reload feed silently to show new emails
+      await loadFeed(debouncedQuery, true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to sync emails';
+      toast.error(message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -151,11 +167,18 @@ export default function Home() {
                 <Button
                   variant="outline"
                   onClick={() => loadFeed(debouncedQuery)}
-                  disabled={loading}
+                  disabled={loading || isSyncing}
                 >
-                  {loading ? 'Loading...' : 'Refresh'}
+                  {loading ? 'Loading...' : 'Reload Local Data'}
                 </Button>
-                <Button disabled>Generate Digest</Button>
+                <Button
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Syncing...' : 'Sync from Outlook'}
+                </Button>
               </div>
             </div>
 
