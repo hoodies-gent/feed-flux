@@ -30,6 +30,18 @@ class SummaryRequest(BaseModel):
     email_id: str
     subject: str 
 
+class ChatRequest(BaseModel):
+    query: str
+
+class SourceItem(BaseModel):
+    id: str
+    subject: str
+    snippet: str
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: List[SourceItem]
+
 # --- App Init ---
 app = FastAPI(
     title="FeedFlux API",
@@ -215,4 +227,23 @@ async def generate_summary(request: SummaryRequest):
         }
     except Exception as e:
         logger.error(f"Summarization failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_inbox(request: ChatRequest):
+    """
+    RAG-enabled endpoint to answer user questions based on their email history.
+    """
+    try:
+        summarizer = ContentSummarizer()
+        memory = MemoryService()
+        
+        result = summarizer.answer_question(request.query, memory)
+        
+        return ChatResponse(
+            answer=result["answer"],
+            sources=[SourceItem(**source) for source in result["sources"]]
+        )
+    except Exception as e:
+        logger.error(f"Chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

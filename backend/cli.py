@@ -20,7 +20,26 @@ def main():
     parser = argparse.ArgumentParser(description="FeedFlux: AI-powered Email Summarizer")
     parser.add_argument("--limit", type=int, default=5, help="Number of emails to fetch (default: 5)")
     parser.add_argument("--dry-run", action="store_true", help="Fetch and clean only, skip LLM summarization")
+    parser.add_argument("--ask", type=str, help="Ask a question to your inbox using RAG")
     args = parser.parse_args()
+
+    if args.ask:
+        print(f"🤔 Asking Inbox: '{args.ask}'\n")
+        summarizer = ContentSummarizer()
+        memory = MemoryService()
+        
+        result = summarizer.answer_question(args.ask, memory)
+        
+        print("🤖 Assistant Answer:")
+        print("-" * 50)
+        print(result["answer"])
+        print("-" * 50)
+        
+        if result["sources"]:
+            print("\n📚 Sources:")
+            for source in result["sources"]:
+                print(f"  - {source['subject']}")
+        return
 
     print(f"🚀 Starting FeedFlux (Limit: {args.limit})...")
 

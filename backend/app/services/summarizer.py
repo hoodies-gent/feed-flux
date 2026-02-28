@@ -67,3 +67,71 @@ class ContentSummarizer:
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
             return f"[Error: Could not generate summary. Reason: {str(e)}]"
+
+    def answer_question(self, query: str, memory_service) -> dict:
+        """
+        Answers a user's question using the RAG approach (retrieving context from memory).
+        """
+        if not query:
+            return {"answer": "Ask me anything!", "sources": []}
+            
+        logger.info(f"Answering query: {query}")
+        
+        # 1. Retrieve relevant context
+        results = memory_service.query_related(query_text=query, n_results=5)
+        
+        sources = []
+        context_block = ""
+        
+        if results and results.get('documents') and len(results['documents'][0]) > 0:
+            docs = results['documents'][0]
+            metadatas = results['metadatas'][0]
+            ids = results['ids'][0]
+            
+            context_items = []
+            for i, (doc, meta, doc_id) in enumerate(zip(docs, metadatas, ids)):
+                subject = meta.get('subject', 'Unknown Subject')
+                sender = meta.get('sender', 'Unknown Sender')
+                context_items.append(f"<source_email id='{doc_id}' subject='{subject}' sender='{sender}'>\n{doc}\n</source_email>")
+                
+                sources.append({
+                    "id": doc_id,
+                    "subject": subject,
+                    "snippet": doc[:200] + "..." if len(doc) > 200 else doc
+                })
+                
+            context_block = "\n".join(context_items)
+            
+        if not context_block:
+            return {
+                "answer": "I couldn't find any relevant emails in your inbox to answer this question.",
+                "sources": []
+            }
+            
+        # 2. Construct Prompt
+        system_prompt = (
+            "You are an intelligent inbox assistant answering the user's question based strictly on their email history.\n"
+            "Below are relevant email snippets from the user's inbox enclosed in <source_email> tags.\n\n"
+            f"{context_block}\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Answer the user's question concisely using ONLY the provided email sources.\n"
+            "2. If the answer cannot be confidently determined from the sources, say so explicitly. Do not guess or rely on external knowledge.\n"
+            "3. Format your answer using Markdown for readability.\n"
+        )
+        
+        prompt = f"{system_prompt}\n\nUser Question: {query}\n\nAssistant Answer:"
+        
+        # 3. Generate Answer
+        try:
+             response = self.model.generate_content(prompt)
+             return {
+                 "answer": response.text,
+                 "sources": sources
+             }
+        except Exception as e:
+             logger.error(f"Failed to generate answer for query '{query}': {e}")
+             return {
+                 "answer": f"I'm sorry, I encountered an error while trying to answer your question: {str(e)}",
+                 "sources": sources
+             }
+
