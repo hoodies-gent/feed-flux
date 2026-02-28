@@ -101,3 +101,24 @@ export async function askInbox(query: string): Promise<ChatResponse> {
     return response.json();
 }
 
+/**
+ * Full Email Details
+ */
+export interface EmailDetail extends FeedItem {
+    body_content: string;
+    body_html: string;
+}
+
+/**
+ * Fetch full details of a specific email
+ * @param id - Unique identifier for the email
+ */
+export async function getEmailDetail(id: string): Promise<EmailDetail> {
+    const response = await fetch(`/api/emails/${id}`);
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch email details: ${response.statusText}`);
+    }
+
+    return response.json();
+}

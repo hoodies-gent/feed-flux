@@ -7,12 +7,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, type FeedItem, type SummaryResponse } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, type FeedItem, type SummaryResponse, type EmailDetail } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
 import { Search, Sparkles, X } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,6 +27,28 @@ export default function Home() {
 
   // Chat/RAG Drawer State
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // Email Detail Modal State
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
+  const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+  const handleOpenEmailDetail = async (id: string) => {
+    setSelectedEmailId(id);
+    setIsEmailDetailOpen(true);
+    setIsLoadingDetail(true);
+    setEmailDetailData(null);
+    try {
+      const data = await getEmailDetail(id);
+      setEmailDetailData(data);
+    } catch (err) {
+      toast.error('Failed to load full email content');
+      setIsEmailDetailOpen(false);
+    } finally {
+      setIsLoadingDetail(false);
+    }
+  };
 
   const loadFeed = async (query: string = '') => {
     setLoading(true);
@@ -275,15 +298,25 @@ export default function Home() {
                           Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
                         </span>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 ml-auto"
-                        onClick={() => handleSummarize(item)}
-                        disabled={isSummarizing}
-                      >
-                        {isSummarizing ? 'Summarizing...' : summary ? (isExpanded ? 'Hide Summary' : 'Show Summary') : 'Summarize with AI'} →
-                      </Button>
+                      <div className="flex gap-2 ml-auto">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                          onClick={() => handleOpenEmailDetail(item.id)}
+                        >
+                          Read Original ↗
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => handleSummarize(item)}
+                          disabled={isSummarizing}
+                        >
+                          {isSummarizing ? 'Summarizing...' : summary ? (isExpanded ? 'Hide Summary' : 'Show Summary') : 'Summarize with AI'} →
+                        </Button>
+                      </div>
                     </CardFooter>
                   </Card>
                 );
@@ -320,6 +353,46 @@ export default function Home() {
           </aside>
         )}
       </div>
-    </div>
+
+      {/* View Original Email Modal */}
+      <Dialog open={isEmailDetailOpen} onOpenChange={setIsEmailDetailOpen}>
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950">
+          <DialogHeader className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+            <DialogTitle className="text-xl font-semibold text-slate-900 dark:text-slate-100 pr-8">
+              {emailDetailData?.subject || "Loading..."}
+            </DialogTitle>
+            {emailDetailData && (
+              <div className="text-sm text-slate-500 mt-2 flex items-center justify-between">
+                <span>From: <span className="font-medium text-slate-700 dark:text-slate-300">{emailDetailData.sender}</span></span>
+                <span>{formatDateTime(emailDetailData.received_datetime)}</span>
+              </div>
+            )}
+          </DialogHeader>
+          {/* Scrollable body with strict overflow */}
+          <div className="flex-1 overflow-y-auto w-full p-6 bg-white dark:bg-slate-950">
+            {isLoadingDetail ? (
+              <div className="space-y-4">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-[95%]" />
+                <Skeleton className="h-4 w-[90%]" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-[85%]" />
+                <Skeleton className="h-4 w-[90%]" />
+              </div>
+            ) : emailDetailData ? (
+              <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-slate-800 dark:text-slate-200">
+                {emailDetailData.body_html ? (
+                  <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
+                ) : (
+                  <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center text-red-500">Failed to load email content.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div >
   );
 }
