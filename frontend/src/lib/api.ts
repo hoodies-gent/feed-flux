@@ -66,3 +66,38 @@ export async function summarizeEmail(
 
     return response.json();
 }
+
+/**
+ * RAG Chat Engine Types
+ */
+export interface SourceItem {
+    id: string;
+    subject: string;
+    snippet: string;
+}
+
+export interface ChatResponse {
+    answer: string;
+    sources: SourceItem[];
+}
+
+/**
+ * Ask the AI a question about the inbox using RAG
+ * @param query - The user's natural language question
+ */
+export async function askInbox(query: string): Promise<ChatResponse> {
+    const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to get answer: ${response.statusText}`);
+    }
+
+    return response.json();
+}
+
