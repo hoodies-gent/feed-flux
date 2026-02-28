@@ -39,6 +39,9 @@ class Config:
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+    # AI Feature Flags & Configs
+    CUSTOM_SUMMARY_PROMPT = os.getenv("CUSTOM_SUMMARY_PROMPT")  # Optional user-defined instructions for summarization
+
     # Model Configuration
     # We use 'gemini-2.0-flash-lite' as the code default because it is the standard stable version.
     # However, for environments with strict rate limits (like current Free Tier), we override this 

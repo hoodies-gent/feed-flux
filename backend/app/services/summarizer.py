@@ -50,7 +50,16 @@ class ContentSummarizer:
         
         system_preamble += " Please process it according to the instructions below."
 
-        prompt = f"{system_preamble}\n\n{Config.DEFAULT_SUMMARIZE_PROMPT}\n\n{context_block}{safe_content}"
+        # Base instructions
+        instructions = Config.DEFAULT_SUMMARIZE_PROMPT
+        
+        # Inject custom user instructions if provided
+        if getattr(Config, 'CUSTOM_SUMMARY_PROMPT', None):
+            logger.info("Injecting custom summary prompt instructions.")
+            instructions += f"\n\n**CRITICAL USER INSTRUCTION:**\n{Config.CUSTOM_SUMMARY_PROMPT}\n"
+            instructions += "You MUST strictly follow the CRITICAL USER INSTRUCTION above when formatting and reasoning your summary."
+
+        prompt = f"{system_preamble}\n\n{instructions}\n\n{context_block}{safe_content}"
         
         try:
             response = self.model.generate_content(prompt)
