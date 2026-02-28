@@ -11,7 +11,7 @@ import { getFeed, summarizeEmail, type FeedItem, type SummaryResponse } from '@/
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Search } from 'lucide-react';
+import { Search, Sparkles } from 'lucide-react';
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,17 +130,28 @@ export default function Home() {
           </div>
 
           {/* Omnibar (Search & Eventually Ask AI) */}
-          <div className="relative w-full shadow-sm rounded-md">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-slate-400" />
+          <div className="flex gap-3 w-full">
+            <div className="relative w-full shadow-sm rounded-md">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-5 w-5 text-slate-400" />
+              </div>
+              <Input
+                type="text"
+                placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
+                className="pl-10 pr-4 py-6 w-full text-base bg-white dark:bg-slate-950 border-slate-200 focus-visible:ring-indigo-500"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
             </div>
-            <Input
-              type="text"
-              placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-              className="pl-10 pr-4 py-6 w-full text-base bg-white dark:bg-slate-950 border-slate-200 focus-visible:ring-indigo-500"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            {/* Ask AI Trigger - Minimalist Outline Variant */}
+            <Button
+              variant="outline"
+              className="h-auto py-0 px-6 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-200 hover:border-indigo-300 dark:text-indigo-400 dark:border-indigo-800 dark:hover:bg-indigo-900/30 transition-all font-medium whitespace-nowrap"
+              onClick={() => toast.info('Minimal AI Drawer coming in next step!')}
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              Ask AI
+            </Button>
           </div>
         </header>
 
@@ -267,6 +278,6 @@ export default function Home() {
           )}
         </div>
       </main>
-    </div>
+    </div >
   );
 }
