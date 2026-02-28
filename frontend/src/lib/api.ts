@@ -21,9 +21,14 @@ export interface SummaryResponse {
 /**
  * Fetch recent emails from the backend
  * @param limit - Maximum number of emails to fetch (default: 10)
+ * @param q - Optional search keyword
  */
-export async function getFeed(limit: number = 10): Promise<FeedItem[]> {
-    const response = await fetch(`/api/feed?limit=${limit}`);
+export async function getFeed(limit: number = 10, q?: string): Promise<FeedItem[]> {
+    let url = `/api/feed?limit=${limit}`;
+    if (q) {
+        url += `&q=${encodeURIComponent(q)}`;
+    }
+    const response = await fetch(url);
 
     if (!response.ok) {
         throw new Error(`Failed to fetch feed: ${response.statusText}`);

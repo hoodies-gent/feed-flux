@@ -9,8 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getFeed, summarizeEmail, type FeedItem, type SummaryResponse } from '@/lib/api';
 import { toast } from 'sonner';
+import { useDebounce } from 'use-debounce';
+import { Input } from "@/components/ui/input";
+import { Search } from 'lucide-react';
 
 export default function Home() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery] = useDebounce(searchQuery, 500);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,13 +23,15 @@ export default function Home() {
   const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const loadFeed = async () => {
+  const loadFeed = async (query: string = '') => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getFeed(10);
+      const data = await getFeed(20, query);
       setFeed(data);
-      toast.success(`Loaded ${data.length} emails`);
+      if (!query) {
+        toast.success(`Loaded ${data.length} emails`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       setError(message);
@@ -35,8 +42,8 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadFeed();
-  }, []);
+    loadFeed(debouncedQuery);
+  }, [debouncedQuery]);
 
   /**
    * Format timestamp to human-readable relative time
@@ -103,21 +110,37 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-8 font-[family-name:var(--font-geist-sans)]">
       <main className="max-w-4xl mx-auto space-y-8">
 
-        {/* Header */}
-        <header className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">FeedFlux</h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Your Intelligent Email Digest</p>
+        {/* Header & Omnibar */}
+        <header className="flex flex-col gap-6 mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">FeedFlux</h1>
+              <p className="text-slate-500 dark:text-slate-400 mt-1">Your Intelligent Email Digest</p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => loadFeed(debouncedQuery)}
+                disabled={loading}
+              >
+                {loading ? 'Loading...' : 'Refresh'}
+              </Button>
+              <Button disabled>Generate Digest</Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={loadFeed}
-              disabled={loading}
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </Button>
-            <Button disabled>Generate Digest</Button>
+
+          {/* Omnibar (Search & Eventually Ask AI) */}
+          <div className="relative w-full shadow-sm rounded-md">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-slate-400" />
+            </div>
+            <Input
+              type="text"
+              placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
+              className="pl-10 pr-4 py-6 w-full text-base bg-white dark:bg-slate-950 border-slate-200 focus-visible:ring-indigo-500"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         </header>
 
@@ -145,7 +168,7 @@ export default function Home() {
                 <CardDescription>{error}</CardDescription>
               </CardHeader>
               <CardFooter>
-                <Button onClick={loadFeed} variant="outline">Try Again</Button>
+                <Button onClick={() => loadFeed(debouncedQuery)} variant="outline">Try Again</Button>
               </CardFooter>
             </Card>
           ) : feed.length === 0 ? (
