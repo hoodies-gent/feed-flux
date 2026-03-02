@@ -1,19 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, type FeedItem, type SummaryResponse, type EmailDetail } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Search, Sparkles, X, RefreshCw } from 'lucide-react';
+import { Search, Sparkles, X, RefreshCw, Send } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: SourceItem[];
+  isLoading?: boolean;
+}
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,14 +34,61 @@ export default function Home() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Chat/RAG Drawer State
+  // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (isChatOpen) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatOpen]);
 
   // Email Detail Modal State
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
   const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
+  const handleSendChatMessage = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!chatInput.trim() || isSendingChat) return;
+
+    const query = chatInput.trim();
+    setChatInput('');
+    setIsSendingChat(true);
+
+    const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: query };
+    const loadingAiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: '', isLoading: true };
+
+    setChatMessages(prev => [...prev, newUserMsg, loadingAiMsg]);
+
+    try {
+      const result = await askInbox(query);
+      setChatMessages(prev =>
+        prev.map(msg =>
+          msg.id === loadingAiMsg.id
+            ? { ...msg, content: result.answer, sources: result.sources, isLoading: false }
+            : msg
+        )
+      );
+    } catch (err) {
+      toast.error('Failed to get answer from AI');
+      setChatMessages(prev =>
+        prev.map(msg =>
+          msg.id === loadingAiMsg.id
+            ? { ...msg, content: 'Sorry, I encountered an error searching your inbox.', isLoading: false }
+            : msg
+        )
+      );
+    } finally {
+      setIsSendingChat(false);
+    }
+  };
 
   const handleOpenEmailDetail = async (id: string) => {
     setSelectedEmailId(id);
@@ -201,11 +256,11 @@ export default function Home() {
                 variant="outline"
                 className="h-auto py-0 px-6 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-200 hover:border-indigo-300 dark:text-indigo-400 dark:border-indigo-800 dark:hover:bg-indigo-900/30 transition-all font-medium whitespace-nowrap"
                 onClick={() => {
-                  if (!searchQuery.trim()) {
-                    toast.error('Please enter a question in the search bar first');
-                    return;
-                  }
                   setIsChatOpen(true);
+                  if (searchQuery.trim()) {
+                    setChatInput(searchQuery);
+                    setSearchQuery('');
+                  }
                 }}
               >
                 <Sparkles className="w-4 h-4 mr-2" />
@@ -348,19 +403,16 @@ export default function Home() {
           </div>
         </main>
 
-        {/* Right column: AI Sidebar (Step 4 Refactored) */}
+        {/* Right column: AI Sidebar (Multi-Turn Chat) */}
         {isChatOpen && (
           <aside className="w-[450px] shrink-0 h-[calc(100vh-4rem)] sticky top-8 flex flex-col bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             {/* Header */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-md">
-                    <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                  </div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Ask your Inbox</h2>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-md">
+                  <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 </div>
-                <p className="text-sm text-slate-500 truncate max-w-[300px]">"{searchQuery}"</p>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Inbox QA Assistant</h2>
               </div>
               <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onClick={() => setIsChatOpen(false)}>
                 <X className="w-4 h-4" />
@@ -368,11 +420,80 @@ export default function Home() {
             </div>
 
             {/* Scrollable Content Area */}
-            <ScrollArea className="flex-1 p-5">
-              <div className="space-y-6 pb-6 text-slate-500 italic text-sm">
-                to be implemented...
+            <div className="flex-1 overflow-y-auto p-5 relative">
+              <div className="space-y-6 pb-2">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4 pt-20">
+                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-full">
+                      <Sparkles className="w-8 h-8 text-indigo-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">How can I help you today?</h3>
+                      <p className="text-sm text-slate-500 max-w-[250px] mx-auto">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
+                    </div>
+                  </div>
+                ) : (
+                  chatMessages.map(msg => (
+                    <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
+                      <span className="text-[11px] font-medium text-slate-400 px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
+                      <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl rounded-tl-sm'}`}>
+                        {msg.isLoading ? (
+                          <div className="flex gap-1 py-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        ) : (
+                          <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Citations/Sources Cards attached to AI Response */}
+                      {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5 w-[90%]">
+                          {msg.sources.map((source, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleOpenEmailDetail(source.id)}
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-indigo-300 transition-colors shadow-sm max-w-full text-left"
+                              title={source.snippet}
+                            >
+                              <span className="text-indigo-500 font-semibold whitespace-nowrap">Source {i + 1}</span>
+                              <span className="truncate max-w-[150px]">{source.subject}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
+            </div>
+
+            {/* Input Overlay / Footer */}
+            <div className="p-4 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 shrink-0">
+              <form onSubmit={handleSendChatMessage} className="relative flex items-center">
+                <Input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={isSendingChat}
+                  placeholder="Ask a follow-up question..."
+                  className="w-full pr-12 rounded-full border-slate-300 dark:border-slate-700 focus-visible:ring-indigo-500 shadow-sm"
+                />
+                <Button
+                  type="submit"
+                  disabled={!chatInput.trim() || isSendingChat}
+                  size="icon"
+                  variant="ghost"
+                  className="absolute right-1 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 h-8 w-8 rounded-full"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
+            </div>
           </aside>
         )}
       </div>

@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import google.generativeai as genai
 from app.core.config import Config
@@ -77,8 +78,8 @@ class ContentSummarizer:
             
         logger.info(f"Answering query: {query}")
         
-        # 1. Retrieve relevant context
-        results = memory_service.query_related(query_text=query, n_results=5)
+        # 1. Retrieve relevant context (reduced from 5 to 3 to minimize noise)
+        results = memory_service.query_related(query_text=query, n_results=3)
         
         sources = []
         context_block = ""
@@ -88,8 +89,13 @@ class ContentSummarizer:
             metadatas = results['metadatas'][0]
             ids = results['ids'][0]
             
+            distances = results.get('distances', [[0]*len(docs)])[0]
+            
             context_items = []
-            for i, (doc, meta, doc_id) in enumerate(zip(docs, metadatas, ids)):
+            for i, (doc, meta, doc_id, dist) in enumerate(zip(docs, metadatas, ids, distances)):
+                # L2 Distance heuristic: If distance > 1.2, it's likely extremely irrelevant (empirical for some embedding models).
+                # We will still include it in the prompt, but tell the AI to aggressively ignore it.
+                
                 subject = meta.get('subject', 'Unknown Subject')
                 sender = meta.get('sender', 'Unknown Sender')
                 context_items.append(f"<source_email id='{doc_id}' subject='{subject}' sender='{sender}'>\n{doc}\n</source_email>")
@@ -115,23 +121,62 @@ class ContentSummarizer:
             f"{context_block}\n\n"
             "INSTRUCTIONS:\n"
             "1. Answer the user's question concisely using ONLY the provided email sources.\n"
-            "2. If the answer cannot be confidently determined from the sources, say so explicitly. Do not guess or rely on external knowledge.\n"
-            "3. Format your answer using Markdown for readability.\n"
+            "2. CRITICAL: Some or all of the provided sources may be IRRELEVANT to the user's question. You MUST completely ignore irrelevant sources. Do not force a connection.\n"
+            "3. If the answer cannot be confidently determined from the relevant sources, say explicitly: 'I couldn't find any relevant emails regarding this.' Do not guess or rely on external knowledge.\n"
+            "4. You MUST output your response in valid JSON format with the following exact structure:\n"
+            "   {\n"
+            "     \"answer\": \"Your final markdown-formatted answer here.\",\n"
+            "     \"used_source_ids\": [\"id1\", \"id2\"] // Only include the string IDs of the <source_email> tags you actually used to formulate your answer. Leave empty [] if none.\n"
+            "   }\n"
+             "Do not include any other text outside the JSON block."
         )
         
-        prompt = f"{system_prompt}\n\nUser Question: {query}\n\nAssistant Answer:"
+        prompt = f"{system_prompt}\n\nUser Question: {query}\n\nAssistant Response (JSON):"
         
         # 3. Generate Answer
         try:
              response = self.model.generate_content(prompt)
+             
+             # Attempt to parse JSON response
+             response_text = response.text.strip()
+             if response_text.startswith("```json"):
+                 response_text = response_text[7:]
+             if response_text.startswith("```"):
+                 response_text = response_text[3:]
+             if response_text.endswith("```"):
+                 response_text = response_text[:-3]
+                 
+             data = json.loads(response_text.strip())
+             
+             final_answer = data.get("answer", "")
+             used_ids = data.get("used_source_ids", [])
+             
+             # Filter sources to only include those cited by the LLM
+             filtered_sources = [s for s in sources if s["id"] in used_ids]
+             
              return {
-                 "answer": response.text,
-                 "sources": sources
+                 "answer": final_answer,
+                 "sources": filtered_sources
+             }
+        except json.JSONDecodeError as je:
+             logger.error(f"Failed to parse JSON from LLM: {response.text}")
+             # Fallback if LLM fails to return strict JSON
+             return {
+                 "answer": response.text, # Unformatted string
+                 "sources": [] # Omit doubtful sources as punishment
              }
         except Exception as e:
+             error_str = str(e).lower()
              logger.error(f"Failed to generate answer for query '{query}': {e}")
+             
+             # User-friendly error messages
+             if "429" in error_str or "quota" in error_str:
+                 friendly_msg = "I'm sorry, the AI service is currently busy or has reached its rate limit. Please try again later."
+             else:
+                 friendly_msg = "I'm sorry, I encountered an internal error while trying to answer your question. Please try again later."
+                 
              return {
-                 "answer": f"I'm sorry, I encountered an error while trying to answer your question: {str(e)}",
-                 "sources": sources
+                 "answer": friendly_msg,
+                 "sources": []
              }
 
