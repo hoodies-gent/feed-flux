@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,10 @@ export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoaded, setIsChatLoaded] = useState(false);
+  // Daily Briefing State
+  const [briefing, setBriefing] = useState<string | null>(null);
+  const [isBriefingLoading, setIsBriefingLoading] = useState(true);
+  const [briefingError, setBriefingError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -170,6 +174,28 @@ export default function Home() {
     loadFeed(debouncedQuery);
   }, [debouncedQuery]);
 
+  // Load briefing on mount
+  useEffect(() => {
+    const fetchBriefing = async () => {
+      try {
+        setIsBriefingLoading(true);
+        setBriefingError(null);
+        const res = await getDailyBriefing();
+        if (res.error) {
+          setBriefingError(res.error);
+        } else {
+          setBriefing(res.briefing);
+        }
+      } catch (e) {
+        console.error("Failed to load briefing", e);
+        setBriefingError("Failed to connect to the intelligence server.");
+      } finally {
+        setIsBriefingLoading(false);
+      }
+    };
+    fetchBriefing();
+  }, []);
+
   /**
    * Format timestamp to human-readable relative time
    * Example: "2 hours ago", "yesterday"
@@ -295,6 +321,34 @@ export default function Home() {
               </Button>
             </div>
           </header>
+
+          {/* Daily Briefing Banner */}
+          {!debouncedQuery && (
+            <div className="mb-8 p-6 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-lg text-white">
+              <div className="flex items-center gap-3 mb-4">
+                <Sparkles className="h-6 w-6 text-yellow-300" />
+                <h2 className="text-xl font-bold tracking-tight">Morning Intelligence Briefing</h2>
+              </div>
+
+              {isBriefingLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-3/4 bg-white/20" />
+                  <Skeleton className="h-4 w-full bg-white/20" />
+                  <Skeleton className="h-4 w-5/6 bg-white/20" />
+                </div>
+              ) : briefingError ? (
+                <div className="bg-black/10 p-4 rounded-lg flex items-start gap-3">
+                  <div className="text-white/90 text-sm">{briefingError}</div>
+                </div>
+              ) : briefing ? (
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown>{briefing}</ReactMarkdown>
+                </div>
+              ) : (
+                <p className="text-white/80">No briefing available today.</p>
+              )}
+            </div>
+          )}
 
           {/* Feed List */}
           <div className="space-y-4">

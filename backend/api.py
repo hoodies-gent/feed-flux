@@ -145,69 +145,97 @@ async def get_feed(limit: int = 5, q: Optional[str] = None):
         logger.error(f"Feed fetch failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/briefing")
+async def get_daily_briefing():
+    """
+    Returns an AI-generated daily briefing summarizing recent emails.
+    """
+    try:
+        engine = BriefingEngine()
+        # To avoid blocking the event loop on LLM generation, we run the synchronous
+        # model generation in a threadpool
+        briefing_text = await asyncio.to_thread(engine.generate_daily_briefing)
+        
+        # If the backend returns our default fallback string because of missing keys or errors
+        if "AI service is not configured" in briefing_text or "encountered an error" in briefing_text:
+             return {"briefing": "", "error": briefing_text}
+             
+        return {"briefing": briefing_text}
+    except Exception as e:
+        logger.error(f"Briefing generation failed: {e}")
+        # Return a graceful fallback instead of an HTTP 500 so the frontend banner handles it elegantly
+        return {"briefing": "", "error": "Daily Briefing is currently unavailable due to high AI service demand or API key issues."}
+
+async def run_sync_job():
+    """
+    Core synchronization logic.
+    Fetches new emails, saves them to SQLite, and indexes them in ChromaDB.
+    """
+    fetcher = OutlookFetcher()
+    # Fetch a batch of emails (limit can be higher for sync)
+    new_emails = fetcher.fetch_emails(limit=20)
+    
+    synced_count = 0
+    memory = MemoryService()
+    cleaner = ContentCleaner()
+
+    for email in new_emails:
+        # Extract content
+        body_content = email.get("body", {}).get("content", "")
+        body_text = cleaner.clean_html(body_content) if body_content else ""
+        
+        # Prepare data for Database
+        email_data = {
+            "id": email["id"],
+            "subject": email.get("subject", "No Subject"),
+            "sender_name": email.get("from", {}).get("emailAddress", {}).get("name"),
+            "sender_email": email.get("from", {}).get("emailAddress", {}).get("address", ""),
+            "received_datetime": email.get("receivedDateTime"), 
+            "body_preview": email.get("bodyPreview"),
+            "body_content": body_text,
+            "body_html": body_content,
+            "is_read": email.get("isRead", False),
+            "has_attachments": email.get("hasAttachments", False),
+        }
+        
+        # Parse datetime string to Unix timestamp for SQLAlchemy
+        if isinstance(email_data["received_datetime"], str):
+            from datetime import datetime
+            # Handle 'Z' replacement for compatibility
+            dt_str = email_data["received_datetime"].replace('Z', '+00:00')
+            email_data["received_datetime"] = int(datetime.fromisoformat(dt_str).timestamp())
+
+
+        # 1. Save to Database
+        db.insert_email(email_data)
+        
+        # 2. Index in ChromaDB (RAG)
+        # Only index if it has content
+        if body_text:
+            memory.add_email(
+                email_id=email["id"],
+                text=f"{email_data['subject']}. {body_text}",
+                metadata={
+                    "subject": email_data["subject"],
+                    "sender": email_data["sender_email"],
+                    "received": email["receivedDateTime"], # Keep original string for metadata
+                }
+            )
+        
+        synced_count += 1
+        
+    return {"synced": synced_count}
+
+
 @app.post("/api/sync")
 async def sync_emails():
     """
     Manually triggers synchronization with Outlook.
-    Fetches new emails, saves them to SQLite, and indexes them in ChromaDB.
     """
     try:
-        fetcher = OutlookFetcher()
-        # Fetch a batch of emails (limit can be higher for sync)
-        new_emails = fetcher.fetch_emails(limit=20)
-        
-        synced_count = 0
-        memory = MemoryService()
-        cleaner = ContentCleaner()
-
-        for email in new_emails:
-            # Extract content
-            body_content = email.get("body", {}).get("content", "")
-            body_text = cleaner.clean_html(body_content) if body_content else ""
-            
-            # Prepare data for Database
-            email_data = {
-                "id": email["id"],
-                "subject": email.get("subject", "No Subject"),
-                "sender_name": email.get("from", {}).get("emailAddress", {}).get("name"),
-                "sender_email": email.get("from", {}).get("emailAddress", {}).get("address", ""),
-                "received_datetime": email.get("receivedDateTime"), 
-                "body_preview": email.get("bodyPreview"),
-                "body_content": body_text,
-                "body_html": body_content,
-                "is_read": email.get("isRead", False),
-                "has_attachments": email.get("hasAttachments", False),
-            }
-            
-            # Parse datetime string to Unix timestamp for SQLAlchemy
-            if isinstance(email_data["received_datetime"], str):
-                from datetime import datetime
-                # Handle 'Z' replacement for compatibility
-                dt_str = email_data["received_datetime"].replace('Z', '+00:00')
-                email_data["received_datetime"] = int(datetime.fromisoformat(dt_str).timestamp())
-
-
-            # 1. Save to Database
-            db.insert_email(email_data)
-            
-            # 2. Index in ChromaDB (RAG)
-            # Only index if it has content
-            if body_text:
-                memory.add_email(
-                    email_id=email["id"],
-                    text=f"{email_data['subject']}. {body_text}",
-                    metadata={
-                        "subject": email_data["subject"],
-                        "sender": email_data["sender_email"],
-                        "received": email["receivedDateTime"], # Keep original string for metadata
-                    }
-                )
-            
-            synced_count += 1
-            
-        logger.info(f"Synced {synced_count} emails.")
-        return {"synced": synced_count}
-    
+        result = await run_sync_job()
+        logger.info(f"Manual sync requested. Synced {result['synced']} emails.")
+        return result
     except Exception as e:
         logger.error(f"Sync failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

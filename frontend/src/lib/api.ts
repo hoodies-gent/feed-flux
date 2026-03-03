@@ -147,3 +147,24 @@ export async function syncEmails(): Promise<{ synced: number }> {
 
     return response.json();
 }
+
+/**
+ * Daily Briefing Data
+ */
+export interface BriefingResponse {
+    briefing: string;
+    error?: string;
+}
+
+/**
+ * Fetch the AI-generated daily briefing
+ */
+export async function getDailyBriefing(): Promise<BriefingResponse> {
+    const response = await fetch('/api/briefing');
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch briefing: ${response.statusText}`);
+    }
+
+    return response.json();
+}
