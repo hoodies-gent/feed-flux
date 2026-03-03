@@ -69,9 +69,9 @@ class ContentSummarizer:
             logger.error(f"Summarization failed: {e}")
             return f"[Error: Could not generate summary. Reason: {str(e)}]"
 
-    def answer_question(self, query: str, memory_service) -> dict:
+    def answer_question(self, query: str, memory_service, chat_history: list = None) -> dict:
         """
-        Answers a user's question using the RAG approach (retrieving context from memory).
+        Answers a user's question using the RAG approach (retrieving context from memory) and conversational history.
         """
         if not query:
             return {"answer": "Ask me anything!", "sources": []}
@@ -131,7 +131,21 @@ class ContentSummarizer:
              "Do not include any other text outside the JSON block."
         )
         
-        prompt = f"{system_prompt}\n\nUser Question: {query}\n\nAssistant Response (JSON):"
+        history_block = ""
+        if chat_history:
+            history_lines = []
+            for msg in chat_history:
+                # Depending on how the frontend sends it, it might be a dict or a Pydantic model
+                role = msg.role if hasattr(msg, 'role') else msg.get('role', 'user')
+                content = msg.content if hasattr(msg, 'content') else msg.get('content', '')
+                
+                # Exclude internal reasoning or raw JSON from previous responses if needed, but safe to include all.
+                history_lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
+            
+            if history_lines:
+                 history_block = "PREVIOUS EXCHANGES IN THIS CONVERSATION:\n" + "\n".join(history_lines) + "\n\n"
+                 
+        prompt = f"{system_prompt}\n\n{history_block}User Question: {query}\n\nAssistant Response (JSON):"
         
         # 3. Generate Answer
         try:

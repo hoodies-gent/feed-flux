@@ -11,7 +11,7 @@ import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, type Fee
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Search, Sparkles, X, RefreshCw, Send } from 'lucide-react';
+import { Search, Sparkles, X, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -37,9 +37,30 @@ export default function Home() {
   // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatLoaded, setIsChatLoaded] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load chat history from LocalStorage strictly on client-side mount
+  useEffect(() => {
+    const saved = localStorage.getItem('feedflux_chat_history');
+    if (saved) {
+      try {
+        setChatMessages(JSON.parse(saved));
+      } catch (e) {
+        console.error('Failed to parse persistent chat history', e);
+      }
+    }
+    setIsChatLoaded(true);
+  }, []);
+
+  // Save chat history to LocalStorage whenever it changes
+  useEffect(() => {
+    if (isChatLoaded) {
+      localStorage.setItem('feedflux_chat_history', JSON.stringify(chatMessages));
+    }
+  }, [chatMessages, isChatLoaded]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -65,10 +86,16 @@ export default function Home() {
     const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: query };
     const loadingAiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: '', isLoading: true };
 
+    // Map conversation context for the backend
+    const historyToSend = chatMessages.map(m => ({
+      role: m.role,
+      content: m.content
+    }));
+
     setChatMessages(prev => [...prev, newUserMsg, loadingAiMsg]);
 
     try {
-      const result = await askInbox(query);
+      const result = await askInbox(query, historyToSend);
       setChatMessages(prev =>
         prev.map(msg =>
           msg.id === loadingAiMsg.id
@@ -414,9 +441,16 @@ export default function Home() {
                 </div>
                 <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Inbox QA Assistant</h2>
               </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onClick={() => setIsChatOpen(false)}>
-                <X className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                {chatMessages.length > 0 && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30 transition-colors" onClick={() => setChatMessages([])} title="Clear Chat History">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onClick={() => setIsChatOpen(false)}>
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Scrollable Content Area */}

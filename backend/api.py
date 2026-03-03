@@ -30,8 +30,13 @@ class SummaryRequest(BaseModel):
     email_id: str
     subject: str 
 
+class ChatMessageItem(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     query: str
+    chat_history: Optional[List[ChatMessageItem]] = []
 
 class SourceItem(BaseModel):
     id: str
@@ -238,7 +243,7 @@ async def chat_with_inbox(request: ChatRequest):
         summarizer = ContentSummarizer()
         memory = MemoryService()
         
-        result = summarizer.answer_question(request.query, memory)
+        result = summarizer.answer_question(request.query, memory, chat_history=request.chat_history)
         
         return ChatResponse(
             answer=result["answer"],

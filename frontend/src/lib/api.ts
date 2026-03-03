@@ -81,17 +81,23 @@ export interface ChatResponse {
     sources: SourceItem[];
 }
 
+export interface ChatMessageItem {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
 /**
  * Ask the AI a question about the inbox using RAG
  * @param query - The user's natural language question
+ * @param chatHistory - Previous conversation context
  */
-export async function askInbox(query: string): Promise<ChatResponse> {
+export async function askInbox(query: string, chatHistory: ChatMessageItem[] = []): Promise<ChatResponse> {
     const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query, chat_history: chatHistory }),
     });
 
     if (!response.ok) {

@@ -45,6 +45,7 @@ data/chroma/
 verify_setup.py
 test_cleaner.py
 backend/temp/
+*.log
 
 # IDE
 .vscode/
