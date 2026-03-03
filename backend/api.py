@@ -8,7 +8,10 @@ from app.services.fetcher import OutlookFetcher
 from app.services.summarizer import ContentSummarizer
 from app.services.cleaner import ContentCleaner
 from app.services.memory import MemoryService
+from app.services.cleaner import ContentCleaner
+from app.services.memory import MemoryService
 from app.services.database import DatabaseService
+from app.services.briefing import BriefingEngine
 
 # Initialize Database Service
 db = DatabaseService()
@@ -47,11 +50,45 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceItem]
 
+import asyncio
+from contextlib import asynccontextmanager
+
+# --- Background Task ---
+async def periodic_sync_task():
+    """
+    Runs the synchronization job periodically in the background.
+    """
+    logger.info("Starting background sync scheduler...")
+    while True:
+        try:
+            logger.info("Executing scheduled background sync...")
+            result = await run_sync_job()
+            logger.info(f"Background sync complete. Synced {result.get('synced')} new emails.")
+        except Exception as e:
+            logger.error(f"Error in background sync: {e}")
+        
+        # Run every 15 minutes (900 seconds)
+        sync_interval = getattr(Config, 'SYNC_INTERVAL_SECONDS', 900)
+        await asyncio.sleep(sync_interval)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start the background sync task
+    sync_task = asyncio.create_task(periodic_sync_task())
+    yield
+    # Shutdown: Clean up the task
+    sync_task.cancel()
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        logger.info("Background sync scheduler cancelled on shutdown.")
+
 # --- App Init ---
 app = FastAPI(
     title="FeedFlux API",
     description="Backend API for FeedFlux Intelligent Email Aggregator",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # --- Middleware ---
