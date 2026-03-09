@@ -44,6 +44,7 @@ data/chroma/
 # Testing & Temporary
 verify_setup.py
 test_cleaner.py
+temp/
 backend/temp/
 *.log
 

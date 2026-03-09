@@ -7,13 +7,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, generateDraftReply, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Search, Sparkles, X, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { type PanelImperativeHandle } from "react-resizable-panels";
+import { cn } from "@/lib/utils";
 
 interface ChatMessage {
   id: string;
@@ -79,6 +82,12 @@ export default function Home() {
   const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
 
+  // Email Drafting State
+  const [isDrafting, setIsDrafting] = useState(false);
+  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
+  const [customDraftPrompt, setCustomDraftPrompt] = useState('');
+  const [draftCopied, setDraftCopied] = useState(false);
+
   const handleSendChatMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!chatInput.trim() || isSendingChat) return;
@@ -123,6 +132,8 @@ export default function Home() {
 
   const handleOpenEmailDetail = async (id: string) => {
     setSelectedEmailId(id);
+    setGeneratedDraft(null);
+    setCustomDraftPrompt('');
     setIsEmailDetailOpen(true);
     setIsLoadingDetail(true);
     setEmailDetailData(null);
@@ -134,6 +145,35 @@ export default function Home() {
       setIsEmailDetailOpen(false);
     } finally {
       setIsLoadingDetail(false);
+    }
+  };
+
+  const handleGenerateDraft = async (intent: string) => {
+    if (!selectedEmailId) return;
+    setIsDrafting(true);
+    setGeneratedDraft(null);
+    setDraftCopied(false);
+    try {
+      const res = await generateDraftReply({
+        email_id: selectedEmailId,
+        intent,
+        custom_prompt: customDraftPrompt.trim() ? customDraftPrompt.trim() : undefined
+      });
+      setGeneratedDraft(res.draft);
+      toast.success("Draft generated!");
+    } catch (err) {
+      toast.error("Failed to generate draft.");
+    } finally {
+      setIsDrafting(false);
+    }
+  };
+
+  const copyDraftToClipboard = () => {
+    if (generatedDraft) {
+      navigator.clipboard.writeText(generatedDraft);
+      setDraftCopied(true);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setDraftCopied(false), 2000);
     }
   };
 
@@ -588,7 +628,13 @@ export default function Home() {
 
       {/* View Original Email Modal */}
       <Dialog open={isEmailDetailOpen} onOpenChange={setIsEmailDetailOpen}>
-        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950">
+        <DialogContent
+          className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950"
+          onInteractOutside={(e) => {
+            // Prevent dragging the resize handle outside the modal from closing it
+            e.preventDefault();
+          }}
+        >
           <DialogHeader className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
             <DialogTitle className="text-xl font-semibold text-slate-900 dark:text-slate-100 pr-8">
               {emailDetailData?.subject || "Loading..."}
@@ -600,28 +646,116 @@ export default function Home() {
               </div>
             )}
           </DialogHeader>
-          {/* Scrollable body with strict overflow */}
-          <div className="flex-1 overflow-y-auto w-full p-6 bg-white dark:bg-slate-950">
-            {isLoadingDetail ? (
-              <div className="space-y-4">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-[95%]" />
-                <Skeleton className="h-4 w-[90%]" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-[85%]" />
-                <Skeleton className="h-4 w-[90%]" />
-              </div>
-            ) : emailDetailData ? (
-              <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-slate-800 dark:text-slate-200">
-                {emailDetailData.body_html ? (
-                  <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
-                ) : (
-                  <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center text-red-500">Failed to load email content.</div>
-            )}
+          {/* Resizable Container wrapping Body & Action Panel */}
+          <div className="flex-1 w-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
+            <ResizablePanelGroup id="email-dialog-group" orientation="vertical">
+
+              {/* TOP PANEL: Original Email */}
+              <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-white dark:bg-slate-950 flex flex-col relative pb-4">
+                <div className="flex-1 overflow-y-auto w-full p-6">
+                  {isLoadingDetail ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-[95%]" />
+                      <Skeleton className="h-4 w-[90%]" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-[85%]" />
+                      <Skeleton className="h-4 w-[90%]" />
+                    </div>
+                  ) : emailDetailData ? (
+                    <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-slate-800 dark:text-slate-200">
+                      {emailDetailData.body_html ? (
+                        <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
+                      ) : (
+                        <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center text-red-500">Failed to load email content.</div>
+                  )}
+                </div>
+              </ResizablePanel>
+
+              {/* DRAGGABLE DIVIDER */}
+              <ResizableHandle id="email-divider" withHandle className="hover:bg-indigo-300 dark:hover:bg-indigo-700 hover:h-1.5 transition-all outline-none relative group/handle" />
+
+              {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
+              <ResizablePanel
+                id="email-action-panel"
+                defaultSize={30}
+                minSize={20}
+                className="bg-slate-50 dark:bg-slate-900 flex flex-col relative border-t border-slate-200 dark:border-slate-800"
+              >
+                <div className="p-6 h-full flex flex-col overflow-y-auto">
+                  {emailDetailData && !isLoadingDetail ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-3 shrink-0">
+                        <Sparkles className="w-5 h-5 text-indigo-500" />
+                        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Draft AI Reply</h3>
+                      </div>
+
+                      {/* Intent Buttons */}
+                      <div className="flex flex-wrap gap-2 shrink-0 mb-2">
+                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Sounds good / Agree / Acknowledge")} disabled={isDrafting}>
+                          👍 Sounds good
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Polite Decline / Cannot attend")} disabled={isDrafting}>
+                          ✋ Polite Decline
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Need more info / Ask for details")} disabled={isDrafting}>
+                          ❓ Need info
+                        </Button>
+                        <div className="flex-1 min-w-[200px] flex gap-2">
+                          <Input
+                            placeholder="Or type custom instructions..."
+                            value={customDraftPrompt}
+                            onChange={e => setCustomDraftPrompt(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleGenerateDraft("Follow custom instructions")}
+                            className="h-9 bg-white dark:bg-slate-950"
+                            disabled={isDrafting}
+                          />
+                          <Button size="sm" onClick={() => handleGenerateDraft("Follow custom instructions")} disabled={isDrafting}>
+                            Draft
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Loading State or Result */}
+                      {isDrafting && (
+                        <div className="mt-2 space-y-2 p-4 border border-slate-200 dark:border-slate-800 rounded-lg shrink-0">
+                          <Skeleton className="h-4 w-1/4 mb-4" />
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-5/6" />
+                          <Skeleton className="h-4 w-4/6" />
+                        </div>
+                      )}
+
+                      {generatedDraft && !isDrafting && (
+                        <div className="mt-2 p-4 bg-white dark:bg-slate-950 border border-indigo-200 dark:border-indigo-800 rounded-lg relative group flex-1 overflow-y-auto shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
+                            onClick={copyDraftToClipboard}
+                          >
+                            {draftCopied ? <Check className="w-4 h-4 mr-2 text-green-600 dark:text-green-400" /> : <Copy className="w-4 h-4 mr-2" />}
+                            {draftCopied ? 'Copied' : 'Copy'}
+                          </Button>
+                          <div className="prose prose-sm dark:prose-invert max-w-none mr-20 whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-300">
+                            <ReactMarkdown>{generatedDraft}</ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 space-y-3">
+                      <Sparkles className="w-8 h-8 opacity-20 animate-pulse" />
+                      <p className="text-sm font-medium">Preparing AI Assistant...</p>
+                    </div>
+                  )}
+                </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </div>
         </DialogContent>
       </Dialog>

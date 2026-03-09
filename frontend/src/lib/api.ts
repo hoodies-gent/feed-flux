@@ -168,3 +168,35 @@ export async function getDailyBriefing(): Promise<BriefingResponse> {
 
     return response.json();
 }
+
+/**
+ * Action-Oriented AI: Draft Generation
+ */
+export interface DraftRequest {
+    email_id: string;
+    intent: string;
+    custom_prompt?: string;
+}
+
+export interface DraftResponse {
+    draft: string;
+}
+
+/**
+ * Generate an AI draft reply based on user intention
+ */
+export async function generateDraftReply(data: DraftRequest): Promise<DraftResponse> {
+    const response = await fetch('/api/draft_reply', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Draft generation failed: ${response.statusText}`);
+    }
+
+    return response.json();
+}

@@ -12,6 +12,7 @@ from app.services.cleaner import ContentCleaner
 from app.services.memory import MemoryService
 from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
+from app.services.drafter import EmailDrafter
 
 # Initialize Database Service
 db = DatabaseService()
@@ -49,6 +50,11 @@ class SourceItem(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: List[SourceItem]
+
+class DraftRequest(BaseModel):
+    email_id: str
+    intent: str
+    custom_prompt: Optional[str] = None
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -316,4 +322,34 @@ async def chat_with_inbox(request: ChatRequest):
         )
     except Exception as e:
         logger.error(f"Chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/draft_reply")
+async def generate_draft_reply(request: DraftRequest):
+    """
+    Generates an AI draft reply based on a specific intention.
+    """
+    try:
+        # Get original email
+        email = db.get_email_by_id(request.email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Prepare content
+        subject = email.get("subject", "No Subject")
+        content = email.get("body_content", email.get("body_preview", ""))
+        
+        # Generate Draft
+        drafter = EmailDrafter()
+        draft = await asyncio.to_thread(
+            drafter.generate_draft,
+            subject=subject,
+            content=content,
+            intent=request.intent,
+            custom_prompt=request.custom_prompt
+        )
+        
+        return {"draft": draft}
+    except Exception as e:
+        logger.error(f"Draft generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
