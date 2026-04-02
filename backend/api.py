@@ -56,6 +56,9 @@ class DraftRequest(BaseModel):
     intent: str
     custom_prompt: Optional[str] = None
 
+class ConfigSetupRequest(BaseModel):
+    google_api_key: str
+
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -112,6 +115,47 @@ app.add_middleware(
 )
 
 # --- Endpoints ---
+@app.get("/api/config/status")
+async def config_status():
+    """Checks if the system has been configured with an API key."""
+    # Check if a genuine API key exists (not empty or a generic placeholder)
+    has_key = bool(Config.GOOGLE_API_KEY and "your_" not in Config.GOOGLE_API_KEY.lower())
+    return {"configured": has_key}
+@app.post("/api/config/setup")
+async def config_setup(request: ConfigSetupRequest):
+    """Saves the provided API key to the .env file."""
+    try:
+        env_path = Config.BACKEND_DIR / ".env"
+        env_content = ""
+        if env_path.exists():
+            with open(env_path, "r") as f:
+                env_content = f.read()
+
+        import re
+        if "GOOGLE_API_KEY=" in env_content:
+            new_content = re.sub(r'GOOGLE_API_KEY=.*', f'GOOGLE_API_KEY={request.google_api_key}', env_content)
+        else:
+            # Ensure file ends with newline before appending
+            new_content = env_content.rstrip() + f"\nGOOGLE_API_KEY={request.google_api_key}\n"
+
+        with open(env_path, "w") as f:
+            f.write(new_content)
+            
+        # Dynamically update the config in memory
+        Config.GOOGLE_API_KEY = request.google_api_key
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Setup failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/auth/mock_login")
+async def mock_login():
+    """Simulates a 1.5s OAuth latency for the UI before returning a mock token."""
+    # TODO: Replace with real MSAL OAuth 2.0 Authorization Code flow when Azure App Registration is ready
+    await asyncio.sleep(1.5)
+    return {"success": True, "token": "mock-token-xyz"}
+
 @app.get("/")
 async def health_check():
     return {"status": "ok", "service": "FeedFlux API"}
