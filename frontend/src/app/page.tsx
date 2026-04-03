@@ -351,6 +351,18 @@ export default function Home() {
     }
   };
 
+  if (appState === 'checking') {
+    return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center flex-col gap-6">
+            <div className="relative">
+                <div className="absolute inset-0 bg-indigo-500 blur-xl opacity-20 animate-pulse rounded-full"></div>
+                <Sparkles className="w-16 h-16 text-indigo-500 animate-pulse relative z-10" />
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 font-medium tracking-widest uppercase text-sm">Initializing FeedFlux Core</p>
+        </div>
+    );
+  }
+
   if (appState !== 'feed') {
     return (
       <div className="min-h-screen flex items-center justify-center">
