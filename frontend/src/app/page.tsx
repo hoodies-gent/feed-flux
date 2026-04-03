@@ -210,7 +210,7 @@ export default function Home() {
     }
   };
 
-  const [appState, setAppState] = useState<'checking' | 'setup_keys' | 'mock_login' | 'feed'>('checking');
+  const [appState, setAppState] = useState<'checking' | 'setup_keys' | 'mock_login' | 'feed'>('mock_login');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isSettingUp, setIsSettingUp] = useState(false);
   const [isMockLoggingIn, setIsMockLoggingIn] = useState(false);
@@ -231,7 +231,7 @@ export default function Home() {
              setAppState('feed');
         }
     };
-    initCheck();
+    // initCheck();
   }, []);
 
   useEffect(() => {
@@ -394,6 +394,42 @@ export default function Home() {
                         {isSettingUp ? 'Securely Verifying...' : 'Initialize Intelligence Engine'}
                     </Button>
                 </CardFooter>
+            </Card>
+        </div>
+    );
+  }
+
+  // TODO: change this mock login when we have a real auth system
+  if (appState === 'mock_login') {
+    return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4">
+            <Card className="w-full max-w-lg shadow-2xl border-indigo-100 dark:border-indigo-900/50">
+                <CardHeader className="text-center pb-8 border-b border-slate-100 dark:border-slate-800">
+                    <div className="mx-auto bg-[#0078D4]/10 w-24 h-24 rounded-full flex items-center justify-center mb-6 ring-8 ring-white dark:ring-slate-900 shadow-inner">
+                        <svg className="w-12 h-12 text-[#0078D4]" viewBox="0 0 24 24" fill="currentColor">
+                           <path d="M2 3h20a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm1 2v14h18V5H3zm9 7L3.76 6.3l1.24-.8 7 5.2 7-5.2 1.24.8L12 12z"/>
+                        </svg>
+                    </div>
+                    <CardTitle className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Connect Inbox</CardTitle>
+                    <CardDescription className="text-base mt-3 px-4">Securely connect your Microsoft Outlook account to sync your inbox and unlock intelligent AI features.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-8 pb-4 px-8">
+                    <Button 
+                        className="w-full text-base h-12 bg-[#0078D4] hover:bg-[#106EBE] text-white shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden"
+                        onClick={handleMockLogin}
+                        disabled={isMockLoggingIn}
+                    >
+                        {isMockLoggingIn ? (
+                            <>
+                                <RefreshCw className="mr-3 h-6 w-6 animate-spin" />
+                                Authenticating safely...
+                            </>
+                        ) : (
+                            "Login with Microsoft Outlook"
+                        )}
+                    </Button>
+                    <p className="text-center text-xs text-slate-400 mt-6">By connecting, you agree to local-only processing of your email data.</p>
+                </CardContent>
             </Card>
         </div>
     );
