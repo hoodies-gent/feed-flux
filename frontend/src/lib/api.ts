@@ -200,3 +200,45 @@ export async function generateDraftReply(data: DraftRequest): Promise<DraftRespo
 
     return response.json();
 }
+
+/**
+ * Onboarding & Mock Auth API calls
+ */
+export async function getConfigStatus(): Promise<{ configured: boolean }> {
+    const response = await fetch('/api/config/status');
+    if (!response.ok) {
+        throw new Error(`Failed to check config status: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function setupConfig(google_api_key: string): Promise<{ success: boolean }> {
+    const response = await fetch('/api/config/setup', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ google_api_key }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to set up config: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function mockLogin(): Promise<{ success: boolean; token: string }> {
+    // TODO: Replace with MSAL @azure/msal-react or proper OAuth redirect when Azure App is ready
+    const response = await fetch('/api/auth/mock_login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(`Mock login failed: ${response.statusText}`);
+    }
+    return response.json();
+}
+
