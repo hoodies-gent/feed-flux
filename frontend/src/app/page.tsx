@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, generateDraftReply, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
@@ -210,11 +210,65 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    loadFeed(debouncedQuery);
-  }, [debouncedQuery]);
+  const [appState, setAppState] = useState<'checking' | 'setup_keys' | 'mock_login' | 'feed'>('checking');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [isSettingUp, setIsSettingUp] = useState(false);
+  const [isMockLoggingIn, setIsMockLoggingIn] = useState(false);
 
-  // Load briefing on mount
+  useEffect(() => {
+    const initCheck = async () => {
+        try {
+            const hasMockLogged = localStorage.getItem('feedflux_mock_logged_in');
+            const configRes = await getConfigStatus();
+            if (!configRes.configured) {
+                setAppState('setup_keys');
+            } else if (!hasMockLogged) {
+                setAppState('mock_login');
+            } else {
+                setAppState('feed');
+            }
+        } catch(e) {
+             setAppState('feed');
+        }
+    };
+    initCheck();
+  }, []);
+
+  useEffect(() => {
+    if (appState === 'feed') {
+      loadFeed(debouncedQuery);
+    }
+  }, [debouncedQuery, appState]);
+
+  const handleSetupKeys = async () => {
+      if (!apiKeyInput.trim()) return;
+      setIsSettingUp(true);
+      try {
+          await setupConfig(apiKeyInput.trim());
+          toast.success("API Key saved securely.");
+          setAppState('mock_login');
+      } catch(e) {
+          toast.error("Failed to save API key.");
+      } finally {
+          setIsSettingUp(false);
+      }
+  };
+
+  const handleMockLogin = async () => {
+      setIsMockLoggingIn(true);
+      try {
+          await mockLogin();
+          localStorage.setItem('feedflux_mock_logged_in', 'true');
+          toast.success("Successfully authenticated with Outlook!");
+          setAppState('feed');
+      } catch(e) {
+          toast.error("Login failed.");
+      } finally {
+          setIsMockLoggingIn(false);
+      }
+  };
+
+  // Load briefing on mount if in feed
   useEffect(() => {
     const fetchBriefing = async () => {
       try {
@@ -296,6 +350,14 @@ export default function Home() {
       setSummarizing(prev => ({ ...prev, [item.id]: false }));
     }
   };
+
+  if (appState !== 'feed') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+         <p className="text-slate-500 font-mono">Loading MVP State: [{appState}]...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-8 font-[family-name:var(--font-geist-sans)]">
