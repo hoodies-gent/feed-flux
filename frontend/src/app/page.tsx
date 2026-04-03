@@ -363,6 +363,42 @@ export default function Home() {
     );
   }
 
+  if (appState === 'setup_keys') {
+    return (
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4">
+            <Card className="w-full max-w-lg shadow-xl shadow-indigo-500/10 border-indigo-100 dark:border-indigo-900/50">
+                <CardHeader>
+                    <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
+                            <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <CardTitle className="text-2xl font-bold tracking-tight">Welcome to FeedFlux</CardTitle>
+                    </div>
+                    <CardDescription className="text-base">To power the AI Intelligence engine and semantic RAG search, please connect your underlying model provider.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Google Gemini API Key</label>
+                        <Input 
+                            type="password" 
+                            placeholder="AIzaSy..." 
+                            value={apiKeyInput}
+                            onChange={e => setApiKeyInput(e.target.value)}
+                            className="font-mono text-base py-5"
+                        />
+                        <p className="text-xs text-slate-500 pt-1">Your key is stored securely in the local backend `.env` file and never leaves your machine.</p>
+                    </div>
+                </CardContent>
+                <CardFooter className="pt-4">
+                    <Button className="w-full text-md py-6 bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md hover:shadow-lg rounded-xl" disabled={!apiKeyInput.trim() || isSettingUp} onClick={handleSetupKeys}>
+                        {isSettingUp ? 'Securely Verifying...' : 'Initialize Intelligence Engine'}
+                    </Button>
+                </CardFooter>
+            </Card>
+        </div>
+    );
+  }
+
   if (appState !== 'feed') {
     return (
       <div className="min-h-screen flex items-center justify-center">
