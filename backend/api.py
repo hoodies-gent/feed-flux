@@ -70,9 +70,13 @@ async def periodic_sync_task():
     logger.info("Starting background sync scheduler...")
     while True:
         try:
-            logger.info("Executing scheduled background sync...")
-            result = await run_sync_job()
-            logger.info(f"Background sync complete. Synced {result.get('synced')} new emails.")
+            # TODO
+            # MVP mode: to prevent the synchronous msal device code flow from waiting 
+            # for terminal input and completely blocking the fastapi asyncio event loop, 
+            # we bypass the automatic background fetch here.
+            logger.info("MVP mode: bypassing background sync to prevent event loop blocking.")
+            # result = await run_sync_job()
+            # logger.info(f"Background sync complete. Synced {result.get('synced')} new emails.")
         except Exception as e:
             logger.error(f"Error in background sync: {e}")
         
