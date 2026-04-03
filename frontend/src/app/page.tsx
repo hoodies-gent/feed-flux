@@ -210,7 +210,7 @@ export default function Home() {
     }
   };
 
-  const [appState, setAppState] = useState<'checking' | 'setup_keys' | 'mock_login' | 'feed'>('mock_login');
+  const [appState, setAppState] = useState<'checking' | 'setup_keys' | 'mock_login' | 'feed'>('checking');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isSettingUp, setIsSettingUp] = useState(false);
   const [isMockLoggingIn, setIsMockLoggingIn] = useState(false);
@@ -231,7 +231,7 @@ export default function Home() {
              setAppState('feed');
         }
     };
-    // initCheck();
+    initCheck();
   }, []);
 
   useEffect(() => {
