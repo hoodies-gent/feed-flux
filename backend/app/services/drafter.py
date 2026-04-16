@@ -1,5 +1,6 @@
 import logging
 import google.generativeai as genai
+from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import Config
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ The draft must strictly follow these rules:
         
         return prompt
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def generate_draft(self, subject: str, content: str, intent: str, custom_prompt: str = None) -> str:
         """
         Synchronous call to Gemini to generate the draft string.

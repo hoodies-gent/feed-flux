@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import google.generativeai as genai
+from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import Config
 
 # Configure logging
@@ -21,6 +22,7 @@ class ContentSummarizer:
         genai.configure(api_key=Config.GOOGLE_API_KEY)
         self.model = genai.GenerativeModel(Config.GEMINI_MODEL_NAME)
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def summarize(self, text, context_documents=None):
         """
         Generates a concise summary of the provided text.
@@ -69,6 +71,7 @@ class ContentSummarizer:
             logger.error(f"Summarization failed: {e}")
             return f"[Error: Could not generate summary. Reason: {str(e)}]"
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def answer_question(self, query: str, memory_service, chat_history: list = None) -> dict:
         """
         Answers a user's question using the RAG approach (retrieving context from memory) and conversational history.

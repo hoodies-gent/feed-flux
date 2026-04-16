@@ -7,3 +7,4 @@ sqlalchemy==2.0.36
 requests
 fastapi
 uvicorn
+tenacity
