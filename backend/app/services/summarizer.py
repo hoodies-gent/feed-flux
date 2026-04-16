@@ -3,6 +3,7 @@ import json
 import logging
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import Config
 
 # Configure logging
@@ -32,8 +33,12 @@ class ContentSummarizer:
             return "No content to summarize."
 
         # Use prompt from Config (or future user input)
-        # Truncate text to avoid token limits
-        truncated_text = text[:8000]
+        # Handle long content with text splitter instead of raw truncation
+        splitter = RecursiveCharacterTextSplitter(chunk_size=8000, chunk_overlap=400)
+        chunks = splitter.split_text(text)
+        truncated_text = chunks[0] if chunks else ""
+        if len(chunks) > 1:
+            truncated_text += "\n\n...[Content truncated for length]"
 
         # Context Layer
         context_block = ""

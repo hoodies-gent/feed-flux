@@ -1,6 +1,7 @@
 import logging
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.core.config import Config
 
 logger = logging.getLogger(__name__)
@@ -39,8 +40,15 @@ The draft must strictly follow these rules:
         if custom_prompt:
             prompt += f"\nFollow these specific instructions from the user: '{custom_prompt}'"
 
+        # Handle long content with text splitter
+        splitter = RecursiveCharacterTextSplitter(chunk_size=4000, chunk_overlap=200)
+        chunks = splitter.split_text(email_content)
+        truncated_content = chunks[0] if chunks else ""
+        if len(chunks) > 1:
+            truncated_content += "...\n[Content truncated for length]"
+
         # Context Payload
-        prompt += f"\n\n=== ORIGINAL EMAIL ===\nSubject: {email_subject}\nContent: {email_content[:2000]}..."
+        prompt += f"\n\n=== ORIGINAL EMAIL ===\nSubject: {email_subject}\nContent: {truncated_content}"
         
         return prompt
 
