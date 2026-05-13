@@ -60,6 +60,7 @@ class ConfigSetupRequest(BaseModel):
     google_api_key: str
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 # --- Background Task ---
@@ -70,13 +71,11 @@ async def periodic_sync_task():
     logger.info("Starting background sync scheduler...")
     while True:
         try:
-            # TODO
-            # MVP mode: to prevent the synchronous msal device code flow from waiting 
-            # for terminal input and completely blocking the fastapi asyncio event loop, 
-            # we bypass the automatic background fetch here.
-            logger.info("MVP mode: bypassing background sync to prevent event loop blocking.")
-            # result = await run_sync_job()
-            # logger.info(f"Background sync complete. Synced {result.get('synced')} new emails.")
+            if not os.path.exists(Config.TOKEN_CACHE_FILE):
+                logger.info("No token cache found, skipping background sync.")
+            else:
+                result = await run_sync_job()
+                logger.info(f"Background sync complete. Synced {result.get('synced')} new emails.")
         except Exception as e:
             logger.error(f"Error in background sync: {e}")
         
@@ -225,8 +224,8 @@ async def run_sync_job():
     Core synchronization logic.
     Fetches new emails, saves them to SQLite, and indexes them in ChromaDB.
     """
-    fetcher = OutlookFetcher()
-    # Fetch a batch of emails (limit can be higher for sync)
+    loop = asyncio.get_event_loop()
+    fetcher = await loop.run_in_executor(None, OutlookFetcher)
     new_emails = fetcher.fetch_emails(limit=20)
     
     synced_count = 0

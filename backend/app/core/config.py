@@ -35,6 +35,8 @@ class Config:
     # Token Cache
     TOKEN_CACHE_FILE = DATA_DIR / "token_cache.bin"
 
+    SYNC_INTERVAL_SECONDS = 900
+
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
