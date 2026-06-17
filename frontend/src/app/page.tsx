@@ -353,24 +353,24 @@ export default function Home() {
 
   if (appState === 'checking') {
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center flex-col gap-6">
+        <div className="min-h-screen bg-background flex items-center justify-center flex-col gap-6">
             <div className="relative">
-                <div className="absolute inset-0 bg-indigo-500 blur-xl opacity-20 animate-pulse rounded-full"></div>
-                <Sparkles className="w-16 h-16 text-indigo-500 animate-pulse relative z-10" />
+                <div className="absolute inset-0 bg-primary blur-xl opacity-20 animate-pulse rounded-full"></div>
+                <Sparkles className="w-16 h-16 text-primary animate-pulse relative z-10" />
             </div>
-            <p className="text-slate-500 dark:text-slate-400 font-medium tracking-widest uppercase text-sm">Initializing FeedFlux Core</p>
+            <p className="text-muted-foreground font-medium tracking-widest uppercase text-sm">Initializing FeedFlux Core</p>
         </div>
     );
   }
 
   if (appState === 'setup_keys') {
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4">
-            <Card className="w-full max-w-lg shadow-xl shadow-indigo-500/10 border-indigo-100 dark:border-indigo-900/50">
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <Card className="w-full max-w-lg shadow-xl border-border">
                 <CardHeader>
                     <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
-                            <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                        <div className="p-2 bg-muted rounded-xl">
+                            <Sparkles className="w-6 h-6 text-primary" />
                         </div>
                         <CardTitle className="text-2xl font-bold tracking-tight">Welcome to FeedFlux</CardTitle>
                     </div>
@@ -378,7 +378,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent className="space-y-4 pt-4">
                     <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Google Gemini API Key</label>
+                        <label className="text-sm font-semibold text-foreground">Google Gemini API Key</label>
                         <Input 
                             type="password" 
                             placeholder="AIzaSy..." 
@@ -386,11 +386,11 @@ export default function Home() {
                             onChange={e => setApiKeyInput(e.target.value)}
                             className="font-mono text-base py-5"
                         />
-                        <p className="text-xs text-slate-500 pt-1">Your key is stored securely in the local backend `.env` file and never leaves your machine.</p>
+                        <p className="text-xs text-muted-foreground pt-1">Your key is stored securely in the local backend `.env` file and never leaves your machine.</p>
                     </div>
                 </CardContent>
                 <CardFooter className="pt-4">
-                    <Button className="w-full text-md py-6 bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-md hover:shadow-lg rounded-xl" disabled={!apiKeyInput.trim() || isSettingUp} onClick={handleSetupKeys}>
+                    <Button className="w-full text-md py-6 transition-all shadow-md hover:shadow-lg rounded-xl" disabled={!apiKeyInput.trim() || isSettingUp} onClick={handleSetupKeys}>
                         {isSettingUp ? 'Securely Verifying...' : 'Initialize Intelligence Engine'}
                     </Button>
                 </CardFooter>
@@ -402,20 +402,20 @@ export default function Home() {
   // TODO: change this mock login when we have a real auth system
   if (appState === 'mock_login') {
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4">
-            <Card className="w-full max-w-lg shadow-2xl border-indigo-100 dark:border-indigo-900/50">
-                <CardHeader className="text-center pb-8 border-b border-slate-100 dark:border-slate-800">
-                    <div className="mx-auto bg-[#0078D4]/10 w-24 h-24 rounded-full flex items-center justify-center mb-6 ring-8 ring-white dark:ring-slate-900 shadow-inner">
-                        <svg className="w-12 h-12 text-[#0078D4]" viewBox="0 0 24 24" fill="currentColor">
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <Card className="w-full max-w-lg shadow-2xl border-border">
+                <CardHeader className="text-center pb-8 border-b border-border">
+                    <div className="mx-auto bg-muted w-24 h-24 rounded-full flex items-center justify-center mb-6 ring-8 ring-background shadow-inner">
+                        <svg className="w-12 h-12 text-foreground" viewBox="0 0 24 24" fill="currentColor">
                            <path d="M2 3h20a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm1 2v14h18V5H3zm9 7L3.76 6.3l1.24-.8 7 5.2 7-5.2 1.24.8L12 12z"/>
                         </svg>
                     </div>
-                    <CardTitle className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Connect Inbox</CardTitle>
+                    <CardTitle className="text-3xl font-bold tracking-tight text-foreground">Connect Inbox</CardTitle>
                     <CardDescription className="text-base mt-3 px-4">Securely connect your Microsoft Outlook account to sync your inbox and unlock intelligent AI features.</CardDescription>
                 </CardHeader>
                 <CardContent className="pt-8 pb-4 px-8">
                     <Button 
-                        className="w-full text-base h-12 bg-[#0078D4] hover:bg-[#106EBE] text-white shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden"
+                        className="w-full text-base h-12 shadow-md hover:shadow-lg transition-all rounded-xl relative overflow-hidden"
                         onClick={handleMockLogin}
                         disabled={isMockLoggingIn}
                     >
@@ -428,7 +428,7 @@ export default function Home() {
                             "Login with Microsoft Outlook"
                         )}
                     </Button>
-                    <p className="text-center text-xs text-slate-400 mt-6">By connecting, you agree to local-only processing of your email data.</p>
+                    <p className="text-center text-xs text-muted-foreground mt-6">By connecting, you agree to local-only processing of your email data.</p>
                 </CardContent>
             </Card>
         </div>
@@ -438,13 +438,13 @@ export default function Home() {
   if (appState !== 'feed') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-         <p className="text-slate-500 font-mono">Loading MVP State: [{appState}]...</p>
+         <p className="text-muted-foreground font-mono">Loading MVP State: [{appState}]...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-8 font-[family-name:var(--font-geist-sans)]">
+    <div className="min-h-screen bg-background p-8 font-[family-name:var(--font-geist-sans)]">
       <div className={`mx-auto flex gap-8 items-start transition-all duration-300 ${isChatOpen ? 'max-w-[1400px]' : 'max-w-4xl'}`}>
 
         {/* Left column: Feed */}
@@ -454,8 +454,8 @@ export default function Home() {
           <header className="flex flex-col gap-6 mb-8">
             <div className="flex justify-between items-center">
               <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">FeedFlux</h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">Your Intelligent Email Digest</p>
+                <h1 className="text-3xl font-bold tracking-tight text-foreground">FeedFlux</h1>
+                <p className="text-muted-foreground mt-1">Your Intelligent Email Digest</p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -468,7 +468,6 @@ export default function Home() {
                 <Button
                   onClick={handleSync}
                   disabled={isSyncing}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
                 >
                   <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
                   {isSyncing ? 'Syncing...' : 'Sync from Outlook'}
@@ -480,12 +479,12 @@ export default function Home() {
             <div className="flex gap-3 w-full">
               <div className="relative w-full shadow-sm rounded-md">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-slate-400" />
+                  <Search className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <Input
                   type="text"
                   placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                  className="pl-10 pr-4 py-6 w-full text-base bg-white dark:bg-slate-950 border-slate-200 focus-visible:ring-indigo-500"
+                  className="pl-10 pr-4 py-6 w-full text-base bg-card"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -493,7 +492,7 @@ export default function Home() {
               {/* Ask AI Trigger - Minimalist Outline Variant */}
               <Button
                 variant="outline"
-                className="h-auto py-0 px-6 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-200 hover:border-indigo-300 dark:text-indigo-400 dark:border-indigo-800 dark:hover:bg-indigo-900/30 transition-all font-medium whitespace-nowrap"
+                className="h-auto py-0 px-6 transition-all font-medium whitespace-nowrap"
                 onClick={() => {
                   setIsChatOpen(true);
                   if (searchQuery.trim()) {
@@ -510,28 +509,28 @@ export default function Home() {
 
           {/* Daily Briefing Banner */}
           {!debouncedQuery && (
-            <div className="mb-8 p-6 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-lg text-white">
+            <div className="mb-8 p-6 rounded-2xl bg-muted text-foreground border">
               <div className="flex items-center gap-3 mb-4">
-                <Sparkles className="h-6 w-6 text-yellow-300" />
+                <Sparkles className="h-6 w-6 text-foreground" />
                 <h2 className="text-xl font-bold tracking-tight">Morning Intelligence Briefing</h2>
               </div>
 
               {isBriefingLoading ? (
                 <div className="space-y-3">
-                  <Skeleton className="h-4 w-3/4 bg-white/20" />
-                  <Skeleton className="h-4 w-full bg-white/20" />
-                  <Skeleton className="h-4 w-5/6 bg-white/20" />
+                  <Skeleton className="h-4 w-3/4 bg-foreground/10" />
+                  <Skeleton className="h-4 w-full bg-foreground/10" />
+                  <Skeleton className="h-4 w-5/6 bg-foreground/10" />
                 </div>
               ) : briefingError ? (
-                <div className="bg-black/10 p-4 rounded-lg flex items-start gap-3">
-                  <div className="text-white/90 text-sm">{briefingError}</div>
+                <div className="bg-destructive/10 p-4 rounded-lg flex items-start gap-3">
+                  <div className="text-destructive text-sm">{briefingError}</div>
                 </div>
               ) : briefing ? (
-                <div className="prose prose-sm prose-invert max-w-none">
+                <div className="prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown>{briefing}</ReactMarkdown>
                 </div>
               ) : (
-                <p className="text-white/80">No briefing available today.</p>
+                <p className="text-muted-foreground">No briefing available today.</p>
               )}
             </div>
           )}
@@ -554,9 +553,9 @@ export default function Home() {
               ))
             ) : error ? (
               // Error State
-              <Card className="border-red-200 bg-red-50 dark:bg-red-950/20">
+              <Card className="border-destructive/50 bg-destructive/10">
                 <CardHeader>
-                  <CardTitle className="text-red-700 dark:text-red-400">Failed to Load Feed</CardTitle>
+                  <CardTitle className="text-destructive">Failed to Load Feed</CardTitle>
                   <CardDescription>{error}</CardDescription>
                 </CardHeader>
                 <CardFooter>
@@ -567,7 +566,7 @@ export default function Home() {
               // Empty State
               <Card className="border-dashed">
                 <CardHeader>
-                  <CardTitle className="text-slate-500">No Emails Found</CardTitle>
+                  <CardTitle className="text-muted-foreground">No Emails Found</CardTitle>
                   <CardDescription>Your inbox is empty or all emails have been processed.</CardDescription>
                 </CardHeader>
               </Card>
@@ -581,21 +580,21 @@ export default function Home() {
                 return (
                   <Card
                     key={item.id}
-                    className="hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-indigo-500"
+                    className="py-4 gap-3 hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-primary"
                   >
                     <CardHeader>
                       <div className="flex justify-between items-start gap-4">
-                        <CardTitle className="text-xl font-semibold text-slate-800 dark:text-slate-100 flex-1">
+                        <CardTitle className="text-base font-semibold text-foreground flex-1">
                           {item.subject}
                         </CardTitle>
                         <Badge variant="secondary" className="text-xs whitespace-nowrap">
                           {formatTime(item.received_datetime)}
                         </Badge>
                       </div>
-                      <CardDescription className="text-slate-500">{item.sender}</CardDescription>
+                      <CardDescription className="text-muted-foreground">{item.sender}</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3">
+                    <CardContent className="space-y-2">
+                      <p className="text-sm text-muted-foreground line-clamp-3">
                         {item.body_preview}
                       </p>
 
@@ -617,13 +616,13 @@ export default function Home() {
                                     AI Summary
                                   </Badge>
                                   {summary.model && (
-                                    <span className="text-xs text-slate-500">
+                                    <span className="text-xs text-muted-foreground">
                                       by {summary.model}
                                     </span>
                                   )}
                                 </div>
                                 {summary.generated_at && (
-                                  <span className="text-xs text-slate-500">
+                                  <span className="text-xs text-muted-foreground">
                                     Last generated: {formatDateTime(summary.generated_at)}
                                   </span>
                                 )}
@@ -639,7 +638,7 @@ export default function Home() {
                     <CardFooter className="flex justify-between items-center pt-0">
                       {/* Related emails count (left side) */}
                       {summary && summary.context_count > 0 && (
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-muted-foreground">
                           Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
                         </span>
                       )}
@@ -647,7 +646,6 @@ export default function Home() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                           onClick={() => handleOpenEmailDetail(item.id)}
                         >
                           Read Original ↗
@@ -655,7 +653,7 @@ export default function Home() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                          className="text-primary"
                           onClick={() => handleSummarize(item)}
                           disabled={isSummarizing}
                         >
@@ -672,22 +670,22 @@ export default function Home() {
 
         {/* Right column: AI Sidebar (Multi-Turn Chat) */}
         {isChatOpen && (
-          <aside className="w-[450px] shrink-0 h-[calc(100vh-4rem)] sticky top-8 flex flex-col bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <aside className="w-[450px] shrink-0 h-[calc(100vh-4rem)] sticky top-8 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
             {/* Header */}
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex justify-between items-center shrink-0">
+            <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-indigo-100 dark:bg-indigo-900/50 rounded-md">
-                  <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <div className="p-1.5 bg-muted rounded-md">
+                  <Sparkles className="w-4 h-4 text-foreground" />
                 </div>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Inbox QA Assistant</h2>
+                <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
               </div>
               <div className="flex items-center gap-1">
                 {chatMessages.length > 0 && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-900/30 transition-colors" onClick={() => setChatMessages([])} title="Clear Chat History">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={() => setChatMessages([])} title="Clear Chat History">
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" onClick={() => setIsChatOpen(false)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
                   <X className="w-4 h-4" />
                 </Button>
               </div>
@@ -698,24 +696,24 @@ export default function Home() {
               <div className="space-y-6 pb-2">
                 {chatMessages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center space-y-4 pt-20">
-                    <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-full">
-                      <Sparkles className="w-8 h-8 text-indigo-400" />
+                    <div className="p-4 bg-muted rounded-full">
+                      <Sparkles className="w-8 h-8 text-muted-foreground" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">How can I help you today?</h3>
-                      <p className="text-sm text-slate-500 max-w-[250px] mx-auto">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
+                      <h3 className="text-sm font-medium text-foreground mb-1">How can I help you today?</h3>
+                      <p className="text-sm text-muted-foreground max-w-[250px] mx-auto">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
                     </div>
                   </div>
                 ) : (
                   chatMessages.map(msg => (
                     <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-                      <span className="text-[11px] font-medium text-slate-400 px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-                      <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-2xl rounded-tl-sm'}`}>
+                      <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
+                      <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
                         {msg.isLoading ? (
                           <div className="flex gap-1 py-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
                           </div>
                         ) : (
                           <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
@@ -731,10 +729,10 @@ export default function Home() {
                             <button
                               key={i}
                               onClick={() => handleOpenEmailDetail(source.id)}
-                              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-indigo-300 transition-colors shadow-sm max-w-full text-left"
+                              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-card border border-border rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:border-primary transition-colors shadow-sm max-w-full text-left"
                               title={source.snippet}
                             >
-                              <span className="text-indigo-500 font-semibold whitespace-nowrap">Source {i + 1}</span>
+                              <span className="text-primary font-semibold whitespace-nowrap">Source {i + 1}</span>
                               <span className="truncate max-w-[150px]">{source.subject}</span>
                             </button>
                           ))}
@@ -748,21 +746,21 @@ export default function Home() {
             </div>
 
             {/* Input Overlay / Footer */}
-            <div className="p-4 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 shrink-0">
+            <div className="p-4 bg-card border-t border-border shrink-0">
               <form onSubmit={handleSendChatMessage} className="relative flex items-center">
                 <Input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   disabled={isSendingChat}
                   placeholder="Ask a follow-up question..."
-                  className="w-full pr-12 rounded-full border-slate-300 dark:border-slate-700 focus-visible:ring-indigo-500 shadow-sm"
+                  className="w-full pr-12 rounded-full shadow-sm"
                 />
                 <Button
                   type="submit"
                   disabled={!chatInput.trim() || isSendingChat}
                   size="icon"
                   variant="ghost"
-                  className="absolute right-1 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/30 h-8 w-8 rounded-full"
+                  className="absolute right-1 text-primary h-8 w-8 rounded-full"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
@@ -775,29 +773,29 @@ export default function Home() {
       {/* View Original Email Modal */}
       <Dialog open={isEmailDetailOpen} onOpenChange={setIsEmailDetailOpen}>
         <DialogContent
-          className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950"
+          className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-background"
           onInteractOutside={(e) => {
             // Prevent dragging the resize handle outside the modal from closing it
             e.preventDefault();
           }}
         >
-          <DialogHeader className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-            <DialogTitle className="text-xl font-semibold text-slate-900 dark:text-slate-100 pr-8">
+          <DialogHeader className="p-6 border-b border-border bg-muted/30 shrink-0">
+            <DialogTitle className="text-xl font-semibold text-foreground pr-8">
               {emailDetailData?.subject || "Loading..."}
             </DialogTitle>
             {emailDetailData && (
-              <div className="text-sm text-slate-500 mt-2 flex items-center justify-between">
-                <span>From: <span className="font-medium text-slate-700 dark:text-slate-300">{emailDetailData.sender}</span></span>
+              <div className="text-sm text-muted-foreground mt-2 flex items-center justify-between">
+                <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
                 <span>{formatDateTime(emailDetailData.received_datetime)}</span>
               </div>
             )}
           </DialogHeader>
           {/* Resizable Container wrapping Body & Action Panel */}
-          <div className="flex-1 w-full bg-slate-200 dark:bg-slate-800 overflow-hidden relative">
+          <div className="flex-1 w-full bg-muted overflow-hidden relative">
             <ResizablePanelGroup id="email-dialog-group" orientation="vertical">
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-white dark:bg-slate-950 flex flex-col relative pb-4">
+              <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-background flex flex-col relative pb-4">
                 <div className="flex-1 overflow-y-auto w-full p-6">
                   {isLoadingDetail ? (
                     <div className="space-y-4">
@@ -809,7 +807,7 @@ export default function Home() {
                       <Skeleton className="h-4 w-[90%]" />
                     </div>
                   ) : emailDetailData ? (
-                    <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-slate-800 dark:text-slate-200">
+                    <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
                       {emailDetailData.body_html ? (
                         <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
                       ) : (
@@ -817,27 +815,27 @@ export default function Home() {
                       )}
                     </div>
                   ) : (
-                    <div className="text-center text-red-500">Failed to load email content.</div>
+                    <div className="text-center text-destructive">Failed to load email content.</div>
                   )}
                 </div>
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" withHandle className="hover:bg-indigo-300 dark:hover:bg-indigo-700 hover:h-1.5 transition-all outline-none relative group/handle" />
+              <ResizableHandle id="email-divider" withHandle className="hover:bg-primary hover:h-1.5 transition-all outline-none relative group/handle" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
                 defaultSize={30}
                 minSize={20}
-                className="bg-slate-50 dark:bg-slate-900 flex flex-col relative border-t border-slate-200 dark:border-slate-800"
+                className="bg-muted/30 flex flex-col relative border-t border-border"
               >
                 <div className="p-6 h-full flex flex-col overflow-y-auto">
                   {emailDetailData && !isLoadingDetail ? (
                     <>
                       <div className="flex items-center gap-2 mb-3 shrink-0">
-                        <Sparkles className="w-5 h-5 text-indigo-500" />
-                        <h3 className="font-semibold text-slate-900 dark:text-slate-100">Draft AI Reply</h3>
+                        <Sparkles className="w-5 h-5 text-primary" />
+                        <h3 className="font-semibold text-foreground">Draft AI Reply</h3>
                       </div>
 
                       {/* Intent Buttons */}
@@ -857,7 +855,7 @@ export default function Home() {
                             value={customDraftPrompt}
                             onChange={e => setCustomDraftPrompt(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && handleGenerateDraft("Follow custom instructions")}
-                            className="h-9 bg-white dark:bg-slate-950"
+                            className="h-9 bg-background"
                             disabled={isDrafting}
                           />
                           <Button size="sm" onClick={() => handleGenerateDraft("Follow custom instructions")} disabled={isDrafting}>
@@ -868,7 +866,7 @@ export default function Home() {
 
                       {/* Loading State or Result */}
                       {isDrafting && (
-                        <div className="mt-2 space-y-2 p-4 border border-slate-200 dark:border-slate-800 rounded-lg shrink-0">
+                        <div className="mt-2 space-y-2 p-4 border border-border rounded-lg shrink-0">
                           <Skeleton className="h-4 w-1/4 mb-4" />
                           <Skeleton className="h-4 w-full" />
                           <Skeleton className="h-4 w-5/6" />
@@ -877,24 +875,24 @@ export default function Home() {
                       )}
 
                       {generatedDraft && !isDrafting && (
-                        <div className="mt-2 p-4 bg-white dark:bg-slate-950 border border-indigo-200 dark:border-indigo-800 rounded-lg relative group flex-1 overflow-y-auto shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
+                        <div className="mt-2 p-4 bg-background border border-border rounded-lg relative group flex-1 overflow-y-auto shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
                           <Button
                             size="sm"
                             variant="secondary"
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={copyDraftToClipboard}
                           >
                             {draftCopied ? <Check className="w-4 h-4 mr-2 text-green-600 dark:text-green-400" /> : <Copy className="w-4 h-4 mr-2" />}
                             {draftCopied ? 'Copied' : 'Copy'}
                           </Button>
-                          <div className="prose prose-sm dark:prose-invert max-w-none mr-20 whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-300">
+                          <div className="prose prose-sm dark:prose-invert max-w-none mr-20 whitespace-pre-wrap font-sans text-foreground">
                             <ReactMarkdown>{generatedDraft}</ReactMarkdown>
                           </div>
                         </div>
                       )}
                     </>
                   ) : (
-                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 space-y-3">
+                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center text-muted-foreground space-y-3">
                       <Sparkles className="w-8 h-8 opacity-20 animate-pulse" />
                       <p className="text-sm font-medium">Preparing AI Assistant...</p>
                     </div>
