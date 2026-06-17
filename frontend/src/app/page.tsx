@@ -598,51 +598,8 @@ export default function Home() {
                         {item.body_preview}
                       </p>
 
-                      {/* AI Summary Section */}
-                      {isExpanded && (
-                        <div className="border-t pt-4 mt-4">
-                          {isSummarizing ? (
-                            <div className="space-y-2">
-                              <Skeleton className="h-4 w-full" />
-                              <Skeleton className="h-4 w-5/6" />
-                              <Skeleton className="h-4 w-4/6" />
-                            </div>
-                          ) : summary ? (
-                            <div className="space-y-3">
-                              {/* Generation Metadata: AI + Model (left) and Time (right) */}
-                              <div className="flex justify-between items-center gap-2 flex-wrap">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="text-xs">
-                                    AI Summary
-                                  </Badge>
-                                  {summary.model && (
-                                    <span className="text-xs text-muted-foreground">
-                                      by {summary.model}
-                                    </span>
-                                  )}
-                                </div>
-                                {summary.generated_at && (
-                                  <span className="text-xs text-muted-foreground">
-                                    Last generated: {formatDateTime(summary.generated_at)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="prose prose-sm dark:prose-invert max-w-none">
-                                <ReactMarkdown>{summary.summary}</ReactMarkdown>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-                    </CardContent>
-                    <CardFooter className="flex justify-between items-center pt-0">
-                      {/* Related emails count (left side) */}
-                      {summary && summary.context_count > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
-                        </span>
-                      )}
-                      <div className="flex gap-2 ml-auto">
+                      {/* Action buttons — fixed above the summary so toggling Show/Hide never moves them */}
+                      <div className="flex gap-2 justify-end">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -660,7 +617,50 @@ export default function Home() {
                           {isSummarizing ? 'Summarizing...' : summary ? (isExpanded ? 'Hide Summary' : 'Show Summary') : 'Summarize with AI'} →
                         </Button>
                       </div>
-                    </CardFooter>
+
+                      {/* AI Summary Section */}
+                      {isExpanded && (
+                        <div className="border-t pt-3 mt-2">
+                          {isSummarizing ? (
+                            <div className="space-y-2">
+                              <Skeleton className="h-4 w-full" />
+                              <Skeleton className="h-4 w-5/6" />
+                              <Skeleton className="h-4 w-4/6" />
+                            </div>
+                          ) : summary ? (
+                            <div className="space-y-3">
+                              {/* Generation Metadata: AI + Model */}
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  AI Summary
+                                </Badge>
+                                {summary.model && (
+                                  <span className="text-xs text-muted-foreground">
+                                    by {summary.model}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="prose prose-sm dark:prose-invert max-w-none">
+                                <ReactMarkdown>{summary.summary}</ReactMarkdown>
+                              </div>
+                              {/* Related count (left) + last generated time (bottom-right) */}
+                              <div className="flex items-center gap-2 flex-wrap pt-1">
+                                {summary.context_count > 0 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                                {summary.generated_at && (
+                                  <span className="text-xs text-muted-foreground ml-auto">
+                                    Last generated: {formatDateTime(summary.generated_at)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </CardContent>
                   </Card>
                 );
               })
