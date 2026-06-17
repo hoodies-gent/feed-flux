@@ -81,6 +81,9 @@ export default function Home() {
   const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
   const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  // When an outside-interaction comes from the resize handle (not the backdrop), we flag the
+  // resulting close to be ignored — without preventDefault, which would abort the handle drag.
+  const ignoreDialogCloseRef = useRef(false);
 
   // Email Drafting State
   const [isDrafting, setIsDrafting] = useState(false);
@@ -766,14 +769,25 @@ export default function Home() {
       </div>
 
       {/* View Original Email Modal */}
-      <Dialog open={isEmailDetailOpen} onOpenChange={setIsEmailDetailOpen}>
+      <Dialog
+        open={isEmailDetailOpen}
+        onOpenChange={(open) => {
+          // Swallow the close that a resize-handle drag triggers; keep X / Escape / real backdrop click working.
+          if (!open && ignoreDialogCloseRef.current) {
+            ignoreDialogCloseRef.current = false;
+            return;
+          }
+          setIsEmailDetailOpen(open);
+        }}
+      >
         <DialogContent
           className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-background"
           onInteractOutside={(e) => {
-            // Allow clicking the blank backdrop to close, but don't let a resize-handle drag dismiss it
+            // Only a click on the blank backdrop should dismiss. For anything else (e.g. the resize
+            // handle), flag the close to be ignored — but do NOT preventDefault, or the drag aborts.
             const target = e.detail?.originalEvent?.target as HTMLElement | null;
-            if (target?.closest('[data-panel-resize-handle-id]')) {
-              e.preventDefault();
+            if (!target?.closest('[data-slot="dialog-overlay"]')) {
+              ignoreDialogCloseRef.current = true;
             }
           }}
         >
