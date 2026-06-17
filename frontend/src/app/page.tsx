@@ -11,7 +11,8 @@ import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDaily
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp, User } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type PanelImperativeHandle } from "react-resizable-panels";
@@ -44,6 +45,7 @@ export default function Home() {
   const [briefing, setBriefing] = useState<string | null>(null);
   const [isBriefingLoading, setIsBriefingLoading] = useState(true);
   const [briefingError, setBriefingError] = useState<string | null>(null);
+  const [isBriefingCollapsed, setIsBriefingCollapsed] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -443,55 +445,69 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-8 py-4 font-[family-name:var(--font-geist-sans)]">
-      <div className={`mx-auto flex gap-4 items-start transition-all duration-300 ${isChatOpen || isEmailDetailOpen ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
+    <div className="min-h-screen bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
+      <div className={`mx-auto flex gap-3 items-start transition-all duration-300 ${isChatOpen || isEmailDetailOpen ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
 
         {/* Left column: Feed */}
-        <main className="flex-1 min-w-0 space-y-8">
+        <main className="flex-1 min-w-0 space-y-3">
 
           {/* Header & Omnibar */}
-          <header className="flex flex-col gap-6 mb-8">
+          <header className="flex flex-col gap-2 mb-0">
             <div className="flex justify-between items-center">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight text-foreground">FeedFlux</h1>
-                <p className="text-muted-foreground mt-1">Your Intelligent Email Digest</p>
+                <p className="text-muted-foreground text-sm">Your Intelligent Email Digest</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Button
-                  variant="outline"
-                  onClick={() => loadFeed(debouncedQuery)}
-                  disabled={loading || isSyncing}
-                >
-                  {loading ? 'Loading...' : 'Reload Local Data'}
-                </Button>
-                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground"
                   onClick={handleSync}
                   disabled={isSyncing}
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? 'Syncing...' : 'Sync from Outlook'}
+                  <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Syncing...' : 'Sync'}
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      title="Dev menu"
+                    >
+                      <User className="w-4 h-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => loadFeed(debouncedQuery)}
+                      disabled={loading || isSyncing}
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      {loading ? 'Loading...' : 'Reload Local Data'}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
-            {/* Omnibar (Search & Eventually Ask AI) */}
-            <div className="flex gap-3 w-full">
+            {/* Omnibar (Search & Ask AI) */}
+            <div className="flex gap-2 w-full">
               <div className="relative w-full shadow-sm rounded-md">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-muted-foreground" />
+                  <Search className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <Input
                   type="text"
                   placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                  className="pl-10 pr-4 py-6 w-full text-base bg-card"
+                  className="pl-9 pr-4 py-2 w-full text-sm bg-card"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              {/* Ask AI Trigger - Minimalist Outline Variant */}
               <Button
                 variant="outline"
-                className="h-auto py-0 px-6 transition-all font-medium whitespace-nowrap"
+                className="px-4 whitespace-nowrap"
                 onClick={() => {
                   setIsChatOpen(true);
                   if (searchQuery.trim()) {
@@ -500,7 +516,7 @@ export default function Home() {
                   }
                 }}
               >
-                <Sparkles className="w-4 h-4 mr-2" />
+                <Sparkles className="w-4 h-4 mr-1.5" />
                 Ask AI
               </Button>
             </div>
@@ -508,28 +524,39 @@ export default function Home() {
 
           {/* Daily Briefing Banner */}
           {!debouncedQuery && (
-            <div className="mb-8 p-6 rounded-2xl bg-muted text-foreground border">
-              <div className="flex items-center gap-3 mb-4">
-                <Sparkles className="h-6 w-6 text-foreground" />
-                <h2 className="text-xl font-bold tracking-tight">Morning Intelligence Briefing</h2>
+            <div className="mt-4 rounded-xl bg-muted text-foreground border">
+              <div className="flex items-center gap-2 p-4 pb-3">
+                <Sparkles className="h-5 w-5 text-foreground shrink-0" />
+                <h2 className="text-base font-semibold tracking-tight flex-1">Morning Intelligence Briefing</h2>
+                <button
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  onClick={() => setIsBriefingCollapsed(c => !c)}
+                  title={isBriefingCollapsed ? 'Expand' : 'Collapse'}
+                >
+                  {isBriefingCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                </button>
               </div>
 
-              {isBriefingLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-3/4 bg-foreground/10" />
-                  <Skeleton className="h-4 w-full bg-foreground/10" />
-                  <Skeleton className="h-4 w-5/6 bg-foreground/10" />
+              {!isBriefingCollapsed && (
+                <div className="px-4 pb-4">
+                  {isBriefingLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-3/4 bg-foreground/10" />
+                      <Skeleton className="h-4 w-full bg-foreground/10" />
+                      <Skeleton className="h-4 w-5/6 bg-foreground/10" />
+                    </div>
+                  ) : briefingError ? (
+                    <div className="bg-destructive/10 p-3 rounded-lg">
+                      <div className="text-destructive text-sm">{briefingError}</div>
+                    </div>
+                  ) : briefing ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown>{briefing}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">No briefing available today.</p>
+                  )}
                 </div>
-              ) : briefingError ? (
-                <div className="bg-destructive/10 p-4 rounded-lg flex items-start gap-3">
-                  <div className="text-destructive text-sm">{briefingError}</div>
-                </div>
-              ) : briefing ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown>{briefing}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-muted-foreground">No briefing available today.</p>
               )}
             </div>
           )}
@@ -664,7 +691,7 @@ export default function Home() {
 
         {/* Right column: AI Sidebar (Multi-Turn Chat) */}
         {isChatOpen && (
-          <aside className="order-2 w-[450px] shrink-0 h-[calc(100vh-2rem)] sticky top-4 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          <aside className="order-2 w-[450px] shrink-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
             {/* Header */}
             <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
@@ -764,7 +791,7 @@ export default function Home() {
         )}
         {/* Right column: Email reading pane (master-detail) */}
         {isEmailDetailOpen && (
-          <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-2rem)] sticky top-4 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
             <div className="p-6 border-b border-border bg-muted/30 shrink-0">
               <div className="flex items-start justify-between gap-3">
                 <h2 className="text-xl font-semibold text-foreground">
