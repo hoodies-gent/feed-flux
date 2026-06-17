@@ -580,7 +580,8 @@ export default function Home() {
                 return (
                   <Card
                     key={item.id}
-                    className="py-4 gap-3 hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-primary"
+                    onClick={() => handleOpenEmailDetail(item.id)}
+                    className="py-4 gap-3 cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-primary"
                   >
                     <CardHeader>
                       <div className="flex justify-between items-start gap-4">
@@ -598,15 +599,9 @@ export default function Home() {
                         {item.body_preview}
                       </p>
 
-                      {/* Action buttons — fixed above the summary so toggling Show/Hide never moves them */}
-                      <div className="flex gap-2 justify-end">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenEmailDetail(item.id)}
-                        >
-                          Read Original ↗
-                        </Button>
+                      {/* Action button — fixed above the summary so toggling Show/Hide never moves it.
+                          stopPropagation so it doesn't trigger the card's open-original click. */}
+                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -618,9 +613,9 @@ export default function Home() {
                         </Button>
                       </div>
 
-                      {/* AI Summary Section */}
+                      {/* AI Summary Section — stopPropagation so reading/selecting the summary doesn't open the original */}
                       {isExpanded && (
-                        <div className="border-t pt-3 mt-2">
+                        <div className="border-t pt-3 mt-2" onClick={(e) => e.stopPropagation()}>
                           {isSummarizing ? (
                             <div className="space-y-2">
                               <Skeleton className="h-4 w-full" />
@@ -775,8 +770,11 @@ export default function Home() {
         <DialogContent
           className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-background"
           onInteractOutside={(e) => {
-            // Prevent dragging the resize handle outside the modal from closing it
-            e.preventDefault();
+            // Allow clicking the blank backdrop to close, but don't let a resize-handle drag dismiss it
+            const target = e.detail?.originalEvent?.target as HTMLElement | null;
+            if (target?.closest('[data-panel-resize-handle-id]')) {
+              e.preventDefault();
+            }
           }}
         >
           <DialogHeader className="p-6 border-b border-border bg-muted/30 shrink-0">
