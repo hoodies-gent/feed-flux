@@ -13,7 +13,6 @@ import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
 import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type PanelImperativeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
@@ -81,9 +80,6 @@ export default function Home() {
   const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
   const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
-  // When an outside-interaction comes from the resize handle (not the backdrop), we flag the
-  // resulting close to be ignored — without preventDefault, which would abort the handle drag.
-  const ignoreDialogCloseRef = useRef(false);
 
   // Email Drafting State
   const [isDrafting, setIsDrafting] = useState(false);
@@ -447,8 +443,8 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8 font-[family-name:var(--font-geist-sans)]">
-      <div className={`mx-auto flex gap-8 items-start transition-all duration-300 ${isChatOpen ? 'max-w-[1400px]' : 'max-w-4xl'}`}>
+    <div className="min-h-screen bg-background px-8 py-4 font-[family-name:var(--font-geist-sans)]">
+      <div className={`mx-auto flex gap-4 items-start transition-all duration-300 ${isChatOpen || isEmailDetailOpen ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
 
         {/* Left column: Feed */}
         <main className="flex-1 min-w-0 space-y-8">
@@ -668,7 +664,7 @@ export default function Home() {
 
         {/* Right column: AI Sidebar (Multi-Turn Chat) */}
         {isChatOpen && (
-          <aside className="w-[450px] shrink-0 h-[calc(100vh-4rem)] sticky top-8 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          <aside className="order-2 w-[450px] shrink-0 h-[calc(100vh-2rem)] sticky top-4 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
             {/* Header */}
             <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
@@ -766,45 +762,34 @@ export default function Home() {
             </div>
           </aside>
         )}
-      </div>
-
-      {/* View Original Email Modal */}
-      <Dialog
-        open={isEmailDetailOpen}
-        onOpenChange={(open) => {
-          // Swallow the close that a resize-handle drag triggers; keep X / Escape / real backdrop click working.
-          if (!open && ignoreDialogCloseRef.current) {
-            ignoreDialogCloseRef.current = false;
-            return;
-          }
-          setIsEmailDetailOpen(open);
-        }}
-      >
-        <DialogContent
-          className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden bg-background"
-          onInteractOutside={(e) => {
-            // Only a click on the blank backdrop should dismiss. For anything else (e.g. the resize
-            // handle), flag the close to be ignored — but do NOT preventDefault, or the drag aborts.
-            const target = e.detail?.originalEvent?.target as HTMLElement | null;
-            if (!target?.closest('[data-slot="dialog-overlay"]')) {
-              ignoreDialogCloseRef.current = true;
-            }
-          }}
-        >
-          <DialogHeader className="p-6 border-b border-border bg-muted/30 shrink-0">
-            <DialogTitle className="text-xl font-semibold text-foreground pr-8">
-              {emailDetailData?.subject || "Loading..."}
-            </DialogTitle>
+        {/* Right column: Email reading pane (master-detail) */}
+        {isEmailDetailOpen && (
+          <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-2rem)] sticky top-4 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-border bg-muted/30 shrink-0">
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-xl font-semibold text-foreground">
+                  {emailDetailData?.subject || "Loading..."}
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 -mr-2 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsEmailDetailOpen(false)}
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
             {emailDetailData && (
               <div className="text-sm text-muted-foreground mt-2 flex items-center justify-between">
                 <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
                 <span>{formatDateTime(emailDetailData.received_datetime)}</span>
               </div>
             )}
-          </DialogHeader>
-          {/* Resizable Container wrapping Body & Action Panel */}
-          <div className="flex-1 w-full bg-muted overflow-hidden relative">
-            <ResizablePanelGroup id="email-dialog-group" orientation="vertical">
+            </div>
+            {/* Resizable Container wrapping Body & Action Panel */}
+            <div className="flex-1 w-full bg-muted overflow-hidden relative">
+              <ResizablePanelGroup id="email-detail-group" orientation="vertical">
 
               {/* TOP PANEL: Original Email */}
               <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-background flex flex-col relative pb-4">
@@ -912,9 +897,10 @@ export default function Home() {
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </div>
+          </section>
+        )}
+      </div>
     </div >
   );
 }
