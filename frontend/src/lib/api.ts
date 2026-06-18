@@ -107,6 +107,65 @@ export async function askInbox(query: string, chatHistory: ChatMessageItem[] = [
     return response.json();
 }
 
+export interface ChatStreamCallbacks {
+    onToken: (text: string) => void;
+    onSources: (sources: SourceItem[]) => void;
+}
+
+/**
+ * Streaming variant of askInbox. Reads newline-delimited JSON events from the
+ * backend and invokes callbacks as the answer is generated.
+ */
+export async function askInboxStream(
+    query: string,
+    chatHistory: ChatMessageItem[] = [],
+    callbacks: ChatStreamCallbacks
+): Promise<void> {
+    const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query, chat_history: chatHistory }),
+    });
+
+    if (!response.ok || !response.body) {
+        throw new Error(`Failed to get answer: ${response.statusText}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const handleLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const event = JSON.parse(trimmed);
+        if (event.type === 'token') {
+            callbacks.onToken(event.content);
+        } else if (event.type === 'sources') {
+            callbacks.onSources(event.sources);
+        } else if (event.type === 'error') {
+            throw new Error(event.content);
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+            handleLine(line);
+        }
+    }
+
+    if (buffer) {
+        handleLine(buffer);
+    }
+}
+
 /**
  * Full Email Details
  */

@@ -202,3 +202,137 @@ class ContentSummarizer:
                  "sources": []
              }
 
+    def answer_question_stream(self, query: str, memory_service, chat_history: list = None):
+        """
+        Streaming variant of answer_question. Yields NDJSON-friendly event dicts:
+          {"type": "token", "content": "..."}  -> incremental answer text
+          {"type": "sources", "sources": [...]} -> cited sources (emitted once, at the end)
+          {"type": "error", "content": "..."}  -> user-friendly error message
+        Unlike answer_question, the model streams plain markdown for the answer, then emits
+        the cited source ids after a sentinel delimiter so the answer can be shown live.
+        """
+        if not query:
+            yield {"type": "token", "content": "Ask me anything!"}
+            yield {"type": "sources", "sources": []}
+            return
+
+        logger.info(f"Answering query (stream): {query}")
+
+        # 1. Retrieve relevant context
+        results = memory_service.query_related(query_text=query, n_results=3)
+
+        sources = []
+        context_block = ""
+
+        if results and results.get('documents') and len(results['documents'][0]) > 0:
+            docs = results['documents'][0]
+            metadatas = results['metadatas'][0]
+            ids = results['ids'][0]
+
+            context_items = []
+            for doc, meta, doc_id in zip(docs, metadatas, ids):
+                subject = meta.get('subject', 'Unknown Subject')
+                sender = meta.get('sender', 'Unknown Sender')
+                context_items.append(f"<source_email id='{doc_id}' subject='{subject}' sender='{sender}'>\n{doc}\n</source_email>")
+
+                sources.append({
+                    "id": doc_id,
+                    "subject": subject,
+                    "snippet": doc[:200] + "..." if len(doc) > 200 else doc
+                })
+
+            context_block = "\n".join(context_items)
+
+        if not context_block:
+            yield {"type": "token", "content": "I couldn't find any relevant emails in your inbox to answer this question."}
+            yield {"type": "sources", "sources": []}
+            return
+
+        # 2. Construct Prompt (plain markdown answer + sentinel-delimited cited ids)
+        DELIM = "###SOURCES###"
+        system_prompt = (
+            "You are an intelligent inbox assistant answering the user's question based strictly on their email history.\n"
+            "Below are relevant email snippets from the user's inbox enclosed in <source_email> tags.\n\n"
+            f"{context_block}\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Answer the user's question concisely in Markdown using ONLY the provided email sources.\n"
+            "2. CRITICAL: Some or all of the provided sources may be IRRELEVANT to the user's question. You MUST completely ignore irrelevant sources. Do not force a connection.\n"
+            "3. If the answer cannot be confidently determined from the relevant sources, say explicitly: 'I couldn't find any relevant emails regarding this.' Do not guess or rely on external knowledge.\n"
+            f"4. After your answer, output a line containing exactly the marker {DELIM} on its own, followed by a comma-separated list of the string IDs of the <source_email> tags you actually used. If you used none, output the marker with nothing after it.\n"
+            f"   Example:\n   <your markdown answer>\n   {DELIM}id1,id2\n"
+            "Output the markdown answer first; do not mention the marker in your answer text."
+        )
+
+        history_block = ""
+        if chat_history:
+            history_lines = []
+            for msg in chat_history:
+                role = msg.role if hasattr(msg, 'role') else msg.get('role', 'user')
+                content = msg.content if hasattr(msg, 'content') else msg.get('content', '')
+                history_lines.append(f"{'User' if role == 'user' else 'Assistant'}: {content}")
+
+            if history_lines:
+                history_block = "PREVIOUS EXCHANGES IN THIS CONVERSATION:\n" + "\n".join(history_lines) + "\n\n"
+
+        prompt = f"{system_prompt}\n\n{history_block}User Question: {query}\n\nAssistant Response:"
+
+        # 3. Stream answer, buffering anything that could be a partial delimiter
+        try:
+            response = self.model.generate_content(prompt, stream=True)
+
+            buffer = ""
+            post_delim = ""
+            found_delim = False
+            hold = len(DELIM) - 1  # keep this many trailing chars in case they start the delimiter
+
+            for chunk in response:
+                try:
+                    text = chunk.text or ""
+                except Exception:
+                    text = ""
+                if not text:
+                    continue
+
+                if found_delim:
+                    post_delim += text
+                    continue
+
+                buffer += text
+                if DELIM in buffer:
+                    pre, rest = buffer.split(DELIM, 1)
+                    if pre:
+                        yield {"type": "token", "content": pre}
+                    post_delim += rest
+                    found_delim = True
+                    buffer = ""
+                elif len(buffer) > hold:
+                    emit = buffer[:-hold] if hold else buffer
+                    if emit:
+                        yield {"type": "token", "content": emit}
+                    buffer = buffer[-hold:] if hold else ""
+
+            # Flush any held-back answer text if the delimiter never appeared
+            if not found_delim and buffer:
+                yield {"type": "token", "content": buffer}
+
+            # 4. Resolve cited sources
+            if found_delim:
+                used_ids = [x.strip() for x in post_delim.replace("\n", ",").split(",") if x.strip()]
+                filtered_sources = [s for s in sources if s["id"] in used_ids]
+            else:
+                # Model didn't follow the format; fall back to all retrieved sources.
+                filtered_sources = sources
+
+            yield {"type": "sources", "sources": filtered_sources}
+
+        except Exception as e:
+            error_str = str(e).lower()
+            logger.error(f"Failed to stream answer for query '{query}': {e}")
+
+            if "429" in error_str or "quota" in error_str:
+                friendly_msg = "I'm sorry, the AI service is currently busy or has reached its rate limit. Please try again later."
+            else:
+                friendly_msg = "I'm sorry, I encountered an internal error while trying to answer your question. Please try again later."
+
+            yield {"type": "error", "content": friendly_msg}
+

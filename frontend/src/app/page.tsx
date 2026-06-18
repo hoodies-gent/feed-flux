@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInbox, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInboxStream, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
@@ -109,14 +109,28 @@ export default function Home() {
     setChatMessages(prev => [...prev, newUserMsg, loadingAiMsg]);
 
     try {
-      const result = await askInbox(query, historyToSend);
-      setChatMessages(prev =>
-        prev.map(msg =>
-          msg.id === loadingAiMsg.id
-            ? { ...msg, content: result.answer, sources: result.sources, isLoading: false }
-            : msg
-        )
-      );
+      let streamedContent = '';
+      await askInboxStream(query, historyToSend, {
+        onToken: (text) => {
+          streamedContent += text;
+          setChatMessages(prev =>
+            prev.map(msg =>
+              msg.id === loadingAiMsg.id
+                ? { ...msg, content: streamedContent, isLoading: false }
+                : msg
+            )
+          );
+        },
+        onSources: (sources) => {
+          setChatMessages(prev =>
+            prev.map(msg =>
+              msg.id === loadingAiMsg.id
+                ? { ...msg, sources, isLoading: false }
+                : msg
+            )
+          );
+        },
+      });
     } catch (err) {
       toast.error('Failed to get answer from AI');
       setChatMessages(prev =>

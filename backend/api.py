@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
+import json
 import logging
 from app.core.config import Config
 from app.services.fetcher import OutlookFetcher
@@ -370,6 +372,30 @@ async def chat_with_inbox(request: ChatRequest):
     except Exception as e:
         logger.error(f"Chat failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat/stream")
+async def chat_with_inbox_stream(request: ChatRequest):
+    """
+    Streaming variant of /api/chat. Emits newline-delimited JSON events
+    (token / sources / error) so the frontend can render the answer live.
+    """
+    summarizer = ContentSummarizer()
+    memory = MemoryService()
+
+    def event_stream():
+        try:
+            for event in summarizer.answer_question_stream(
+                request.query, memory, chat_history=request.chat_history
+            ):
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            logger.error(f"Chat stream failed: {e}")
+            yield json.dumps({
+                "type": "error",
+                "content": "I'm sorry, I encountered an internal error. Please try again later.",
+            }) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 @app.post("/api/draft_reply")
 async def generate_draft_reply(request: DraftRequest):
