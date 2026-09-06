@@ -61,3 +61,15 @@ data/vector_db/
 # Global Ignores
 .DS_Store
 node_modules/
+
+# Claude Code
+.claude/
+
+# Dev-only compose overrides
+docker-compose.override.yml
+
+# Workspace-only docs (not committed per project convention)
+docs/
+
+# Git worktrees (project-local worktree dir)
+.worktree/
