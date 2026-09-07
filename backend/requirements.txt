@@ -9,3 +9,6 @@ fastapi
 uvicorn
 tenacity
 langchain-text-splitters
+langgraph
+langchain-openai
+langchain-google-genai

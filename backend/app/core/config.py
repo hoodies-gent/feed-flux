@@ -37,9 +37,11 @@ class Config:
 
     SYNC_INTERVAL_SECONDS = 900
 
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    DEEPSEEK_MODEL_NAME = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
 
     # AI Feature Flags & Configs
     CUSTOM_SUMMARY_PROMPT = os.getenv("CUSTOM_SUMMARY_PROMPT")  # Optional user-defined instructions for summarization
@@ -73,8 +75,8 @@ class Config:
         """
         Validates critical configuration.
         """
-        if cls.LLM_PROVIDER not in ["gemini", "openai"]:
-            print(f"Error: Unsupported LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be 'gemini' or 'openai'.", file=sys.stderr)
+        if cls.LLM_PROVIDER not in ["deepseek", "gemini"]:
+            print(f"Error: Unsupported LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be 'deepseek' or 'gemini'.", file=sys.stderr)
         
         if not cls.MS_CLIENT_ID:
              print("Warning: MS_CLIENT_ID not found in environment variables. Auth will fail.", file=sys.stderr)
