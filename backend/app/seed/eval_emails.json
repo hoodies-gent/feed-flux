@@ -1,0 +1,146 @@
+[
+  {
+    "id": "eval-mtg-001",
+    "category": "meeting-request",
+    "subject": "Kickoff meeting for the pricing revamp — Tue 10:00 PT",
+    "sender_name": "Dana Rivera",
+    "sender_email": "dana.rivera@acme.co",
+    "received_datetime": "2026-08-31T09:00:00Z",
+    "body_preview": "Proposing a 45-min kickoff Tue Sep 1 at 10:00 PT. Please confirm or suggest another slot.",
+    "body_content": "Hi,\n\nProposing a 45-min kickoff for the pricing revamp:\n\nWhen: Tuesday Sep 1, 10:00–10:45 PT\nWhere: https://meet.acme.co/pricing-kickoff\nAttendees: you, me, Ravi (finance), Priya (design)\n\nAgenda:\n 1. Current pricing pain points\n 2. Scope of the revamp\n 3. Timeline and owners\n\nPlease confirm or propose another slot.\n\nDana",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "draft_reply",
+      "params": {"intent": "accept"},
+      "rationale": "Direct 1-on-1 meeting invite with an explicit confirm/propose ask. No conflict signal present."
+    }
+  },
+  {
+    "id": "eval-mtg-002",
+    "category": "meeting-request",
+    "subject": "Design review — Thu 14:00 PT (conflicts with your standing 1:1)",
+    "sender_name": "Priya Nair",
+    "sender_email": "priya.nair@acme.co",
+    "received_datetime": "2026-08-31T11:30:00Z",
+    "body_preview": "Trying to fit the design review Thu 14:00 but I see this conflicts with your 1:1 with Sarah — happy to move.",
+    "body_content": "Hi,\n\nTrying to slot the Atlas dashboard design review at Thursday 14:00 PT, but I see on the shared calendar this conflicts with your standing 1:1 with Sarah.\n\nHappy to move if you can suggest 2–3 other times that work this week. If it’s easier, Fri morning is wide open on my side.\n\nPriya",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "draft_reply",
+      "params": {"intent": "propose_new_time"},
+      "rationale": "Sender explicitly acknowledges a calendar conflict and asks the recipient to propose alternate times."
+    }
+  },
+  {
+    "id": "eval-proj-001",
+    "category": "project-update",
+    "subject": "[Atlas] Long-form status — weeks of Aug 18 & Aug 25",
+    "sender_name": "Marcus Patel",
+    "sender_email": "marcus.patel@acme.co",
+    "received_datetime": "2026-08-30T22:00:00Z",
+    "body_preview": "Combined 2-week status since I skipped last Friday. Migration at 82%, two blockers, launch shift proposal at bottom.",
+    "body_content": "Combined two-week engineering status — I skipped last Friday’s update while I was traveling.\n\nWeek of Aug 18\n • Migration script went from 34% to 61% of prod tables.\n • Shadow-read comparison job stood up on staging.\n • Onboarded Rohit to the migration team; he owns the collation workstream now.\n • Design partnership on the dashboard v2 started with Priya.\n\nWeek of Aug 25\n • Migration script now at 82%.\n • Two blockers surfaced (see below).\n • Dashboard v2 handoff-ready as of Thursday.\n • Load-test rehearsal planned for next week on staging.\n\nBlockers\n 1. payments.subscription_events collation mismatch — Rohit has a draft PR (#412), ETA Tuesday.\n 2. Legal has not signed off on data-at-rest change for the EU shard — Sarah is chasing; risk is 3–5 days.\n\nProposal on timeline\nGiven blocker #2 in particular, I think we should move the Sep 28 launch to Oct 12. Two-week buffer covers the legal turnaround and gives us a full rehearsal week after the collation fix. Sarah agrees; would like to confirm at Monday’s sync.\n\nAsk\nPlease read before Monday and flag anything you disagree with.\n\nMarcus",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "summarize",
+      "params": {},
+      "rationale": "Long-form multi-section status update — canonical case for the summarize tool."
+    }
+  },
+  {
+    "id": "eval-news-001",
+    "category": "newsletter",
+    "subject": "TechDigest Weekly — Aug 31: The state of AI agents",
+    "sender_name": "TechDigest",
+    "sender_email": "hello@techdigest.io",
+    "received_datetime": "2026-08-31T13:00:00Z",
+    "body_preview": "This week: AI agent frameworks compared, WebGPU hits 90% coverage, and why your on-call is broken.",
+    "body_content": "TechDigest Weekly — Aug 31\n\nTop reads this week:\n • The state of AI agents in 2026 — survey of 8 frameworks\n • WebGPU crosses 90% browser coverage\n • Why your on-call rotation is broken\n\nAlso: Postgres 18 GA, eBPF for app tracing, 5 CLI tools we love.\n\nUnsubscribe: https://techdigest.io/prefs",
+    "body_html": null,
+    "is_read": true,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "label",
+      "params": {"label": "newsletter"},
+      "rationale": "Third-party newsletter with unsubscribe link and no personal ask — should be labeled and out of the primary inbox flow."
+    }
+  },
+  {
+    "id": "eval-todo-001",
+    "category": "action-todo",
+    "subject": "Reminder: Q3 expense report due Fri Aug 29",
+    "sender_name": "Acme Finance",
+    "sender_email": "finance-noreply@acme.co",
+    "received_datetime": "2026-08-29T14:00:00Z",
+    "body_preview": "Your Q3 expense report is due this Friday. 4 unfiled items totalling $312.40.",
+    "body_content": "Hi,\n\nReminder — Q3 expense report due Friday Aug 29 EOD.\n\nUnfiled receipts: 4 items totalling $312.40.\nFile here: https://expense.acme.co/report/new\n\nAnything filed after Friday rolls into Q4.\n\n— Acme Finance",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "snooze",
+      "params": {"until": "next_monday_09:00_local"},
+      "rationale": "Concrete personal action item with a near deadline arriving on a Friday evening — snoozing to Monday morning is the highest-utility default."
+    }
+  },
+  {
+    "id": "eval-fu-001",
+    "category": "follow-up",
+    "subject": "Second follow-up — BlueSky proposal (any update?)",
+    "sender_name": "Alex Novak",
+    "sender_email": "alex.novak@bluesky-inc.com",
+    "received_datetime": "2026-08-31T17:20:00Z",
+    "body_preview": "Sorry to nudge — this is my second follow-up. Our internal review is Friday and I want to represent Acme accurately.",
+    "body_content": "Hi,\n\nApologies for the second nudge — I know inboxes are chaotic.\n\nOur internal partnership review is this Friday and I’d like to represent Acme accurately. Even a quick ‘yes we’re interested, targeting Sep 8 to reply’ would let me hold the slot.\n\nIf we’re not the right fit right now, just tell me — I promise I won’t take it personally.\n\nBest,\nAlex",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "draft_reply",
+      "params": {"intent": "acknowledge_delay"},
+      "rationale": "External sender's second follow-up citing a specific deadline. Highest-utility response is a brief acknowledgment with a committed next-step date, not silence and not a full substantive reply."
+    }
+  },
+  {
+    "id": "eval-proj-002",
+    "category": "project-update",
+    "subject": "URGENT: prod migration dry-run failed on payments shard",
+    "sender_name": "Rohit Kumar",
+    "sender_email": "rohit.kumar@acme.co",
+    "received_datetime": "2026-08-31T04:47:00Z",
+    "body_preview": "Overnight rehearsal failed at row 3.2M with a FK violation we haven’t seen before. Need eyes ASAP.",
+    "body_content": "Hi,\n\nOvernight prod-mirror rehearsal of the Atlas migration failed at row ~3.2M with a foreign-key violation we haven’t seen in staging.\n\n • Failing table: payments.subscription_events\n • Failing FK: fk_subscription_events_customer_id\n • Reproduces on the second dry-run\n • The collation fix (PR #412) is deployed — this is a different issue\n\nI’ve paused the rehearsal cluster. Need someone with historical context on the customer_id backfill from 2023 to weigh in before we retry.\n\nCalling this urgent because our launch buffer is already thin. Full logs in the thread.\n\nRohit",
+    "body_html": null,
+    "is_read": false,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "summarize",
+      "params": {"flag_urgent": true},
+      "rationale": "Multi-signal urgent operational incident — should be summarized AND flagged, not just labeled."
+    }
+  },
+  {
+    "id": "eval-mtg-003",
+    "category": "meeting-request",
+    "subject": "Cancelled: Lunch & Learn — Postgres row-level security",
+    "sender_name": "Acme Learning",
+    "sender_email": "learning@acme.co",
+    "received_datetime": "2026-08-29T18:00:00Z",
+    "body_preview": "This week’s Lunch & Learn is cancelled — speaker is out sick. Will reschedule.",
+    "body_content": "Heads up — this Friday’s Lunch & Learn on Postgres row-level security is cancelled. Our speaker is out sick.\n\nWe’ll send a new date once confirmed, likely the week of Sep 15.\n\n— Acme Learning",
+    "body_html": null,
+    "is_read": true,
+    "has_attachments": false,
+    "expected_agent_action": {
+      "tool": "label",
+      "params": {"label": "calendar_update"},
+      "rationale": "Informational calendar-change notice, no reply expected — label + let it fall out of the primary flow."
+    }
+  }
+]
