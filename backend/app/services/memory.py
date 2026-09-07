@@ -40,20 +40,20 @@ class MemoryService:
     """
     Manages the Vector Database (ChromaDB) for storing and retrieving email context.
     """
-    def __init__(self):
-        self.persist_dir = str(Config.DATA_DIR / "vector_db")
+    def __init__(self, collection_name: str = "email_context", persist_subdir: str = "vector_db"):
+        self.persist_dir = str(Config.DATA_DIR / persist_subdir)
         self.client = chromadb.PersistentClient(path=self.persist_dir)
-        
+
         # Initialize Gemini Embedding Function
         self.embedding_fn = GeminiEmbeddingFunction()
-        
+
         # Get or Create Collection
         self.collection = self.client.get_or_create_collection(
-            name="email_context",
+            name=collection_name,
             embedding_function=self.embedding_fn,
             metadata={"description": "Email summaries and content for RAG"}
         )
-        logger.info(f"MemoryService initialized. Vector DB at: {self.persist_dir}")
+        logger.info(f"MemoryService initialized. Vector DB at: {self.persist_dir} (collection={collection_name})")
 
     def add_email(self, email_id: str, text: str, metadata: dict):
         """
