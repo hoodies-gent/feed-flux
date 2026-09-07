@@ -57,6 +57,7 @@ backend/temp/
 # Output Artifacts
 data/digests/
 data/vector_db/
+data/vector_db_eval/
 
 # Global Ignores
 .DS_Store
