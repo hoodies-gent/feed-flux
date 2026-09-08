@@ -7,11 +7,11 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askInboxStream, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks } from '@/lib/api';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp, User } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp, User, Cpu, Wrench, Hand } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -24,6 +24,82 @@ interface ChatMessage {
   content: string;
   sources?: SourceItem[];
   isLoading?: boolean;
+  trace?: TraceEvent[];
+  pendingInterrupt?: InterruptEvent;
+}
+
+function AgentTracePanel({ trace }: { trace: TraceEvent[] }) {
+  const [open, setOpen] = useState(true);
+  const visible = trace.filter(t => t.step === 'tool_start' || t.step === 'tool_end');
+  if (visible.length === 0) return null;
+  const summary = `Agent thinking · ${visible.length} step${visible.length === 1 ? '' : 's'}`;
+  return (
+    <div className="w-[90%] rounded-lg border border-dashed border-border bg-muted/40 text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Cpu className="w-3.5 h-3.5" />
+        <span className="flex-1 text-left font-medium">{summary}</span>
+        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+      </button>
+      {open && (
+        <ul className="px-3 pb-2 space-y-1 font-mono text-[11px] text-muted-foreground">
+          {visible.map((t, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
+              <span className="break-all">
+                {t.step === 'tool_start' && `${t.tool}(${t.args ? JSON.stringify(t.args) : ''})`}
+                {t.step === 'tool_end' && `${t.tool} → ${t.output ?? ''}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function InterruptApprovalCard({
+  interrupt,
+  disabled,
+  onDecide,
+}: {
+  interrupt: InterruptEvent;
+  disabled: boolean;
+  onDecide: (approve: boolean, note?: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  return (
+    <div className="w-[90%] mt-1 rounded-xl border border-border bg-card p-3 space-y-2">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Hand className="w-4 h-4" />
+        <span className="text-xs font-medium">Agent is waiting for your confirmation</span>
+      </div>
+      <div className="text-xs text-foreground">
+        About to run <code className="px-1 py-0.5 rounded bg-muted text-[11px]">{interrupt.tool}</code> with:
+      </div>
+      <pre className="text-[11px] bg-muted rounded p-2 overflow-x-auto max-w-full whitespace-pre-wrap break-all">
+        {JSON.stringify(interrupt.args, null, 2)}
+      </pre>
+      <Input
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        placeholder="Optional note to the agent (e.g. why you're declining)"
+        className="h-8 text-xs bg-background"
+        disabled={disabled}
+      />
+      <div className="flex gap-2 justify-end">
+        <Button size="sm" variant="outline" disabled={disabled} onClick={() => onDecide(false, note.trim() || undefined)}>
+          Decline
+        </Button>
+        <Button size="sm" disabled={disabled} onClick={() => onDecide(true, note.trim() || undefined)}>
+          Confirm
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -48,9 +124,10 @@ export default function Home() {
   const [isBriefingCollapsed, setIsBriefingCollapsed] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [threadId, setThreadId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load chat history from LocalStorage strictly on client-side mount
+  // Load chat history + thread id from LocalStorage strictly on client-side mount
   useEffect(() => {
     const saved = localStorage.getItem('feedflux_chat_history');
     if (saved) {
@@ -60,15 +137,18 @@ export default function Home() {
         console.error('Failed to parse persistent chat history', e);
       }
     }
+    const savedThread = localStorage.getItem('feedflux_thread_id');
+    setThreadId(savedThread || crypto.randomUUID());
     setIsChatLoaded(true);
   }, []);
 
-  // Save chat history to LocalStorage whenever it changes
+  // Save chat history + thread id to LocalStorage whenever they change
   useEffect(() => {
     if (isChatLoaded) {
       localStorage.setItem('feedflux_chat_history', JSON.stringify(chatMessages));
+      localStorage.setItem('feedflux_thread_id', threadId);
     }
-  }, [chatMessages, isChatLoaded]);
+  }, [chatMessages, threadId, isChatLoaded]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -89,6 +169,33 @@ export default function Home() {
   const [customDraftPrompt, setCustomDraftPrompt] = useState('');
   const [draftCopied, setDraftCopied] = useState(false);
 
+  const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
+    return {
+      onTrace: (t) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, trace: [...(msg.trace ?? []), t] } : msg
+        ));
+      },
+      onToken: (text) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, content: (msg.content ?? '') + text, isLoading: false } : msg
+        ));
+      },
+      onInterrupt: (i) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, pendingInterrupt: i, isLoading: false } : msg
+        ));
+      },
+      onDone: () => {},
+      onError: (msg) => {
+        toast.error(msg);
+        setChatMessages(prev => prev.map(m =>
+          m.id === targetMsgId ? { ...m, content: (m.content || '') + `\n\n_Error: ${msg}_`, isLoading: false } : m
+        ));
+      },
+    };
+  };
+
   const handleSendChatMessage = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!chatInput.trim() || isSendingChat) return;
@@ -97,52 +204,46 @@ export default function Home() {
     setChatInput('');
     setIsSendingChat(true);
 
-    const newUserMsg: ChatMessage = { id: Date.now().toString(), role: 'user', content: query };
-    const loadingAiMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'assistant', content: '', isLoading: true };
-
-    // Map conversation context for the backend
-    const historyToSend = chatMessages.map(m => ({
-      role: m.role,
-      content: m.content
-    }));
-
-    setChatMessages(prev => [...prev, newUserMsg, loadingAiMsg]);
+    const userMsgId = crypto.randomUUID();
+    const aiMsgId = crypto.randomUUID();
+    setChatMessages(prev => [
+      ...prev,
+      { id: userMsgId, role: 'user', content: query },
+      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, trace: [] },
+    ]);
 
     try {
-      let streamedContent = '';
-      await askInboxStream(query, historyToSend, {
-        onToken: (text) => {
-          streamedContent += text;
-          setChatMessages(prev =>
-            prev.map(msg =>
-              msg.id === loadingAiMsg.id
-                ? { ...msg, content: streamedContent, isLoading: false }
-                : msg
-            )
-          );
-        },
-        onSources: (sources) => {
-          setChatMessages(prev =>
-            prev.map(msg =>
-              msg.id === loadingAiMsg.id
-                ? { ...msg, sources, isLoading: false }
-                : msg
-            )
-          );
-        },
-      });
+      await askAgentStream(threadId, query, buildStreamCallbacks(aiMsgId));
     } catch (err) {
-      toast.error('Failed to get answer from AI');
-      setChatMessages(prev =>
-        prev.map(msg =>
-          msg.id === loadingAiMsg.id
-            ? { ...msg, content: 'Sorry, I encountered an error searching your inbox.', isLoading: false }
-            : msg
-        )
-      );
+      toast.error('Failed to reach agent');
+      setChatMessages(prev => prev.map(msg =>
+        msg.id === aiMsgId
+          ? { ...msg, content: 'Sorry, I could not reach the agent.', isLoading: false }
+          : msg
+      ));
     } finally {
       setIsSendingChat(false);
     }
+  };
+
+  const handleResume = async (msgId: string, approve: boolean, note?: string) => {
+    if (isSendingChat) return;
+    setIsSendingChat(true);
+    setChatMessages(prev => prev.map(msg =>
+      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
+    ));
+    try {
+      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId));
+    } catch (err) {
+      toast.error('Failed to resume agent');
+    } finally {
+      setIsSendingChat(false);
+    }
+  };
+
+  const handleNewChat = () => {
+    setChatMessages([]);
+    setThreadId(crypto.randomUUID());
   };
 
   const handleOpenEmailDetail = async (id: string) => {
@@ -716,7 +817,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-1">
                 {chatMessages.length > 0 && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={() => setChatMessages([])} title="Clear Chat History">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleNewChat} title="New chat (clears history and resets thread)">
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 )}
@@ -743,19 +844,35 @@ export default function Home() {
                   chatMessages.map(msg => (
                     <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                       <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-                      <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
-                        {msg.isLoading ? (
-                          <div className="flex gap-1 py-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                          </div>
-                        ) : (
-                          <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
-                        )}
-                      </div>
+
+                      {msg.role === 'assistant' && msg.trace && msg.trace.length > 0 && (
+                        <AgentTracePanel trace={msg.trace} />
+                      )}
+
+                      {(msg.role === 'user' || msg.content || msg.isLoading) && (
+                        <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
+                          {msg.content && (
+                            <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
+                          )}
+                          {msg.isLoading && (
+                            <div className={`flex gap-1 ${msg.content ? 'pt-2' : 'py-1'}`}>
+                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {msg.role === 'assistant' && msg.pendingInterrupt && (
+                        <InterruptApprovalCard
+                          interrupt={msg.pendingInterrupt}
+                          disabled={isSendingChat}
+                          onDecide={(approve, note) => handleResume(msg.id, approve, note)}
+                        />
+                      )}
 
                       {/* Citations/Sources Cards attached to AI Response */}
                       {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
