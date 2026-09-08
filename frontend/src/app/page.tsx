@@ -847,7 +847,7 @@ export default function Home() {
                     <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                       <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
 
-                      {msg.role === 'assistant' && msg.trace && msg.trace.length > 0 && (
+                      {msg.role === 'assistant' && msg.trace && msg.trace.some(t => t.step !== 'agent_start') && (
                         <AgentTracePanel trace={msg.trace} />
                       )}
 
