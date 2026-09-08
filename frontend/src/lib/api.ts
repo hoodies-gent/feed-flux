@@ -301,3 +301,97 @@ export async function mockLogin(): Promise<{ success: boolean; token: string }> 
     return response.json();
 }
 
+/**
+ * Agent streaming API
+ */
+export type TraceStep = 'agent_start' | 'tools_start' | 'tool_start' | 'tool_end';
+
+export interface TraceEvent {
+    step: TraceStep;
+    tool?: string;
+    args?: unknown;
+    output?: string;
+}
+
+export interface InterruptEvent {
+    tool: string;
+    args: Record<string, unknown>;
+    tool_call_id: string;
+}
+
+export interface AgentStreamCallbacks {
+    onTrace: (t: TraceEvent) => void;
+    onToken: (text: string) => void;
+    onInterrupt: (i: InterruptEvent) => void;
+    onDone: () => void;
+    onError?: (msg: string) => void;
+}
+
+async function streamAgentNdjson(
+    url: string,
+    body: object,
+    cb: AgentStreamCallbacks
+): Promise<void> {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) {
+        throw new Error(`Agent request failed: ${res.statusText}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const handleLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const ev = JSON.parse(trimmed);
+        switch (ev.type) {
+            case 'trace':
+                cb.onTrace({ step: ev.step, tool: ev.tool, args: ev.args, output: ev.output });
+                break;
+            case 'token':
+                cb.onToken(ev.content);
+                break;
+            case 'interrupt':
+                cb.onInterrupt({ tool: ev.tool, args: ev.args, tool_call_id: ev.tool_call_id });
+                break;
+            case 'done':
+                cb.onDone();
+                break;
+            case 'error':
+                cb.onError?.(ev.content);
+                break;
+        }
+    };
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) handleLine(line);
+    }
+    if (buffer) handleLine(buffer);
+}
+
+export function askAgentStream(
+    threadId: string,
+    message: string,
+    cb: AgentStreamCallbacks
+): Promise<void> {
+    return streamAgentNdjson('/api/agent/chat/stream', { thread_id: threadId, message }, cb);
+}
+
+export function resumeAgent(
+    threadId: string,
+    approve: boolean,
+    note: string | undefined,
+    cb: AgentStreamCallbacks
+): Promise<void> {
+    return streamAgentNdjson('/api/agent/resume', { thread_id: threadId, approve, note }, cb);
+}
