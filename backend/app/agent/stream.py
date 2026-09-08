@@ -38,10 +38,7 @@ async def stream_agent(
         name = ev.get("name", "")
         data = ev.get("data", {})
 
-        if kind == "on_chain_start" and name in ("agent", "tools"):
-            yield {"type": "trace", "step": f"{name}_start"}
-
-        elif kind == "on_chat_model_stream":
+        if kind == "on_chat_model_stream":
             chunk = data.get("chunk")
             text = ""
             if chunk is not None:

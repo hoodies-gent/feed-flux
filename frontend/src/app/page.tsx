@@ -30,7 +30,9 @@ interface ChatMessage {
 
 function AgentTracePanel({ trace }: { trace: TraceEvent[] }) {
   const [open, setOpen] = useState(true);
-  const summary = `Agent thinking · ${trace.length} step${trace.length === 1 ? '' : 's'}`;
+  const visible = trace.filter(t => t.step === 'tool_start' || t.step === 'tool_end');
+  if (visible.length === 0) return null;
+  const summary = `Agent thinking · ${visible.length} step${visible.length === 1 ? '' : 's'}`;
   return (
     <div className="w-[90%] rounded-lg border border-dashed border-border bg-muted/40 text-xs">
       <button
@@ -44,12 +46,10 @@ function AgentTracePanel({ trace }: { trace: TraceEvent[] }) {
       </button>
       {open && (
         <ul className="px-3 pb-2 space-y-1 font-mono text-[11px] text-muted-foreground">
-          {trace.map((t, i) => (
+          {visible.map((t, i) => (
             <li key={i} className="flex items-start gap-2">
-              {t.step.startsWith('tool') ? <Wrench className="w-3 h-3 mt-0.5 shrink-0" /> : <Cpu className="w-3 h-3 mt-0.5 shrink-0" />}
+              <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
               <span className="break-all">
-                {t.step === 'agent_start' && 'agent · thinking'}
-                {t.step === 'tools_start' && 'tools · dispatching'}
                 {t.step === 'tool_start' && `${t.tool}(${t.args ? JSON.stringify(t.args) : ''})`}
                 {t.step === 'tool_end' && `${t.tool} → ${t.output ?? ''}`}
               </span>
@@ -170,7 +170,6 @@ export default function Home() {
   const [draftCopied, setDraftCopied] = useState(false);
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
-    let acc = '';
     return {
       onTrace: (t) => {
         setChatMessages(prev => prev.map(msg =>
@@ -178,7 +177,6 @@ export default function Home() {
         ));
       },
       onToken: (text) => {
-        acc += text;
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, content: (msg.content ?? '') + text, isLoading: false } : msg
         ));
@@ -188,7 +186,7 @@ export default function Home() {
           msg.id === targetMsgId ? { ...msg, pendingInterrupt: i, isLoading: false } : msg
         ));
       },
-      onDone: () => { /* no-op; UI unlocks via isSendingChat finally */ void acc; },
+      onDone: () => {},
       onError: (msg) => {
         toast.error(msg);
         setChatMessages(prev => prev.map(m =>
@@ -232,7 +230,7 @@ export default function Home() {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
-      msg.id === msgId ? { ...msg, pendingInterrupt: undefined } : msg
+      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
     ));
     try {
       await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId));
@@ -847,21 +845,22 @@ export default function Home() {
                     <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                       <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
 
-                      {msg.role === 'assistant' && msg.trace && msg.trace.some(t => t.step !== 'agent_start') && (
+                      {msg.role === 'assistant' && msg.trace && msg.trace.length > 0 && (
                         <AgentTracePanel trace={msg.trace} />
                       )}
 
                       {(msg.role === 'user' || msg.content || msg.isLoading) && (
                         <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
-                          {msg.isLoading && !msg.content ? (
-                            <div className="flex gap-1 py-1">
+                          {msg.content && (
+                            <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
+                          )}
+                          {msg.isLoading && (
+                            <div className={`flex gap-1 ${msg.content ? 'pt-2' : 'py-1'}`}>
                               <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
                               <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
                               <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                            </div>
-                          ) : (
-                            <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </div>
                           )}
                         </div>

@@ -304,7 +304,7 @@ export async function mockLogin(): Promise<{ success: boolean; token: string }> 
 /**
  * Agent streaming API
  */
-export type TraceStep = 'agent_start' | 'tools_start' | 'tool_start' | 'tool_end';
+export type TraceStep = 'tool_start' | 'tool_end';
 
 export interface TraceEvent {
     step: TraceStep;
