@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from sqlalchemy import create_engine, desc, or_
 from sqlalchemy.orm import sessionmaker
-from app.models.email import Base, Email
+from app.models.email import Base, Email, SentAction
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -112,6 +112,26 @@ class DatabaseService:
         finally:
             session.close()
     
+    def insert_sent_action(self, action_data: dict) -> int:
+        """Record a dry-run outbound reply. Returns the new row id."""
+        session = self.Session()
+        try:
+            action = SentAction(**action_data)
+            session.add(action)
+            session.commit()
+            session.refresh(action)
+            logger.info(
+                f"Recorded sent_action id={action.id} thread={action.thread_id} "
+                f"to={action.recipient} (dry-run)"
+            )
+            return action.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to record sent_action: {e}")
+            raise
+        finally:
+            session.close()
+
     def get_email_count(self):
         """Get total email count"""
         session = self.Session()
