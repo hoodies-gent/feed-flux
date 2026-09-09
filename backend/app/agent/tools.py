@@ -93,6 +93,40 @@ def find_email(
         session.close()
 
 
+class ListUnreadEmailsInput(BaseModel):
+    limit: int = Field(
+        default=20,
+        description="Maximum number of unread emails to return. Default 20, capped at 50.",
+    )
+
+
+@tool("list_unread_emails", args_schema=ListUnreadEmailsInput)
+def list_unread_emails(limit: int = 20) -> list[dict]:
+    """Fetch the user's unread emails, newest first.
+
+    Use at the start of a batch triage workflow when the user asks to
+    process, clear, or review a batch of unread email ("处理今早的 20 封未读",
+    "clean up my inbox", "triage today's unreads"). Read the returned
+    summaries and decide a proposed action per email (mark_read / archive /
+    reply), then submit them together via apply_triage_batch.
+
+    Returns compact summaries (id, subject, sender, received, body_preview).
+    """
+    db = DatabaseService()
+    rows = db.get_unread_emails(limit=limit)
+    return [
+        {
+            "id": r["id"],
+            "subject": r["subject"],
+            "sender": r["sender"] or r["sender_email"],
+            "sender_email": r["sender_email"],
+            "received": datetime.utcfromtimestamp(r["received_datetime"]).isoformat() + "Z",
+            "body_preview": r["body_preview"],
+        }
+        for r in rows
+    ]
+
+
 class ReadCalendarInput(BaseModel):
     days_ahead: int = Field(
         default=7,
@@ -167,6 +201,6 @@ def send_reply(
     )
 
 
-TOOLS = [send_test_email, find_email, read_calendar, send_reply]
+TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 HIGH_RISK_TOOLS = {"send_test_email", "send_reply"}
