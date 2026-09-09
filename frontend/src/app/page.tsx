@@ -952,20 +952,28 @@ export default function Home() {
                       )}
 
                       {(msg.role === 'user' || msg.content || msg.isLoading) && (
-                        <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
-                          {msg.content && (
+                        msg.role === 'user' ? (
+                          <div className="px-4 py-3 max-w-[90%] text-sm bg-primary text-primary-foreground rounded-2xl rounded-tr-sm">
                             <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
                               <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </div>
-                          )}
-                          {msg.isLoading && (
-                            <div className={`flex gap-1 ${msg.content ? 'pt-2' : 'py-1'}`}>
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                            </div>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="max-w-[95%] text-sm text-foreground">
+                            {msg.content && (
+                              <div className="prose prose-sm dark:prose-invert prose-p:leading-snug prose-p:my-2 max-w-none">
+                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              </div>
+                            )}
+                            {msg.isLoading && (
+                              <div className={`flex gap-1 ${msg.content ? 'pt-1' : 'py-1'}`}>
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                              </div>
+                            )}
+                          </div>
+                        )
                       )}
 
                       {msg.role === 'assistant' && msg.pendingInterrupt && (
