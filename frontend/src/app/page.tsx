@@ -44,6 +44,23 @@ function argsPreview(args: unknown): string {
     .join(', ');
 }
 
+function outputSummary(tool: string, output: string | undefined): string {
+  if (!output) return '';
+  if (tool === 'find_email') {
+    if (output.startsWith('[]')) return 'no matches';
+    const count = (output.match(/'id':/g) || []).length;
+    return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : 'ok';
+  }
+  if (tool === 'read_calendar') {
+    const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
+    return slots > 0 ? `${slots} free slots` : 'ok';
+  }
+  if (tool === 'send_reply') {
+    return output.startsWith('SEND COMPLETE') ? 'sent (dry-run)' : 'ok';
+  }
+  return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
+}
+
 function ToolCallLine({
   tool,
   args,
@@ -72,6 +89,9 @@ function ToolCallLine({
         <span className="flex-1 truncate">
           <span className="text-foreground">{tool}</span>
           {preview && <span>({preview})</span>}
+          {!running && output !== undefined && (
+            <span className="text-muted-foreground/70"> · {outputSummary(tool, output)}</span>
+          )}
         </span>
         <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
