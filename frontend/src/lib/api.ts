@@ -313,10 +313,24 @@ export interface TraceEvent {
     output?: string;
 }
 
+export interface DraftPreview {
+    recipient?: string;
+    subject?: string;
+    body?: string;
+    original_email_id?: string | null;
+}
+
+export interface InterruptReference {
+    tool: string;
+    output: string;
+}
+
 export interface InterruptEvent {
     tool: string;
     args: Record<string, unknown>;
     tool_call_id: string;
+    draft_preview?: DraftPreview;
+    references?: InterruptReference[];
 }
 
 export interface AgentStreamCallbacks {
@@ -357,7 +371,13 @@ async function streamAgentNdjson(
                 cb.onToken(ev.content);
                 break;
             case 'interrupt':
-                cb.onInterrupt({ tool: ev.tool, args: ev.args, tool_call_id: ev.tool_call_id });
+                cb.onInterrupt({
+                    tool: ev.tool,
+                    args: ev.args,
+                    tool_call_id: ev.tool_call_id,
+                    draft_preview: ev.draft_preview,
+                    references: ev.references,
+                });
                 break;
             case 'done':
                 cb.onDone();
@@ -391,7 +411,10 @@ export function resumeAgent(
     threadId: string,
     approve: boolean,
     note: string | undefined,
-    cb: AgentStreamCallbacks
+    cb: AgentStreamCallbacks,
+    editedBody?: string,
 ): Promise<void> {
-    return streamAgentNdjson('/api/agent/resume', { thread_id: threadId, approve, note }, cb);
+    const body: Record<string, unknown> = { thread_id: threadId, approve, note };
+    if (editedBody !== undefined) body.edited_body = editedBody;
+    return streamAgentNdjson('/api/agent/resume', body, cb);
 }

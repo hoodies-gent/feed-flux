@@ -7,11 +7,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks } from '@/lib/api';
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp, User, Cpu, Wrench, Hand } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, User, Cpu, Wrench, Hand, Mail } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -98,6 +99,107 @@ function InterruptApprovalCard({
           Confirm
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ReferencesPanel({ refs }: { refs: InterruptReference[] }) {
+  if (!refs || refs.length === 0) return null;
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5 space-y-1">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+        Based on
+      </div>
+      <ul className="space-y-1 font-mono text-[11px] text-muted-foreground">
+        {refs.map((r, i) => (
+          <li key={i} className="flex items-start gap-1.5">
+            <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
+            <span className="break-all line-clamp-2">
+              <span className="text-foreground">{r.tool}</span> → {r.output}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MeetingReplyReviewCard({
+  interrupt,
+  disabled,
+  onDecide,
+}: {
+  interrupt: InterruptEvent;
+  disabled: boolean;
+  onDecide: (approve: boolean, note?: string, editedBody?: string) => void;
+}) {
+  const draft = interrupt.draft_preview ?? {};
+  const originalBody = draft.body ?? '';
+  const [body, setBody] = useState(originalBody);
+  const [note, setNote] = useState('');
+  const edited = body !== originalBody;
+
+  const editedBody = edited ? body : undefined;
+
+  return (
+    <div className="w-[90%] mt-1 rounded-xl border border-border bg-card p-3 space-y-3">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Hand className="w-4 h-4" />
+        <span className="text-xs font-medium">Review reply before sending</span>
+      </div>
+
+      <ReferencesPanel refs={interrupt.references ?? []} />
+
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Mail className="w-3 h-3" />
+          <span>To: <span className="text-foreground">{draft.recipient}</span></span>
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          Subject: <span className="text-foreground">{draft.subject}</span>
+        </div>
+      </div>
+
+      <Textarea
+        value={body}
+        onChange={e => setBody(e.target.value)}
+        rows={8}
+        disabled={disabled}
+        className="text-xs bg-background font-mono resize-y min-h-[140px]"
+      />
+
+      <Input
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        placeholder="Optional note (e.g. 'make it warmer' — used on Decline)"
+        className="h-8 text-xs bg-background"
+        disabled={disabled}
+      />
+
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground italic">
+          {edited ? 'Draft edited' : 'Sends locally in dry-run mode'}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={disabled}
+            onClick={() => onDecide(false, note.trim() || undefined, editedBody)}>
+            Decline
+          </Button>
+          <Button size="sm" disabled={disabled}
+            onClick={() => onDecide(true, note.trim() || undefined, editedBody)}>
+            Confirm & Send
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SentDryRunChip() {
+  return (
+    <div className="w-fit flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
+      <CheckCircle2 className="w-3.5 h-3.5" />
+      <span>Sent (dry-run mode)</span>
     </div>
   );
 }
@@ -226,14 +328,14 @@ export default function Home() {
     }
   };
 
-  const handleResume = async (msgId: string, approve: boolean, note?: string) => {
+  const handleResume = async (msgId: string, approve: boolean, note?: string, editedBody?: string) => {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
       msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
     ));
     try {
-      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId));
+      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody);
     } catch (err) {
       toast.error('Failed to resume agent');
     } finally {
@@ -867,11 +969,24 @@ export default function Home() {
                       )}
 
                       {msg.role === 'assistant' && msg.pendingInterrupt && (
-                        <InterruptApprovalCard
-                          interrupt={msg.pendingInterrupt}
-                          disabled={isSendingChat}
-                          onDecide={(approve, note) => handleResume(msg.id, approve, note)}
-                        />
+                        msg.pendingInterrupt.tool === 'send_reply' ? (
+                          <MeetingReplyReviewCard
+                            interrupt={msg.pendingInterrupt}
+                            disabled={isSendingChat}
+                            onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
+                          />
+                        ) : (
+                          <InterruptApprovalCard
+                            interrupt={msg.pendingInterrupt}
+                            disabled={isSendingChat}
+                            onDecide={(approve, note) => handleResume(msg.id, approve, note)}
+                          />
+                        )
+                      )}
+
+                      {msg.role === 'assistant'
+                        && msg.trace?.some(t => t.step === 'tool_end' && t.tool === 'send_reply') && (
+                        <SentDryRunChip />
                       )}
 
                       {/* Citations/Sources Cards attached to AI Response */}
