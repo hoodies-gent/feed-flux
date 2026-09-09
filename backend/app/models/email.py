@@ -4,6 +4,25 @@ from datetime import datetime
 
 Base = declarative_base()
 
+
+class SentAction(Base):
+    """Dry-run record of an outbound reply the agent proposed and the user approved.
+
+    Phase 1 constraint: FeedFlux never POSTs writes back to Microsoft Graph.
+    Every row here is an approved-but-not-actually-sent email.
+    """
+    __tablename__ = 'sent_actions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(String, nullable=False)  # agent conversation id
+    original_email_id = Column(String)  # nullable — send may not reference a specific email
+    recipient = Column(String, nullable=False)
+    subject = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    approved_at = Column(Integer, nullable=False,
+                         default=lambda: int(datetime.utcnow().timestamp()))
+
+
 class Email(Base):
     """Email model for persistent storage"""
     __tablename__ = 'emails'

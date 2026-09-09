@@ -7,16 +7,22 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks } from '@/lib/api';
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, ChevronDown, ChevronUp, User, Cpu, Wrench, Hand } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type PanelImperativeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+
+type MessageSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool_start'; tool: string; args?: unknown }
+  | { kind: 'tool_end'; tool: string; output?: string };
 
 interface ChatMessage {
   id: string;
@@ -24,41 +30,121 @@ interface ChatMessage {
   content: string;
   sources?: SourceItem[];
   isLoading?: boolean;
-  trace?: TraceEvent[];
+  segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
 }
 
-function AgentTracePanel({ trace }: { trace: TraceEvent[] }) {
-  const [open, setOpen] = useState(true);
-  const visible = trace.filter(t => t.step === 'tool_start' || t.step === 'tool_end');
-  if (visible.length === 0) return null;
-  const summary = `Agent thinking · ${visible.length} step${visible.length === 1 ? '' : 's'}`;
+function argsPreview(args: unknown): string {
+  if (args === undefined || args === null) return '';
+  if (typeof args !== 'object') return String(args);
+  const entries = Object.entries(args as Record<string, unknown>);
+  if (entries.length === 0) return '';
+  return entries
+    .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+    .join(', ');
+}
+
+function outputSummary(tool: string, output: string | undefined): string {
+  if (!output) return '';
+  if (tool === 'find_email') {
+    if (output.startsWith('[]')) return 'no matches';
+    const count = (output.match(/'id':/g) || []).length;
+    return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : 'ok';
+  }
+  if (tool === 'read_calendar') {
+    const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
+    return slots > 0 ? `${slots} free slots` : 'ok';
+  }
+  if (tool === 'send_reply') {
+    return output.startsWith('SEND COMPLETE') ? 'sent (dry-run)' : 'ok';
+  }
+  return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
+}
+
+function ToolCallLine({
+  tool,
+  args,
+  output,
+  running,
+}: {
+  tool: string;
+  args?: unknown;
+  output?: string;
+  running: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const preview = argsPreview(args);
   return (
-    <div className="w-[90%] rounded-lg border border-dashed border-border bg-muted/40 text-xs">
+    <div className="my-1.5 pl-2 border-l-2 border-border/60 font-mono text-[11px] text-muted-foreground">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        className="w-full flex items-center gap-2 hover:text-foreground transition-colors text-left"
       >
-        <Cpu className="w-3.5 h-3.5" />
-        <span className="flex-1 text-left font-medium">{summary}</span>
-        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {running ? (
+          <Wrench className="w-3 h-3 shrink-0 animate-pulse" />
+        ) : (
+          <Check className="w-3 h-3 shrink-0 text-emerald-600 dark:text-emerald-500" />
+        )}
+        <span className="flex-1 truncate">
+          <span className="text-foreground">{tool}</span>
+          {preview && <span>({preview})</span>}
+          {!running && output !== undefined && (
+            <span className="text-muted-foreground/70"> · {outputSummary(tool, output)}</span>
+          )}
+        </span>
+        <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
-        <ul className="px-3 pb-2 space-y-1 font-mono text-[11px] text-muted-foreground">
-          {visible.map((t, i) => (
-            <li key={i} className="flex items-start gap-2">
-              <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
-              <span className="break-all">
-                {t.step === 'tool_start' && `${t.tool}(${t.args ? JSON.stringify(t.args) : ''})`}
-                {t.step === 'tool_end' && `${t.tool} → ${t.output ?? ''}`}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="pl-5 pt-1 pb-0.5 space-y-1 text-[10px] whitespace-pre-wrap break-all">
+          {args !== undefined && args !== null && (
+            <div>
+              <span className="text-muted-foreground">args: </span>
+              <span>{JSON.stringify(args, null, 2)}</span>
+            </div>
+          )}
+          {output !== undefined && (
+            <div>
+              <span className="text-muted-foreground">→ </span>
+              <span>{output}</span>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+type RenderItem =
+  | { kind: 'text'; text: string; key: number }
+  | { kind: 'tool'; tool: string; args?: unknown; output?: string; running: boolean; key: number };
+
+function pairSegments(segments: MessageSegment[]): RenderItem[] {
+  const items: RenderItem[] = [];
+  const usedEnds = new Set<number>();
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    if (s.kind === 'text') {
+      items.push({ kind: 'text', text: s.text, key: i });
+    } else if (s.kind === 'tool_start') {
+      let matchIdx = -1;
+      for (let j = i + 1; j < segments.length; j++) {
+        const s2 = segments[j];
+        if (s2.kind === 'tool_end' && s2.tool === s.tool && !usedEnds.has(j)) {
+          matchIdx = j;
+          break;
+        }
+      }
+      if (matchIdx >= 0) {
+        usedEnds.add(matchIdx);
+        const end = segments[matchIdx] as Extract<MessageSegment, { kind: 'tool_end' }>;
+        items.push({ kind: 'tool', tool: s.tool, args: s.args, output: end.output, running: false, key: i });
+      } else {
+        items.push({ kind: 'tool', tool: s.tool, args: s.args, running: true, key: i });
+      }
+    }
+  }
+  return items;
 }
 
 function InterruptApprovalCard({
@@ -98,6 +184,107 @@ function InterruptApprovalCard({
           Confirm
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ReferencesPanel({ refs }: { refs: InterruptReference[] }) {
+  if (!refs || refs.length === 0) return null;
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/30 px-2.5 py-1.5 space-y-1">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+        Based on
+      </div>
+      <ul className="space-y-1 font-mono text-[11px] text-muted-foreground">
+        {refs.map((r, i) => (
+          <li key={i} className="flex items-start gap-1.5">
+            <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
+            <span className="break-all line-clamp-2">
+              <span className="text-foreground">{r.tool}</span> → {r.output}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MeetingReplyReviewCard({
+  interrupt,
+  disabled,
+  onDecide,
+}: {
+  interrupt: InterruptEvent;
+  disabled: boolean;
+  onDecide: (approve: boolean, note?: string, editedBody?: string) => void;
+}) {
+  const draft = interrupt.draft_preview ?? {};
+  const originalBody = draft.body ?? '';
+  const [body, setBody] = useState(originalBody);
+  const [note, setNote] = useState('');
+  const edited = body !== originalBody;
+
+  const editedBody = edited ? body : undefined;
+
+  return (
+    <div className="w-[90%] mt-1 rounded-xl border border-border bg-card p-3 space-y-3">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Hand className="w-4 h-4" />
+        <span className="text-xs font-medium">Review reply before sending</span>
+      </div>
+
+      <ReferencesPanel refs={interrupt.references ?? []} />
+
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Mail className="w-3 h-3" />
+          <span>To: <span className="text-foreground">{draft.recipient}</span></span>
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          Subject: <span className="text-foreground">{draft.subject}</span>
+        </div>
+      </div>
+
+      <Textarea
+        value={body}
+        onChange={e => setBody(e.target.value)}
+        rows={8}
+        disabled={disabled}
+        className="text-xs bg-background font-mono resize-y min-h-[140px]"
+      />
+
+      <Input
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        placeholder="Optional note (e.g. 'make it warmer' — used on Decline)"
+        className="h-8 text-xs bg-background"
+        disabled={disabled}
+      />
+
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground italic">
+          {edited ? 'Draft edited' : 'Sends locally in dry-run mode'}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={disabled}
+            onClick={() => onDecide(false, note.trim() || undefined, editedBody)}>
+            Decline
+          </Button>
+          <Button size="sm" disabled={disabled}
+            onClick={() => onDecide(true, note.trim() || undefined, editedBody)}>
+            Confirm & Send
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SentDryRunChip() {
+  return (
+    <div className="w-fit flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
+      <CheckCircle2 className="w-3.5 h-3.5" />
+      <span>Sent (dry-run mode)</span>
     </div>
   );
 }
@@ -172,14 +359,29 @@ export default function Home() {
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
       onTrace: (t) => {
-        setChatMessages(prev => prev.map(msg =>
-          msg.id === targetMsgId ? { ...msg, trace: [...(msg.trace ?? []), t] } : msg
-        ));
+        setChatMessages(prev => prev.map(msg => {
+          if (msg.id !== targetMsgId) return msg;
+          const segments = [...(msg.segments ?? [])];
+          if (t.step === 'tool_start' && t.tool) {
+            segments.push({ kind: 'tool_start', tool: t.tool, args: t.args });
+          } else if (t.step === 'tool_end' && t.tool) {
+            segments.push({ kind: 'tool_end', tool: t.tool, output: t.output });
+          }
+          return { ...msg, segments };
+        }));
       },
       onToken: (text) => {
-        setChatMessages(prev => prev.map(msg =>
-          msg.id === targetMsgId ? { ...msg, content: (msg.content ?? '') + text, isLoading: false } : msg
-        ));
+        setChatMessages(prev => prev.map(msg => {
+          if (msg.id !== targetMsgId) return msg;
+          const segments = [...(msg.segments ?? [])];
+          const last = segments[segments.length - 1];
+          if (last?.kind === 'text') {
+            segments[segments.length - 1] = { kind: 'text', text: last.text + text };
+          } else {
+            segments.push({ kind: 'text', text });
+          }
+          return { ...msg, content: (msg.content ?? '') + text, segments, isLoading: false };
+        }));
       },
       onInterrupt: (i) => {
         setChatMessages(prev => prev.map(msg =>
@@ -189,9 +391,12 @@ export default function Home() {
       onDone: () => {},
       onError: (msg) => {
         toast.error(msg);
-        setChatMessages(prev => prev.map(m =>
-          m.id === targetMsgId ? { ...m, content: (m.content || '') + `\n\n_Error: ${msg}_`, isLoading: false } : m
-        ));
+        setChatMessages(prev => prev.map(m => {
+          if (m.id !== targetMsgId) return m;
+          const errText = `\n\n_Error: ${msg}_`;
+          const segments = [...(m.segments ?? []), { kind: 'text' as const, text: errText }];
+          return { ...m, content: (m.content || '') + errText, segments, isLoading: false };
+        }));
       },
     };
   };
@@ -209,7 +414,7 @@ export default function Home() {
     setChatMessages(prev => [
       ...prev,
       { id: userMsgId, role: 'user', content: query },
-      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, trace: [] },
+      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, segments: [] },
     ]);
 
     try {
@@ -226,14 +431,14 @@ export default function Home() {
     }
   };
 
-  const handleResume = async (msgId: string, approve: boolean, note?: string) => {
+  const handleResume = async (msgId: string, approve: boolean, note?: string, editedBody?: string) => {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
       msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
     ));
     try {
-      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId));
+      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody);
     } catch (err) {
       toast.error('Failed to resume agent');
     } finally {
@@ -845,33 +1050,60 @@ export default function Home() {
                     <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                       <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
 
-                      {msg.role === 'assistant' && msg.trace && msg.trace.length > 0 && (
-                        <AgentTracePanel trace={msg.trace} />
-                      )}
-
-                      {(msg.role === 'user' || msg.content || msg.isLoading) && (
-                        <div className={`px-4 py-3 max-w-[90%] text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-sm' : 'bg-muted text-foreground rounded-2xl rounded-tl-sm'}`}>
-                          {msg.content && (
-                            <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
-                            </div>
-                          )}
-                          {msg.isLoading && (
-                            <div className={`flex gap-1 ${msg.content ? 'pt-2' : 'py-1'}`}>
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                              <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                            </div>
-                          )}
+                      {msg.role === 'user' ? (
+                        <div className="px-4 py-3 max-w-[90%] text-sm bg-primary text-primary-foreground rounded-2xl rounded-tr-sm">
+                          <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
                         </div>
+                      ) : (
+                        (msg.segments?.length || msg.isLoading) && (
+                          <div className="max-w-[95%] text-sm text-foreground">
+                            {pairSegments(msg.segments ?? []).map((item) =>
+                              item.kind === 'text' ? (
+                                <div key={item.key} className="prose prose-sm dark:prose-invert prose-p:leading-snug prose-p:my-2 max-w-none">
+                                  <ReactMarkdown>{item.text}</ReactMarkdown>
+                                </div>
+                              ) : (
+                                <ToolCallLine
+                                  key={item.key}
+                                  tool={item.tool}
+                                  args={item.args}
+                                  output={item.output}
+                                  running={item.running}
+                                />
+                              )
+                            )}
+                            {msg.isLoading && (
+                              <div className="flex gap-1 pt-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
+                              </div>
+                            )}
+                          </div>
+                        )
                       )}
 
                       {msg.role === 'assistant' && msg.pendingInterrupt && (
-                        <InterruptApprovalCard
-                          interrupt={msg.pendingInterrupt}
-                          disabled={isSendingChat}
-                          onDecide={(approve, note) => handleResume(msg.id, approve, note)}
-                        />
+                        msg.pendingInterrupt.tool === 'send_reply' ? (
+                          <MeetingReplyReviewCard
+                            interrupt={msg.pendingInterrupt}
+                            disabled={isSendingChat}
+                            onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
+                          />
+                        ) : (
+                          <InterruptApprovalCard
+                            interrupt={msg.pendingInterrupt}
+                            disabled={isSendingChat}
+                            onDecide={(approve, note) => handleResume(msg.id, approve, note)}
+                          />
+                        )
+                      )}
+
+                      {msg.role === 'assistant'
+                        && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
+                        <SentDryRunChip />
                       )}
 
                       {/* Citations/Sources Cards attached to AI Response */}
