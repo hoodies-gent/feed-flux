@@ -92,8 +92,11 @@ def resume_input(
     approve: bool,
     note: str | None = None,
     edited_body: str | None = None,
+    decisions: list[dict] | None = None,
 ) -> Command:
     payload: dict = {"approve": approve, "note": note}
     if edited_body is not None:
         payload["edited_body"] = edited_body
+    if decisions is not None:
+        payload["decisions"] = decisions
     return Command(resume=payload)

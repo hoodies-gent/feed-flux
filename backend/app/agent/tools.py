@@ -1,5 +1,6 @@
 import contextvars
 from datetime import datetime, timedelta
+from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -201,6 +202,60 @@ def send_reply(
     )
 
 
-TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply]
+class TriageActionItem(BaseModel):
+    email_id: str = Field(description="ID of the email this action applies to (from list_unread_emails).")
+    action: Literal["mark_read", "archive"] = Field(
+        description="Bulk-safe action for low-signal email. Never use this for anything requiring a human reply."
+    )
+
+
+class ApplyTriageBatchInput(BaseModel):
+    actions: list[TriageActionItem] = Field(
+        default_factory=list,
+        description=(
+            "Bulk-safe proposals only (mark_read / archive). One item per email. "
+            "These become preselected checkboxes in the batch review card so the user "
+            "can dismiss the low-signal bucket in a single click."
+        ),
+        max_length=50,
+    )
+    needs_reply_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "IDs of emails that genuinely need a human-authored reply — do NOT draft "
+            "them here. They surface as a follow-up list; the user picks one at a time "
+            "and drafts through the standard send_reply flow. Keep this short (0-5); "
+            "if you find yourself putting most of the batch here, your classification "
+            "is too conservative."
+        ),
+        max_length=20,
+    )
+
+
+@tool("apply_triage_batch", args_schema=ApplyTriageBatchInput)
+def apply_triage_batch(actions: list[dict], needs_reply_ids: list[str]) -> str:
+    """Submit a triage plan for a single human review pass.
+
+    Use after list_unread_emails once you've classified each email into either
+    (a) bulk-safe: mark_read or archive — goes into `actions`, or
+    (b) needs a human reply — goes into `needs_reply_ids` (id only, no draft).
+
+    HIGH-RISK — the user reviews the whole plan in one card, unchecks anything
+    they disagree with, and applies bulk actions in one click. For emails in
+    `needs_reply_ids`, the user picks them one at a time in a separate turn and
+    drafts through the standard reply flow — DO NOT draft replies here.
+
+    Dry-run in Phase 1: approved bulk items are recorded to local `label_actions`;
+    nothing hits Microsoft Graph.
+
+    Do NOT retry declined items in the same turn.
+    """
+    return (
+        "apply_triage_batch called without a review decision — this should not happen; "
+        "the tools_node must intercept and route through interrupt."
+    )
+
+
+TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply, apply_triage_batch]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
-HIGH_RISK_TOOLS = {"send_test_email", "send_reply"}
+HIGH_RISK_TOOLS = {"send_test_email", "send_reply", "apply_triage_batch"}

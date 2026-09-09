@@ -68,9 +68,10 @@ class AgentChatRequest(BaseModel):
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
-    approve: bool
+    approve: bool = True  # unused for batch flows; kept for single-tool compat
     note: Optional[str] = None
     edited_body: Optional[str] = None
+    decisions: Optional[List[dict]] = None  # batch flows: [{index, approve, edited_body?}]
 
 import asyncio
 import os
@@ -460,7 +461,7 @@ async def agent_resume(request: AgentResumeRequest):
     """Resume a paused agent turn after human review. Same event stream as /agent/chat/stream."""
     return StreamingResponse(
         _agent_ndjson(
-            resume_input(request.approve, request.note, request.edited_body),
+            resume_input(request.approve, request.note, request.edited_body, request.decisions),
             request.thread_id,
         ),
         media_type="application/x-ndjson",

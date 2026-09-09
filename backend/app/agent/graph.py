@@ -8,6 +8,7 @@ from langgraph.types import interrupt
 from app.agent.llm import get_llm
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
+from app.services.database import DatabaseService
 
 SYSTEM_PROMPT = (
     "You are FeedFlux, a helpful email assistant. Answer concisely and remember prior turns.\n"
@@ -46,8 +47,85 @@ SYSTEM_PROMPT = (
     "- ToolMessage starting with 'SEND COMPLETE': the reply is finalized. Give a ONE-LINE "
     "acknowledgment (e.g. '已发送。' or 'Done — reply sent.') and stop. Do NOT summarize the "
     "draft, do NOT offer further edits, do NOT invite feedback. The UI already shows the "
-    "user that it was sent in dry-run mode."
+    "user that it was sent in dry-run mode.\n"
+    "\n"
+    "Batch triage workflow — SPEED THROUGH THE INBOX, DON'T DRAFT SPECULATIVELY:\n"
+    "When the user asks to process, triage, clear, or review a BATCH of unread email "
+    "(\"处理今早的 20 封未读\", \"clean up my inbox\", \"triage today's unreads\"):\n"
+    "  (1) list_unread_emails(limit=?) — pick a limit matching the user's ask.\n"
+    "  (2) For EACH returned email, sort into ONE of two buckets:\n"
+    "      BULK-SAFE (target ~70-80% of the batch): newsletters, promos, notifications, "
+    "receipts, confirmations, cc'd FYI threads — anything the user would dismiss on a "
+    "quick glance. Pick action 'mark_read' (low-signal informational) or 'archive' "
+    "(receipts / done threads).\n"
+    "      NEEDS HUMAN REPLY: anything asking a question, requesting an action, or "
+    "coming from a person expecting a personal response. Just capture the email_id — "
+    "DO NOT draft a reply here. Aim for 0-5 items.\n"
+    "  (3) apply_triage_batch(actions=[...bulk items...], needs_reply_ids=[...ids...]) — "
+    "ONE call, ONE review card. Do NOT call this tool twice. Do NOT loop send_reply "
+    "per email.\n"
+    "\n"
+    "Why no drafts in the batch: drafting 10 replies upfront wastes time and forces the "
+    "user to read a wall of AI text. Real triage is 'dismiss the obvious 80% in bulk, "
+    "then focus on the 3 that matter one at a time'. The bulk card gets the 80% out of "
+    "the way; the needs-reply list lets the user pick one and drive a proper draft.\n"
+    "\n"
+    "- ToolMessage starting with 'BATCH APPLIED': the batch is finalized. Reply with:\n"
+    "  * ONE line for the counts (e.g. '已批量处理：已读 8 / 归档 3 / 拒绝 0。').\n"
+    "  * If needs-reply list is non-empty, list each with one bullet: '- <subject> — "
+    "<sender>'. Add a single closing sentence inviting the user to pick one to reply to.\n"
+    "  * If needs-reply is empty, just the count line + '收件箱已清理完毕。'.\n"
+    "  Do NOT offer to draft any of the needs-reply items unless the user names one."
 )
+
+
+def _apply_triage_batch_decisions(args: dict, decision: dict, thread_id: str) -> str:
+    """Write approved bulk items to label_actions; return an LLM-facing summary.
+
+    decision shape: {"decisions": [{"index": int, "approve": bool}]}
+    Missing index → declined (safe default; frontend is expected to send explicit decisions).
+    Reply items are NOT handled here — the LLM lists needs_reply_ids for the user
+    to pick up one at a time via the standard send_reply flow.
+    """
+    actions = args.get("actions") or []
+    needs_reply_ids = args.get("needs_reply_ids") or []
+    raw_decisions = (decision or {}).get("decisions") or []
+    by_index = {int(d["index"]): d for d in raw_decisions if "index" in d}
+
+    db = DatabaseService()
+    counts = {"mark_read": 0, "archive": 0, "declined": 0}
+    for i, act in enumerate(actions):
+        d = by_index.get(i)
+        if not d or not d.get("approve"):
+            counts["declined"] += 1
+            continue
+        kind = act.get("action")
+        if kind in ("mark_read", "archive"):
+            db.insert_label_action({
+                "thread_id": thread_id,
+                "email_id": act.get("email_id"),
+                "kind": kind,
+            })
+            counts[kind] += 1
+        else:
+            counts["declined"] += 1
+
+    parts = [
+        f"BATCH APPLIED (dry-run): mark_read={counts['mark_read']}, "
+        f"archive={counts['archive']}, declined={counts['declined']}."
+    ]
+    if needs_reply_ids:
+        parts.append(
+            f"Needs human reply ({len(needs_reply_ids)}): {', '.join(needs_reply_ids)}. "
+            f"Tell the user which senders/subjects these correspond to (from the "
+            f"earlier list_unread_emails output) and invite them to pick one to reply to."
+        )
+    parts.append(
+        "Do NOT re-propose declined items. Give a concise summary in the user's "
+        "language: one line for the batch counts, then one bullet per needs-reply "
+        "email (subject — sender). Then stop."
+    )
+    return " ".join(parts)
 
 
 def build_agent(checkpointer: BaseCheckpointSaver | None = None):
@@ -67,6 +145,12 @@ def build_agent(checkpointer: BaseCheckpointSaver | None = None):
             results = []
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
+
+                if name == "apply_triage_batch":
+                    decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})
+                    msg = _apply_triage_batch_decisions(args, decision, thread_id)
+                    results.append(ToolMessage(msg, tool_call_id=call_id))
+                    continue
 
                 if name in HIGH_RISK_TOOLS:
                     decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})
