@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from sqlalchemy import create_engine, desc, or_
 from sqlalchemy.orm import sessionmaker
-from app.models.email import Base, Email, SentAction
+from app.models.email import Base, Email, SentAction, LabelAction
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -129,6 +129,41 @@ class DatabaseService:
             session.rollback()
             logger.error(f"Failed to record sent_action: {e}")
             raise
+        finally:
+            session.close()
+
+    def insert_label_action(self, action_data: dict) -> int:
+        """Record a dry-run inbox label (mark_read / archive). Returns the new row id."""
+        session = self.Session()
+        try:
+            action = LabelAction(**action_data)
+            session.add(action)
+            session.commit()
+            session.refresh(action)
+            logger.info(
+                f"Recorded label_action id={action.id} thread={action.thread_id} "
+                f"email={action.email_id} kind={action.kind} (dry-run)"
+            )
+            return action.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to record label_action: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_unread_emails(self, limit: int = 20):
+        """Get unread emails, newest first. Used by the triage workflow."""
+        session = self.Session()
+        try:
+            emails = (
+                session.query(Email)
+                .filter(Email.is_read == False)  # noqa: E712 — SQLAlchemy needs ==
+                .order_by(desc(Email.received_datetime))
+                .limit(max(1, min(limit, 50)))
+                .all()
+            )
+            return [self._email_to_dict(e) for e in emails]
         finally:
             session.close()
 

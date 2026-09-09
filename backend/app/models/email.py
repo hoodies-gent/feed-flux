@@ -23,6 +23,21 @@ class SentAction(Base):
                          default=lambda: int(datetime.utcnow().timestamp()))
 
 
+class LabelAction(Base):
+    """Dry-run record of an inbox label the agent proposed and the user approved.
+
+    Kinds: 'mark_read', 'archive'. Never mutates Graph in Phase 1.
+    """
+    __tablename__ = 'label_actions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(String, nullable=False)
+    email_id = Column(String, nullable=False)
+    kind = Column(String, nullable=False)  # 'mark_read' | 'archive'
+    approved_at = Column(Integer, nullable=False,
+                         default=lambda: int(datetime.utcnow().timestamp()))
+
+
 class Email(Base):
     """Email model for persistent storage"""
     __tablename__ = 'emails'
