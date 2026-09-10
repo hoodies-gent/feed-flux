@@ -78,6 +78,9 @@ class TriageActionRequest(BaseModel):
     kind: str  # 'mark_read' | 'archive' | 'delete'
     thread_id: Optional[str] = None
 
+class TriageUndoRequest(BaseModel):
+    row_id: int
+
 import asyncio
 import os
 from contextlib import asynccontextmanager
@@ -460,6 +463,18 @@ async def agent_chat_stream(request: AgentChatRequest):
         _agent_ndjson(new_turn_input(request.message), request.thread_id),
         media_type="application/x-ndjson",
     )
+
+@app.post("/api/triage/undo")
+async def triage_undo(request: TriageUndoRequest):
+    """Reverse a previous /api/triage/action by row_id (from that call's response)."""
+    try:
+        result = db.undo_email_action(row_id=request.row_id)
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"triage_undo failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/triage/action")
 async def triage_action(request: TriageActionRequest):

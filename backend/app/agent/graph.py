@@ -8,7 +8,6 @@ from langgraph.types import interrupt
 from app.agent.llm import get_llm
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
-from app.services.database import DatabaseService
 
 SYSTEM_PROMPT = (
     "You are FeedFlux, a helpful email assistant. Answer concisely and remember prior turns.\n"
@@ -49,96 +48,63 @@ SYSTEM_PROMPT = (
     "draft, do NOT offer further edits, do NOT invite feedback. The UI already shows the "
     "user that it was sent in dry-run mode.\n"
     "\n"
-    "Batch triage workflow — SPEED THROUGH THE INBOX, DON'T DRAFT SPECULATIVELY:\n"
+    "Batch triage workflow — CLASSIFY, DON'T EXECUTE:\n"
+    "Your role in this flow is to classify unread email into buckets. The USER acts on\n"
+    "the classification via native per-row buttons on the review card (mark-read /\n"
+    "archive / delete / view / draft-reply). You do NOT execute the actions — never\n"
+    "loop or call any write-tool per email.\n"
+    "\n"
+    "LANGUAGE REMINDER (the top-level LANGUAGE rule still applies here): every word "
+    "of chat text goes in the user's language. Chinese request → all chat text in "
+    "Chinese, from the first token. English request → English. The English phrases "
+    "in the examples below are patterns, not literal templates to copy — translate "
+    "them.\n"
+    "\n"
     "When the user asks to process, triage, clear, or review a BATCH of unread email "
-    "(\"处理今早的 20 封未读\", \"clean up my inbox\", \"triage today's unreads\"):\n"
+    "(any language — 'process today's unreads', 'clean up my inbox', or the "
+    "equivalent request in their language):\n"
     "  (1) list_unread_emails(limit=?) — pick a limit matching the user's ask.\n"
-    "  (2) For EACH returned email, sort into ONE of two buckets:\n"
-    "      BULK-SAFE (target ~70-80% of the batch): newsletters, promos, notifications, "
-    "receipts, confirmations, cc'd FYI threads — anything the user would dismiss on a "
-    "quick glance. Pick action 'mark_read' (low-signal informational) or 'archive' "
-    "(receipts / done threads).\n"
+    "  (2) For EACH returned email, classify into ONE of two buckets:\n"
+    "      BULK-SAFE (target ~70-80% of the batch): pick action 'mark_read' (low-signal "
+    "informational — FYI threads, status updates you were cc'd on), 'archive' "
+    "(receipts / confirmations / done threads you want out of inbox but retained), or "
+    "'delete' (CI notifications, obvious junk, promos you never read — anything that "
+    "should just vanish). Choose per email based on what the USER would naturally do.\n"
     "      NEEDS HUMAN REPLY: anything asking a question, requesting an action, or "
     "coming from a person expecting a personal response. Capture the email_id and a "
     "SHORT reason — DO NOT draft a reply here. Aim for 0-5 items.\n"
     "  (3) apply_triage_batch(actions=[{email_id, action, reason}], "
-    "needs_reply=[{email_id, reason}]) — ONE call, ONE review card. EVERY item MUST "
-    "have a `reason`: a ≤20-char phrase (not a sentence) explaining the classification "
-    "so the user can audit ('例行会议提醒', 'newsletter', '要求确认改期', '催回复'). "
-    "Match the reason language to the user's chat language. Do NOT call this tool "
-    "twice. Do NOT loop send_reply per email.\n"
+    "needs_reply=[{email_id, reason}]) — ONE call. EVERY item MUST have a `reason`: a "
+    "≤20-char phrase (not a sentence) explaining the classification so the user can "
+    "audit ('recurring standup', 'newsletter', 'CI passed', 'reschedule ack needed', "
+    "'2nd follow-up'). Match the reason LANGUAGE to the user's chat language "
+    "(English for English requests, Chinese for Chinese requests). Do NOT call this "
+    "tool twice. Do NOT loop send_reply per email.\n"
     "\n"
-    "Across the ENTIRE triage flow (from user's request through the interrupt), chat "
-    "text before apply_triage_batch fires must be AT MOST one short sentence total — "
-    "either '正在分析 N 封未读...' before list_unread_emails, OR silent between the two "
-    "tools, NEVER both. Do not narrate the transition ('正在提交分流方案...' style) "
-    "between list_unread_emails and apply_triage_batch. All per-email reasoning goes "
-    "into the tool args' `reason` fields — the review card renders them next to each "
+    "Across the entire triage flow, chat text before apply_triage_batch fires must "
+    "be AT MOST one short sentence total, IN THE USER'S LANGUAGE — a brief 'analysing "
+    "N unread' style acknowledgement before list_unread_emails, OR silent between the "
+    "two tools, NEVER both. Do not narrate the transition. All per-email reasoning "
+    "goes into the tool args' `reason` fields — the card renders them next to each "
     "email. A wall of 'Email 1: ..., Email 2: ...' analysis in chat before the tool "
     "call is the exact anti-pattern to avoid.\n"
     "\n"
-    "Why no drafts in the batch: drafting 10 replies upfront wastes time and forces the "
-    "user to read a wall of AI text. Real triage is 'dismiss the obvious 80% in bulk, "
-    "then focus on the 3 that matter one at a time'. The bulk card gets the 80% out of "
-    "the way; the needs-reply list lets the user pick one and drive a proper draft.\n"
+    "Why no drafts in the batch: drafting 10 replies upfront wastes time and forces "
+    "the user to read a wall of AI text. Real triage is 'dismiss the obvious 80% in "
+    "bulk, then focus on the 3 that matter one at a time'. The card gets the 80% out "
+    "of the way via per-row buttons; the needs-reply list surfaces the 3 for the user "
+    "to pick up individually via the standard reply flow.\n"
     "\n"
-    "- ToolMessage starting with 'BATCH APPLIED': the batch is finalized. Reply with:\n"
-    "  * ONE line for the counts (e.g. '已批量处理：已读 8 / 归档 3 / 拒绝 0。').\n"
-    "  * If needs-reply list is non-empty, list each with one bullet: '- <subject> — "
-    "<sender>'. Add a single closing sentence inviting the user to pick one to reply to.\n"
-    "  * If needs-reply is empty, just the count line + '收件箱已清理完毕。'.\n"
-    "  Do NOT offer to draft any of the needs-reply items unless the user names one."
+    "- ToolMessage from apply_triage_batch (starting with 'PLAN READY'): the plan is "
+    "now rendered on the review card and the user is acting on it directly. Reply "
+    "with ONE line IN THE USER'S ORIGINAL MESSAGE LANGUAGE (check the first HumanMessage "
+    "of this turn — Chinese user message → Chinese reply, English user message → English "
+    "reply). Do NOT switch languages just because the ToolMessage 'PLAN READY: ...' text "
+    "is English — that's an internal marker, not a language signal. Tell them the plan "
+    "is on the card, then STOP. Do NOT enumerate the buckets, do NOT summarise the "
+    "needs-reply list (the card shows both), do NOT offer to draft anything. The user "
+    "drives from here."
 )
-
-
-def _apply_triage_batch_decisions(args: dict, decision: dict, thread_id: str) -> str:
-    """Write approved bulk items to label_actions; return an LLM-facing summary.
-
-    decision shape: {"decisions": [{"index": int, "approve": bool}]}
-    Missing index → declined (safe default; frontend is expected to send explicit decisions).
-    Reply items are NOT handled here — the LLM lists needs_reply_ids for the user
-    to pick up one at a time via the standard send_reply flow.
-    """
-    actions = args.get("actions") or []
-    needs_reply = args.get("needs_reply") or []
-    raw_decisions = (decision or {}).get("decisions") or []
-    by_index = {int(d["index"]): d for d in raw_decisions if "index" in d}
-
-    db = DatabaseService()
-    counts = {"mark_read": 0, "archive": 0, "declined": 0}
-    for i, act in enumerate(actions):
-        d = by_index.get(i)
-        if not d or not d.get("approve"):
-            counts["declined"] += 1
-            continue
-        kind = act.get("action")
-        if kind in ("mark_read", "archive"):
-            db.insert_label_action({
-                "thread_id": thread_id,
-                "email_id": act.get("email_id"),
-                "kind": kind,
-            })
-            counts[kind] += 1
-        else:
-            counts["declined"] += 1
-
-    parts = [
-        f"BATCH APPLIED (dry-run): mark_read={counts['mark_read']}, "
-        f"archive={counts['archive']}, declined={counts['declined']}."
-    ]
-    if needs_reply:
-        ids = [n.get("email_id") for n in needs_reply if n.get("email_id")]
-        parts.append(
-            f"Needs human reply ({len(needs_reply)}): {', '.join(ids)}. "
-            f"Tell the user which senders/subjects these correspond to (from the "
-            f"earlier list_unread_emails output) and invite them to pick one to reply to."
-        )
-    parts.append(
-        "Do NOT re-propose declined items. Give a concise summary in the user's "
-        "language: one line for the batch counts, then one bullet per needs-reply "
-        "email (subject — sender). Then stop."
-    )
-    return " ".join(parts)
 
 
 def build_agent(checkpointer: BaseCheckpointSaver | None = None):
@@ -158,12 +124,6 @@ def build_agent(checkpointer: BaseCheckpointSaver | None = None):
             results = []
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
-
-                if name == "apply_triage_batch":
-                    decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})
-                    msg = _apply_triage_batch_decisions(args, decision, thread_id)
-                    results.append(ToolMessage(msg, tool_call_id=call_id))
-                    continue
 
                 if name in HIGH_RISK_TOOLS:
                     decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})

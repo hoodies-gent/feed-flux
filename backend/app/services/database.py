@@ -185,6 +185,41 @@ class DatabaseService:
         finally:
             session.close()
 
+    def undo_email_action(self, row_id: int) -> dict:
+        """Reverse a previous apply_email_action by row_id.
+
+        Deletes the label_actions row and resets the corresponding Email flags
+        to reflect "put it back where it was". Note: we don't remember the pre-
+        action flag state, so undo returns the email to a neutral unread/unarchived
+        state, matching the user's likely intent of 'get it back in the triage list'.
+        Raises ValueError if the row doesn't exist.
+        """
+        session = self.Session()
+        try:
+            action = session.query(LabelAction).filter_by(id=row_id).first()
+            if not action:
+                raise ValueError(f"label_action row not found: {row_id!r}")
+            email = session.query(Email).filter_by(id=action.email_id).first()
+            if email:
+                if action.kind == "mark_read":
+                    email.is_read = False
+                elif action.kind == "archive":
+                    email.is_archived = False
+                    email.is_read = False  # archive had implied read; undo returns to unread
+                elif action.kind == "delete":
+                    email.is_deleted = False
+                email.updated_at = datetime.utcnow()
+            summary = {"email_id": action.email_id, "kind": action.kind}
+            session.delete(action)
+            session.commit()
+            logger.info(f"Undid email action row_id={row_id} email={summary['email_id']} kind={summary['kind']}")
+            return summary
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def apply_email_action(self, email_id: str, kind: str, thread_id: str = "user-direct") -> int:
         """Apply a triage action to a single email — writes label_actions
         AND mutates local Email row state (is_read / is_archived / is_deleted).

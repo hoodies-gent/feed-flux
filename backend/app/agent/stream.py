@@ -29,14 +29,21 @@ def _enrich_interrupt(payload: dict, recent_tool_results: list[dict]) -> dict:
             "original_email_id": args.get("original_email_id"),
         }
         event["references"] = recent_tool_results
-    elif tool == "apply_triage_batch":
-        args = payload.get("args") or {}
-        actions = args.get("actions") or []
-        needs_reply = args.get("needs_reply") or []
-        all_ids = {a.get("email_id") for a in actions if a.get("email_id")}
-        all_ids.update(n.get("email_id") for n in needs_reply if n.get("email_id"))
-        meta = _load_email_meta(all_ids)
-        event["bulk"] = [
+    return event
+
+
+def _build_plan_event(args: dict) -> dict:
+    """Assemble a `plan` stream event for apply_triage_batch: enrich each
+    classified email with subject/sender/preview so the card renders directly.
+    """
+    actions = args.get("actions") or []
+    needs_reply = args.get("needs_reply") or []
+    all_ids = {a.get("email_id") for a in actions if a.get("email_id")}
+    all_ids.update(n.get("email_id") for n in needs_reply if n.get("email_id"))
+    meta = _load_email_meta(all_ids)
+    return {
+        "type": "plan",
+        "bulk": [
             {
                 "index": i,
                 "email_id": a.get("email_id"),
@@ -45,16 +52,35 @@ def _enrich_interrupt(payload: dict, recent_tool_results: list[dict]) -> dict:
                 **meta.get(a.get("email_id"), {}),
             }
             for i, a in enumerate(actions)
-        ]
-        event["needs_reply"] = [
+        ],
+        "needs_reply": [
             {
                 "email_id": n.get("email_id"),
                 "reason": n.get("reason"),
                 **meta.get(n.get("email_id"), {}),
             }
             for n in needs_reply
-        ]
-    return event
+        ],
+    }
+
+
+def _count_list_result(output: Any, output_text: str) -> int | None:
+    """Return list length if the tool returned a list — accurate count for the
+    frontend's tool-line summary. Handles both raw list returns and
+    ToolMessage-wrapped stringified lists (LangChain path).
+    """
+    if isinstance(output, list):
+        return len(output)
+    stripped = output_text.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        try:
+            import ast
+            parsed = ast.literal_eval(stripped)
+            if isinstance(parsed, list):
+                return len(parsed)
+        except Exception:
+            pass
+    return None
 
 
 def _load_email_meta(email_ids: set[str]) -> dict[str, dict]:
@@ -127,7 +153,15 @@ async def stream_agent(
             output_text = output.content if hasattr(output, "content") else str(output)
             truncated = output_text[:2000]
             recent_tool_results.append({"tool": name, "output": truncated})
-            yield {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
+            event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
+            count = _count_list_result(output, output_text)
+            if count is not None:
+                event["result_count"] = count
+            yield event
+
+            if name == "apply_triage_batch":
+                tool_input = data.get("input") or {}
+                yield _build_plan_event(tool_input)
 
     async for ev in _emit_interrupts(agent, config, recent_tool_results):
         yield ev

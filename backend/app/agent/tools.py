@@ -97,7 +97,12 @@ def find_email(
 class ListUnreadEmailsInput(BaseModel):
     limit: int = Field(
         default=20,
-        description="Maximum number of unread emails to return. Default 20, capped at 50.",
+        description=(
+            "Maximum number of unread emails to return (hard cap 50). Choose based "
+            "on the user's ask: they name a number ('top 5', '10 封') → use that; "
+            "they say 'all' / 'everything' / '所有' / '全部' → pass 50 to sweep the "
+            "whole inbox; unspecified vague request ('handle my unreads') → 20."
+        ),
     )
 
 
@@ -106,10 +111,11 @@ def list_unread_emails(limit: int = 20) -> list[dict]:
     """Fetch the user's unread emails, newest first.
 
     Use at the start of a batch triage workflow when the user asks to
-    process, clear, or review a batch of unread email ("处理今早的 20 封未读",
-    "clean up my inbox", "triage today's unreads"). Read the returned
+    process, clear, or review a batch of unread email. Read the returned
     summaries and decide a proposed action per email (mark_read / archive /
-    reply), then submit them together via apply_triage_batch.
+    delete / needs_reply), then submit them together via apply_triage_batch.
+
+    Pick `limit` from the user's phrasing — see the argument description.
 
     Returns compact summaries (id, subject, sender, received, body_preview).
     """
@@ -204,8 +210,14 @@ def send_reply(
 
 class TriageActionItem(BaseModel):
     email_id: str = Field(description="ID of the email this action applies to (from list_unread_emails).")
-    action: Literal["mark_read", "archive"] = Field(
-        description="Bulk-safe action for low-signal email. Never use this for anything requiring a human reply."
+    action: Literal["mark_read", "archive", "delete"] = Field(
+        description=(
+            "Bulk-safe action for low-signal email. Choose per email: "
+            "'mark_read' (informational you want to keep — FYI threads, status updates), "
+            "'archive' (receipts / confirmations / done threads — out of inbox but retained), "
+            "'delete' (CI notifications, obvious junk, promos you never read — vanish). "
+            "Never use these for anything requiring a human reply."
+        )
     )
     reason: str = Field(
         description=(
@@ -254,33 +266,34 @@ class ApplyTriageBatchInput(BaseModel):
 
 @tool("apply_triage_batch", args_schema=ApplyTriageBatchInput)
 def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
-    """Submit a triage plan for a single human review pass.
+    """Submit a triage plan — the review card renders it and the user acts per row.
 
     Use after list_unread_emails once you've classified each email into either
-    (a) bulk-safe: mark_read or archive — goes into `actions`, or
+    (a) bulk-safe: mark_read / archive / delete — goes into `actions`, or
     (b) needs a human reply — goes into `needs_reply` (id + short reason, no draft).
 
     Every item in both lists MUST have a `reason` — a ≤20-char phrase the user
     reads to audit your classification (e.g. '例行会议提醒', 'newsletter',
-    '要求确认改期'). Reasons are the trust-builder — without them the user has
-    no way to know if you classified correctly.
+    'CI passed', '要求确认改期'). Reasons are the trust-builder — without them
+    the user has no way to know if you classified correctly.
 
-    HIGH-RISK — the user reviews the whole plan in one card, unchecks anything
-    they disagree with, and applies bulk actions in one click. For emails in
-    `needs_reply`, the user picks them one at a time in a separate turn and
-    drafts through the standard reply flow — DO NOT draft replies here.
-
-    Dry-run in Phase 1: approved bulk items are recorded to local `label_actions`;
-    nothing hits Microsoft Graph.
-
-    Do NOT retry declined items in the same turn.
+    The user drives from here — they click mark-read / archive / delete / view /
+    draft-reply per row on the card. You do NOT execute the actions. Give a
+    single one-line acknowledgement after this tool returns and STOP.
     """
+    n_bulk = len(actions or [])
+    n_reply = len(needs_reply or [])
     return (
-        "apply_triage_batch called without a review decision — this should not happen; "
-        "the tools_node must intercept and route through interrupt."
+        f"PLAN READY: {n_bulk} bulk items + {n_reply} needs-reply. "
+        f"The plan is now on the review card and the user is acting on it directly. "
+        f"Reply ONE line telling them the plan is on the card, then STOP. "
+        f"CRITICAL: match the language of the user's ORIGINAL request in this turn — "
+        f"if they wrote English, respond in English; if Chinese, Chinese. Do not "
+        f"default to Chinese just because this system message is bilingual. Do NOT "
+        f"enumerate the buckets, do NOT list needs-reply items, do NOT offer to draft."
     )
 
 
 TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply, apply_triage_batch]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
-HIGH_RISK_TOOLS = {"send_test_email", "send_reply", "apply_triage_batch"}
+HIGH_RISK_TOOLS = {"send_test_email", "send_reply"}
