@@ -325,12 +325,39 @@ export interface InterruptReference {
     output: string;
 }
 
+export interface BulkTriageItem {
+    index: number;
+    email_id: string;
+    action: 'mark_read' | 'archive';
+    reason?: string;
+    subject?: string;
+    sender?: string;
+    sender_email?: string;
+    body_preview?: string;
+}
+
+export interface NeedsReplyItem {
+    email_id: string;
+    reason?: string;
+    subject?: string;
+    sender?: string;
+    sender_email?: string;
+    body_preview?: string;
+}
+
 export interface InterruptEvent {
     tool: string;
     args: Record<string, unknown>;
     tool_call_id: string;
     draft_preview?: DraftPreview;
     references?: InterruptReference[];
+    bulk?: BulkTriageItem[];
+    needs_reply?: NeedsReplyItem[];
+}
+
+export interface BatchDecision {
+    index: number;
+    approve: boolean;
 }
 
 export interface AgentStreamCallbacks {
@@ -377,6 +404,8 @@ async function streamAgentNdjson(
                     tool_call_id: ev.tool_call_id,
                     draft_preview: ev.draft_preview,
                     references: ev.references,
+                    bulk: ev.bulk,
+                    needs_reply: ev.needs_reply,
                 });
                 break;
             case 'done':
@@ -413,8 +442,10 @@ export function resumeAgent(
     note: string | undefined,
     cb: AgentStreamCallbacks,
     editedBody?: string,
+    decisions?: BatchDecision[],
 ): Promise<void> {
     const body: Record<string, unknown> = { thread_id: threadId, approve, note };
     if (editedBody !== undefined) body.edited_body = editedBody;
+    if (decisions !== undefined) body.decisions = decisions;
     return streamAgentNdjson('/api/agent/resume', body, cb);
 }

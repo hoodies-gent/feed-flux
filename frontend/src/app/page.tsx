@@ -7,12 +7,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type BatchDecision } from '@/lib/api';
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -46,10 +46,10 @@ function argsPreview(args: unknown): string {
 
 function outputSummary(tool: string, output: string | undefined): string {
   if (!output) return '';
-  if (tool === 'find_email') {
+  if (tool === 'find_email' || tool === 'list_unread_emails') {
     if (output.startsWith('[]')) return 'no matches';
     const count = (output.match(/'id':/g) || []).length;
-    return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : 'ok';
+    return count > 0 ? `${count} email${count === 1 ? '' : 's'}` : 'ok';
   }
   if (tool === 'read_calendar') {
     const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
@@ -57,6 +57,11 @@ function outputSummary(tool: string, output: string | undefined): string {
   }
   if (tool === 'send_reply') {
     return output.startsWith('SEND COMPLETE') ? 'sent (dry-run)' : 'ok';
+  }
+  if (tool === 'apply_triage_batch') {
+    const m = output.match(/mark_read=(\d+), archive=(\d+), declined=(\d+)/);
+    if (m) return `mark_read=${m[1]} · archive=${m[2]} · declined=${m[3]}`;
+    return 'batch applied';
   }
   return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
 }
@@ -280,6 +285,216 @@ function MeetingReplyReviewCard({
   );
 }
 
+const BULK_KIND_META: Record<BulkTriageItem['action'], { label: string; icon: typeof BookOpen }> = {
+  mark_read: { label: '标记为已读', icon: BookOpen },
+  archive: { label: '归档', icon: Archive },
+};
+
+function BulkSection({
+  kind,
+  items,
+  approvedIdx,
+  disabled,
+  onToggle,
+  onToggleAll,
+}: {
+  kind: BulkTriageItem['action'];
+  items: BulkTriageItem[];
+  approvedIdx: Set<number>;
+  disabled: boolean;
+  onToggle: (index: number) => void;
+  onToggleAll: (kind: BulkTriageItem['action'], approve: boolean) => void;
+}) {
+  if (items.length === 0) return null;
+  const { label, icon: Icon } = BULK_KIND_META[kind];
+  const allSelected = items.every(i => approvedIdx.has(i.index));
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+          <Icon className="w-3.5 h-3.5" />
+          <span>{label}</span>
+          <span className="text-muted-foreground">({items.length})</span>
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onToggleAll(kind, !allSelected)}
+          className="text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+        >
+          {allSelected ? '全取消' : '全选'}
+        </button>
+      </div>
+      <ul className="space-y-1">
+        {items.map(item => {
+          const checked = approvedIdx.has(item.index);
+          return (
+            <li
+              key={item.index}
+              className={cn(
+                "flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                checked ? "bg-muted/40" : "bg-transparent opacity-60"
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => onToggle(item.index)}
+                className="mt-0.5 accent-primary shrink-0"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-foreground">{item.subject ?? item.email_id}</div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {item.sender ?? item.sender_email ?? ''}
+                  {item.reason && <span> · <span className="italic">{item.reason}</span></span>}
+                </div>
+                {item.body_preview && (
+                  <div className="truncate text-[10px] text-muted-foreground/70 mt-0.5">
+                    {item.body_preview}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function NeedsReplySection({ items }: { items: NeedsReplyItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+        <MessageSquare className="w-3.5 h-3.5" />
+        <span>需要你回复</span>
+        <span className="text-muted-foreground">({items.length})</span>
+        <span className="text-[10px] text-muted-foreground font-normal ml-1">— 单条起草</span>
+      </div>
+      <ul className="space-y-1">
+        {items.map((item, i) => (
+          <li key={i} className="rounded-md px-2 py-1.5 text-xs bg-muted/20 border-l-2 border-l-amber-500/60">
+            <div className="truncate text-foreground">{item.subject ?? item.email_id}</div>
+            <div className="truncate text-[10px] text-muted-foreground">
+              {item.sender ?? item.sender_email ?? ''}
+              {item.reason && <span> · <span className="italic">{item.reason}</span></span>}
+            </div>
+            {item.body_preview && (
+              <div className="truncate text-[10px] text-muted-foreground/70 mt-0.5">
+                {item.body_preview}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BatchTriageReviewCard({
+  interrupt,
+  disabled,
+  onDecide,
+}: {
+  interrupt: InterruptEvent;
+  disabled: boolean;
+  onDecide: (decisions: BatchDecision[]) => void;
+}) {
+  const bulk = interrupt.bulk ?? [];
+  const needsReply = interrupt.needs_reply ?? [];
+  const [approvedIdx, setApprovedIdx] = useState<Set<number>>(
+    () => new Set(bulk.map(b => b.index))
+  );
+
+  const toggle = (index: number) => {
+    setApprovedIdx(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
+  };
+  const toggleAll = (kind: BulkTriageItem['action'], approve: boolean) => {
+    setApprovedIdx(prev => {
+      const next = new Set(prev);
+      for (const b of bulk) {
+        if (b.action !== kind) continue;
+        if (approve) next.add(b.index); else next.delete(b.index);
+      }
+      return next;
+    });
+  };
+  const submit = () => {
+    const decisions: BatchDecision[] = bulk.map(b => ({
+      index: b.index,
+      approve: approvedIdx.has(b.index),
+    }));
+    onDecide(decisions);
+  };
+
+  const markRead = bulk.filter(b => b.action === 'mark_read');
+  const archive = bulk.filter(b => b.action === 'archive');
+  const selectedCount = approvedIdx.size;
+
+  return (
+    <div className="w-[90%] mt-1 rounded-xl border border-border bg-card p-3 space-y-3">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Hand className="w-4 h-4" />
+        <span className="text-xs font-medium">
+          批量处理 · {bulk.length + needsReply.length} 封邮件
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        <BulkSection
+          kind="mark_read"
+          items={markRead}
+          approvedIdx={approvedIdx}
+          disabled={disabled}
+          onToggle={toggle}
+          onToggleAll={toggleAll}
+        />
+        <BulkSection
+          kind="archive"
+          items={archive}
+          approvedIdx={approvedIdx}
+          disabled={disabled}
+          onToggle={toggle}
+          onToggleAll={toggleAll}
+        />
+        <NeedsReplySection items={needsReply} />
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-[10px] text-muted-foreground italic">
+          Dry-run mode
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" disabled={disabled}
+            onClick={() => onDecide(bulk.map(b => ({ index: b.index, approve: false })))}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={disabled}
+            onClick={submit}>
+            {selectedCount === 0 ? '全部拒绝' : `Apply ${selectedCount} item${selectedCount === 1 ? '' : 's'}`}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BatchAppliedChip() {
+  return (
+    <div className="w-fit flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
+      <CheckCircle2 className="w-3.5 h-3.5" />
+      <span>Batch applied (dry-run mode)</span>
+    </div>
+  );
+}
+
 function SentDryRunChip() {
   return (
     <div className="w-fit flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
@@ -431,14 +646,14 @@ export default function Home() {
     }
   };
 
-  const handleResume = async (msgId: string, approve: boolean, note?: string, editedBody?: string) => {
+  const handleResume = async (msgId: string, approve: boolean, note?: string, editedBody?: string, decisions?: BatchDecision[]) => {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
       msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
     ));
     try {
-      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody);
+      await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody, decisions);
     } catch (err) {
       toast.error('Failed to resume agent');
     } finally {
@@ -1086,7 +1301,13 @@ export default function Home() {
                       )}
 
                       {msg.role === 'assistant' && msg.pendingInterrupt && (
-                        msg.pendingInterrupt.tool === 'send_reply' ? (
+                        msg.pendingInterrupt.tool === 'apply_triage_batch' ? (
+                          <BatchTriageReviewCard
+                            interrupt={msg.pendingInterrupt}
+                            disabled={isSendingChat}
+                            onDecide={(decisions) => handleResume(msg.id, true, undefined, undefined, decisions)}
+                          />
+                        ) : msg.pendingInterrupt.tool === 'send_reply' ? (
                           <MeetingReplyReviewCard
                             interrupt={msg.pendingInterrupt}
                             disabled={isSendingChat}
@@ -1104,6 +1325,11 @@ export default function Home() {
                       {msg.role === 'assistant'
                         && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
                         <SentDryRunChip />
+                      )}
+
+                      {msg.role === 'assistant'
+                        && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'apply_triage_batch') && (
+                        <BatchAppliedChip />
                       )}
 
                       {/* Citations/Sources Cards attached to AI Response */}
