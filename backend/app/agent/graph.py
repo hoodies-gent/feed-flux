@@ -59,11 +59,23 @@ SYSTEM_PROMPT = (
     "quick glance. Pick action 'mark_read' (low-signal informational) or 'archive' "
     "(receipts / done threads).\n"
     "      NEEDS HUMAN REPLY: anything asking a question, requesting an action, or "
-    "coming from a person expecting a personal response. Just capture the email_id — "
-    "DO NOT draft a reply here. Aim for 0-5 items.\n"
-    "  (3) apply_triage_batch(actions=[...bulk items...], needs_reply_ids=[...ids...]) — "
-    "ONE call, ONE review card. Do NOT call this tool twice. Do NOT loop send_reply "
-    "per email.\n"
+    "coming from a person expecting a personal response. Capture the email_id and a "
+    "SHORT reason — DO NOT draft a reply here. Aim for 0-5 items.\n"
+    "  (3) apply_triage_batch(actions=[{email_id, action, reason}], "
+    "needs_reply=[{email_id, reason}]) — ONE call, ONE review card. EVERY item MUST "
+    "have a `reason`: a ≤20-char phrase (not a sentence) explaining the classification "
+    "so the user can audit ('例行会议提醒', 'newsletter', '要求确认改期', '催回复'). "
+    "Match the reason language to the user's chat language. Do NOT call this tool "
+    "twice. Do NOT loop send_reply per email.\n"
+    "\n"
+    "Across the ENTIRE triage flow (from user's request through the interrupt), chat "
+    "text before apply_triage_batch fires must be AT MOST one short sentence total — "
+    "either '正在分析 N 封未读...' before list_unread_emails, OR silent between the two "
+    "tools, NEVER both. Do not narrate the transition ('正在提交分流方案...' style) "
+    "between list_unread_emails and apply_triage_batch. All per-email reasoning goes "
+    "into the tool args' `reason` fields — the review card renders them next to each "
+    "email. A wall of 'Email 1: ..., Email 2: ...' analysis in chat before the tool "
+    "call is the exact anti-pattern to avoid.\n"
     "\n"
     "Why no drafts in the batch: drafting 10 replies upfront wastes time and forces the "
     "user to read a wall of AI text. Real triage is 'dismiss the obvious 80% in bulk, "
@@ -88,7 +100,7 @@ def _apply_triage_batch_decisions(args: dict, decision: dict, thread_id: str) ->
     to pick up one at a time via the standard send_reply flow.
     """
     actions = args.get("actions") or []
-    needs_reply_ids = args.get("needs_reply_ids") or []
+    needs_reply = args.get("needs_reply") or []
     raw_decisions = (decision or {}).get("decisions") or []
     by_index = {int(d["index"]): d for d in raw_decisions if "index" in d}
 
@@ -114,9 +126,10 @@ def _apply_triage_batch_decisions(args: dict, decision: dict, thread_id: str) ->
         f"BATCH APPLIED (dry-run): mark_read={counts['mark_read']}, "
         f"archive={counts['archive']}, declined={counts['declined']}."
     ]
-    if needs_reply_ids:
+    if needs_reply:
+        ids = [n.get("email_id") for n in needs_reply if n.get("email_id")]
         parts.append(
-            f"Needs human reply ({len(needs_reply_ids)}): {', '.join(needs_reply_ids)}. "
+            f"Needs human reply ({len(needs_reply)}): {', '.join(ids)}. "
             f"Tell the user which senders/subjects these correspond to (from the "
             f"earlier list_unread_emails output) and invite them to pick one to reply to."
         )
