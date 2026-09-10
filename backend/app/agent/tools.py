@@ -1,5 +1,6 @@
 import contextvars
 from datetime import datetime, timedelta
+from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -93,6 +94,46 @@ def find_email(
         session.close()
 
 
+class ListUnreadEmailsInput(BaseModel):
+    limit: int = Field(
+        default=20,
+        description=(
+            "Maximum number of unread emails to return (hard cap 50). Choose based "
+            "on the user's ask: they name a number ('top 5', '10 封') → use that; "
+            "they say 'all' / 'everything' / '所有' / '全部' → pass 50 to sweep the "
+            "whole inbox; unspecified vague request ('handle my unreads') → 20."
+        ),
+    )
+
+
+@tool("list_unread_emails", args_schema=ListUnreadEmailsInput)
+def list_unread_emails(limit: int = 20) -> list[dict]:
+    """Fetch the user's unread emails, newest first.
+
+    Use at the start of a batch triage workflow when the user asks to
+    process, clear, or review a batch of unread email. Read the returned
+    summaries and decide a proposed action per email (mark_read / archive /
+    delete / needs_reply), then submit them together via apply_triage_batch.
+
+    Pick `limit` from the user's phrasing — see the argument description.
+
+    Returns compact summaries (id, subject, sender, received, body_preview).
+    """
+    db = DatabaseService()
+    rows = db.get_unread_emails(limit=limit)
+    return [
+        {
+            "id": r["id"],
+            "subject": r["subject"],
+            "sender": r["sender"] or r["sender_email"],
+            "sender_email": r["sender_email"],
+            "received": datetime.utcfromtimestamp(r["received_datetime"]).isoformat() + "Z",
+            "body_preview": r["body_preview"],
+        }
+        for r in rows
+    ]
+
+
 class ReadCalendarInput(BaseModel):
     days_ahead: int = Field(
         default=7,
@@ -167,6 +208,92 @@ def send_reply(
     )
 
 
-TOOLS = [send_test_email, find_email, read_calendar, send_reply]
+class TriageActionItem(BaseModel):
+    email_id: str = Field(description="ID of the email this action applies to (from list_unread_emails).")
+    action: Literal["mark_read", "archive", "delete"] = Field(
+        description=(
+            "Bulk-safe action for low-signal email. Choose per email: "
+            "'mark_read' (informational you want to keep — FYI threads, status updates), "
+            "'archive' (receipts / confirmations / done threads — out of inbox but retained), "
+            "'delete' (CI notifications, obvious junk, promos you never read — vanish). "
+            "Never use these for anything requiring a human reply."
+        )
+    )
+    reason: str = Field(
+        description=(
+            "≤20-char short phrase explaining WHY this bucket, shown to the user for "
+            "auditing. Examples: '例行会议提醒'、'newsletter'、'状态更新 FYI'、'CI passed'. "
+            "Not a full sentence. Match the user's chat language."
+        ),
+        max_length=40,
+    )
+
+
+class NeedsReplyItem(BaseModel):
+    email_id: str = Field(description="ID of the email needing a human reply.")
+    reason: str = Field(
+        description=(
+            "≤20-char short phrase explaining WHY it needs a human reply. Examples: "
+            "'要求确认改期'、'技术设计提问'、'催第 2 次回复'、'discovery call 邀约'. "
+            "Not a full sentence. Match the user's chat language."
+        ),
+        max_length=40,
+    )
+
+
+class ApplyTriageBatchInput(BaseModel):
+    actions: list[TriageActionItem] = Field(
+        default_factory=list,
+        description=(
+            "Bulk-safe proposals only (mark_read / archive). One item per email, with "
+            "a short reason. These become preselected checkboxes in the review card so "
+            "the user can dismiss the low-signal bucket in a single click."
+        ),
+        max_length=50,
+    )
+    needs_reply: list[NeedsReplyItem] = Field(
+        default_factory=list,
+        description=(
+            "Emails that genuinely need a human-authored reply — do NOT draft them here. "
+            "One item per email with a short reason so the user knows why. They surface "
+            "as a follow-up list; the user picks one at a time and drafts through the "
+            "standard send_reply flow. Keep this short (0-5); if you find yourself "
+            "putting most of the batch here, your classification is too conservative."
+        ),
+        max_length=20,
+    )
+
+
+@tool("apply_triage_batch", args_schema=ApplyTriageBatchInput)
+def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
+    """Submit a triage plan — the review card renders it and the user acts per row.
+
+    Use after list_unread_emails once you've classified each email into either
+    (a) bulk-safe: mark_read / archive / delete — goes into `actions`, or
+    (b) needs a human reply — goes into `needs_reply` (id + short reason, no draft).
+
+    Every item in both lists MUST have a `reason` — a ≤20-char phrase the user
+    reads to audit your classification (e.g. '例行会议提醒', 'newsletter',
+    'CI passed', '要求确认改期'). Reasons are the trust-builder — without them
+    the user has no way to know if you classified correctly.
+
+    The user drives from here — they click mark-read / archive / delete / view /
+    draft-reply per row on the card. You do NOT execute the actions. Give a
+    single one-line acknowledgement after this tool returns and STOP.
+    """
+    n_bulk = len(actions or [])
+    n_reply = len(needs_reply or [])
+    return (
+        f"PLAN READY: {n_bulk} bulk items + {n_reply} needs-reply. "
+        f"The plan is now on the review card and the user is acting on it directly. "
+        f"Reply ONE line telling them the plan is on the card, then STOP. "
+        f"CRITICAL: match the language of the user's ORIGINAL request in this turn — "
+        f"if they wrote English, respond in English; if Chinese, Chinese. Do not "
+        f"default to Chinese just because this system message is bilingual. Do NOT "
+        f"enumerate the buckets, do NOT list needs-reply items, do NOT offer to draft."
+    )
+
+
+TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply, apply_triage_batch]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 HIGH_RISK_TOOLS = {"send_test_email", "send_reply"}

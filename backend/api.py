@@ -68,9 +68,18 @@ class AgentChatRequest(BaseModel):
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
-    approve: bool
+    approve: bool = True  # unused for batch flows; kept for single-tool compat
     note: Optional[str] = None
     edited_body: Optional[str] = None
+    decisions: Optional[List[dict]] = None  # batch flows: [{index, approve, edited_body?}]
+
+class TriageActionRequest(BaseModel):
+    email_id: str
+    kind: str  # 'mark_read' | 'archive' | 'delete'
+    thread_id: Optional[str] = None
+
+class TriageUndoRequest(BaseModel):
+    row_id: int
 
 import asyncio
 import os
@@ -455,12 +464,45 @@ async def agent_chat_stream(request: AgentChatRequest):
         media_type="application/x-ndjson",
     )
 
+@app.post("/api/triage/undo")
+async def triage_undo(request: TriageUndoRequest):
+    """Reverse a previous /api/triage/action by row_id (from that call's response)."""
+    try:
+        result = db.undo_email_action(row_id=request.row_id)
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"triage_undo failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/triage/action")
+async def triage_action(request: TriageActionRequest):
+    """Apply a single-email triage action (mark_read / archive / delete).
+
+    Called by the batch triage card when the user clicks a per-row action.
+    Writes label_actions + mutates local Email state (dry-run — nothing hits
+    Microsoft Graph in Phase 1).
+    """
+    try:
+        row_id = db.apply_email_action(
+            email_id=request.email_id,
+            kind=request.kind,
+            thread_id=request.thread_id or "user-direct",
+        )
+        return {"ok": True, "row_id": row_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"triage_action failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/agent/resume")
 async def agent_resume(request: AgentResumeRequest):
     """Resume a paused agent turn after human review. Same event stream as /agent/chat/stream."""
     return StreamingResponse(
         _agent_ndjson(
-            resume_input(request.approve, request.note, request.edited_body),
+            resume_input(request.approve, request.note, request.edited_body, request.decisions),
             request.thread_id,
         ),
         media_type="application/x-ndjson",

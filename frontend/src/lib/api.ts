@@ -311,6 +311,7 @@ export interface TraceEvent {
     tool?: string;
     args?: unknown;
     output?: string;
+    result_count?: number;
 }
 
 export interface DraftPreview {
@@ -325,6 +326,33 @@ export interface InterruptReference {
     output: string;
 }
 
+export type TriageActionKind = 'mark_read' | 'archive' | 'delete';
+
+export interface BulkTriageItem {
+    index: number;
+    email_id: string;
+    action: TriageActionKind;
+    reason?: string;
+    subject?: string;
+    sender?: string;
+    sender_email?: string;
+    body_preview?: string;
+}
+
+export interface NeedsReplyItem {
+    email_id: string;
+    reason?: string;
+    subject?: string;
+    sender?: string;
+    sender_email?: string;
+    body_preview?: string;
+}
+
+export interface TriagePlan {
+    bulk: BulkTriageItem[];
+    needs_reply: NeedsReplyItem[];
+}
+
 export interface InterruptEvent {
     tool: string;
     args: Record<string, unknown>;
@@ -337,6 +365,7 @@ export interface AgentStreamCallbacks {
     onTrace: (t: TraceEvent) => void;
     onToken: (text: string) => void;
     onInterrupt: (i: InterruptEvent) => void;
+    onPlan?: (p: TriagePlan) => void;
     onDone: () => void;
     onError?: (msg: string) => void;
 }
@@ -365,7 +394,7 @@ async function streamAgentNdjson(
         const ev = JSON.parse(trimmed);
         switch (ev.type) {
             case 'trace':
-                cb.onTrace({ step: ev.step, tool: ev.tool, args: ev.args, output: ev.output });
+                cb.onTrace({ step: ev.step, tool: ev.tool, args: ev.args, output: ev.output, result_count: ev.result_count });
                 break;
             case 'token':
                 cb.onToken(ev.content);
@@ -377,6 +406,12 @@ async function streamAgentNdjson(
                     tool_call_id: ev.tool_call_id,
                     draft_preview: ev.draft_preview,
                     references: ev.references,
+                });
+                break;
+            case 'plan':
+                cb.onPlan?.({
+                    bulk: ev.bulk ?? [],
+                    needs_reply: ev.needs_reply ?? [],
                 });
                 break;
             case 'done':
@@ -417,4 +452,34 @@ export function resumeAgent(
     const body: Record<string, unknown> = { thread_id: threadId, approve, note };
     if (editedBody !== undefined) body.edited_body = editedBody;
     return streamAgentNdjson('/api/agent/resume', body, cb);
+}
+
+export async function triageAction(
+    emailId: string,
+    kind: TriageActionKind,
+    threadId?: string,
+): Promise<{ ok: boolean; row_id: number }> {
+    const res = await fetch('/api/triage/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: emailId, kind, thread_id: threadId }),
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`triage_action failed (${res.status}): ${text}`);
+    }
+    return res.json();
+}
+
+export async function triageUndo(rowId: number): Promise<{ ok: boolean; email_id: string; kind: string }> {
+    const res = await fetch('/api/triage/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ row_id: rowId }),
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`triage_undo failed (${res.status}): ${text}`);
+    }
+    return res.json();
 }

@@ -1,9 +1,9 @@
 import logging
 import os
 from pathlib import Path
-from sqlalchemy import create_engine, desc, or_
+from sqlalchemy import create_engine, desc, or_, text
 from sqlalchemy.orm import sessionmaker
-from app.models.email import Base, Email, SentAction
+from app.models.email import Base, Email, SentAction, LabelAction
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,21 @@ class DatabaseService:
         
         self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
         Base.metadata.create_all(self.engine)
+        self._migrate_add_is_deleted()
         self.Session = sessionmaker(bind=self.engine)
         logger.info(f"Database initialized at {db_path}")
+
+    def _migrate_add_is_deleted(self):
+        """Lightweight forward migration: add emails.is_deleted for pre-M2 DBs.
+        SQLite doesn't support IF NOT EXISTS on ADD COLUMN; swallow the
+        duplicate-column error on repeat runs.
+        """
+        with self.engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE emails ADD COLUMN is_deleted BOOLEAN DEFAULT 0"))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
     
     def insert_email(self, email_data: dict):
         """Insert or update email (upsert)"""
@@ -59,11 +72,11 @@ class DatabaseService:
         """Get emails list with pagination and optional keyword search"""
         session = self.Session()
         try:
-            query = session.query(Email)
-            
+            query = session.query(Email).filter(Email.is_deleted == False)  # noqa: E712
+
             if unread_only:
                 query = query.filter(Email.is_read == False)
-                
+
             if search_query:
                 search_term = f"%{search_query}%"
                 query = query.filter(
@@ -74,12 +87,12 @@ class DatabaseService:
                         Email.body_preview.ilike(search_term)
                     )
                 )
-            
+
             emails = query.order_by(desc(Email.received_datetime))\
                          .limit(limit)\
                          .offset(offset)\
                          .all()
-            
+
             return [self._email_to_dict(e) for e in emails]
         finally:
             session.close()
@@ -132,6 +145,118 @@ class DatabaseService:
         finally:
             session.close()
 
+    def insert_label_action(self, action_data: dict) -> int:
+        """Record a dry-run inbox label (mark_read / archive). Returns the new row id."""
+        session = self.Session()
+        try:
+            action = LabelAction(**action_data)
+            session.add(action)
+            session.commit()
+            session.refresh(action)
+            logger.info(
+                f"Recorded label_action id={action.id} thread={action.thread_id} "
+                f"email={action.email_id} kind={action.kind} (dry-run)"
+            )
+            return action.id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to record label_action: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_unread_emails(self, limit: int = 20):
+        """Get unread emails, newest first. Used by the triage workflow.
+        Excludes archived and deleted — those are already 'processed' from the
+        user's perspective and should not resurface in the next triage pass.
+        """
+        session = self.Session()
+        try:
+            emails = (
+                session.query(Email)
+                .filter(Email.is_read == False)  # noqa: E712
+                .filter(Email.is_archived == False)
+                .filter(Email.is_deleted == False)
+                .order_by(desc(Email.received_datetime))
+                .limit(max(1, min(limit, 50)))
+                .all()
+            )
+            return [self._email_to_dict(e) for e in emails]
+        finally:
+            session.close()
+
+    def undo_email_action(self, row_id: int) -> dict:
+        """Reverse a previous apply_email_action by row_id.
+
+        Deletes the label_actions row and resets the corresponding Email flags
+        to reflect "put it back where it was". Note: we don't remember the pre-
+        action flag state, so undo returns the email to a neutral unread/unarchived
+        state, matching the user's likely intent of 'get it back in the triage list'.
+        Raises ValueError if the row doesn't exist.
+        """
+        session = self.Session()
+        try:
+            action = session.query(LabelAction).filter_by(id=row_id).first()
+            if not action:
+                raise ValueError(f"label_action row not found: {row_id!r}")
+            email = session.query(Email).filter_by(id=action.email_id).first()
+            if email:
+                if action.kind == "mark_read":
+                    email.is_read = False
+                elif action.kind == "archive":
+                    email.is_archived = False
+                    email.is_read = False  # archive had implied read; undo returns to unread
+                elif action.kind == "delete":
+                    email.is_deleted = False
+                email.updated_at = datetime.utcnow()
+            summary = {"email_id": action.email_id, "kind": action.kind}
+            session.delete(action)
+            session.commit()
+            logger.info(f"Undid email action row_id={row_id} email={summary['email_id']} kind={summary['kind']}")
+            return summary
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def apply_email_action(self, email_id: str, kind: str, thread_id: str = "user-direct") -> int:
+        """Apply a triage action to a single email — writes label_actions
+        AND mutates local Email row state (is_read / is_archived / is_deleted).
+
+        Dry-run in Phase 1: local state changes but nothing hits Microsoft Graph.
+        Returns the new label_actions row id. Raises ValueError on unknown kind
+        or missing email.
+        """
+        if kind not in ("mark_read", "archive", "delete"):
+            raise ValueError(f"unknown kind: {kind!r}")
+        session = self.Session()
+        try:
+            email = session.query(Email).filter_by(id=email_id).first()
+            if not email:
+                raise ValueError(f"email not found: {email_id!r}")
+            if kind == "mark_read":
+                email.is_read = True
+            elif kind == "archive":
+                email.is_archived = True
+                email.is_read = True  # archive implies read
+            elif kind == "delete":
+                email.is_deleted = True
+            email.updated_at = datetime.utcnow()
+            action = LabelAction(thread_id=thread_id, email_id=email_id, kind=kind)
+            session.add(action)
+            session.commit()
+            session.refresh(action)
+            logger.info(
+                f"Applied email action id={action.id} email={email_id} kind={kind} thread={thread_id}"
+            )
+            return action.id
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def get_email_count(self):
         """Get total email count"""
         session = self.Session()
@@ -160,6 +285,7 @@ class DatabaseService:
             "is_read": email.is_read,
             "is_starred": email.is_starred,
             "is_archived": email.is_archived,
+            "is_deleted": email.is_deleted,
             "has_attachments": email.has_attachments,
             "attachments": email.attachments,
         }

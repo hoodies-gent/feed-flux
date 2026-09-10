@@ -7,12 +7,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind } from '@/lib/api';
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 type MessageSegment =
   | { kind: 'text'; text: string }
   | { kind: 'tool_start'; tool: string; args?: unknown }
-  | { kind: 'tool_end'; tool: string; output?: string };
+  | { kind: 'tool_end'; tool: string; output?: string; resultCount?: number };
 
 interface ChatMessage {
   id: string;
@@ -32,6 +32,7 @@ interface ChatMessage {
   isLoading?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
+  triagePlan?: TriagePlan;
 }
 
 function argsPreview(args: unknown): string {
@@ -44,19 +45,28 @@ function argsPreview(args: unknown): string {
     .join(', ');
 }
 
-function outputSummary(tool: string, output: string | undefined): string {
-  if (!output) return '';
-  if (tool === 'find_email') {
+function outputSummary(tool: string, output: string | undefined, resultCount?: number): string {
+  if (tool === 'find_email' || tool === 'list_unread_emails') {
+    if (typeof resultCount === 'number') {
+      return resultCount === 0 ? 'no matches' : `${resultCount} email${resultCount === 1 ? '' : 's'}`;
+    }
+    if (!output) return '';
     if (output.startsWith('[]')) return 'no matches';
     const count = (output.match(/'id':/g) || []).length;
-    return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : 'ok';
+    return count > 0 ? `${count}+ emails` : 'ok';
   }
+  if (!output) return '';
   if (tool === 'read_calendar') {
     const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
     return slots > 0 ? `${slots} free slots` : 'ok';
   }
   if (tool === 'send_reply') {
     return output.startsWith('SEND COMPLETE') ? 'sent (dry-run)' : 'ok';
+  }
+  if (tool === 'apply_triage_batch') {
+    const m = output.match(/PLAN READY: (\d+) bulk items \+ (\d+) needs-reply/);
+    if (m) return `${m[1]} bulk · ${m[2]} needs reply`;
+    return 'plan ready';
   }
   return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
 }
@@ -65,11 +75,13 @@ function ToolCallLine({
   tool,
   args,
   output,
+  resultCount,
   running,
 }: {
   tool: string;
   args?: unknown;
   output?: string;
+  resultCount?: number;
   running: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -90,7 +102,7 @@ function ToolCallLine({
           <span className="text-foreground">{tool}</span>
           {preview && <span>({preview})</span>}
           {!running && output !== undefined && (
-            <span className="text-muted-foreground/70"> · {outputSummary(tool, output)}</span>
+            <span className="text-muted-foreground/70"> · {outputSummary(tool, output, resultCount)}</span>
           )}
         </span>
         <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
@@ -117,7 +129,7 @@ function ToolCallLine({
 
 type RenderItem =
   | { kind: 'text'; text: string; key: number }
-  | { kind: 'tool'; tool: string; args?: unknown; output?: string; running: boolean; key: number };
+  | { kind: 'tool'; tool: string; args?: unknown; output?: string; resultCount?: number; running: boolean; key: number };
 
 function pairSegments(segments: MessageSegment[]): RenderItem[] {
   const items: RenderItem[] = [];
@@ -138,7 +150,7 @@ function pairSegments(segments: MessageSegment[]): RenderItem[] {
       if (matchIdx >= 0) {
         usedEnds.add(matchIdx);
         const end = segments[matchIdx] as Extract<MessageSegment, { kind: 'tool_end' }>;
-        items.push({ kind: 'tool', tool: s.tool, args: s.args, output: end.output, running: false, key: i });
+        items.push({ kind: 'tool', tool: s.tool, args: s.args, output: end.output, resultCount: end.resultCount, running: false, key: i });
       } else {
         items.push({ kind: 'tool', tool: s.tool, args: s.args, running: true, key: i });
       }
@@ -280,6 +292,357 @@ function MeetingReplyReviewCard({
   );
 }
 
+const BULK_KIND_META: Record<TriageActionKind, { label: string; short: string; pastTense: string; icon: typeof BookOpen; color: string; badge: string }> = {
+  mark_read: {
+    label: 'Suggested: mark as read',
+    short: 'Read',
+    pastTense: 'Marked as read',
+    icon: BookOpen,
+    color: 'text-sky-600 dark:text-sky-400',
+    badge: 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/30',
+  },
+  archive: {
+    label: 'Suggested: archive',
+    short: 'Archive',
+    pastTense: 'Archived',
+    icon: Archive,
+    color: 'text-purple-600 dark:text-purple-400',
+    badge: 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/30',
+  },
+  delete: {
+    label: 'Suggested: delete',
+    short: 'Delete',
+    pastTense: 'Deleted',
+    icon: Trash2,
+    color: 'text-red-600 dark:text-red-400',
+    badge: 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30',
+  },
+};
+
+type ItemStatus = 'pending' | 'processing' | 'done' | 'error';
+type BulkItemState = { status: ItemStatus; appliedKind?: TriageActionKind; rowId?: number };
+
+function ActionPill({
+  kind,
+  suggested,
+  disabled,
+  onClick,
+}: {
+  kind: TriageActionKind;
+  suggested: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const { short, icon: Icon, badge } = BULK_KIND_META[kind];
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={suggested ? `Suggested: ${short}` : `Change to: ${short}`}
+      className={cn(
+        'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+        suggested
+          ? badge
+          : 'bg-transparent text-muted-foreground/60 border-transparent hover:border-border hover:text-foreground',
+        disabled && 'opacity-40 cursor-not-allowed',
+      )}
+    >
+      <Icon className="w-3 h-3" />
+      <span>{short}</span>
+    </button>
+  );
+}
+
+function BulkSection({
+  kind,
+  items,
+  itemStates,
+  disabled,
+  onApply,
+  onView,
+  onApplyAllSuggested,
+}: {
+  kind: TriageActionKind;
+  items: BulkTriageItem[];
+  itemStates: Record<string, BulkItemState>;
+  disabled: boolean;
+  onApply: (item: BulkTriageItem, chosenKind: TriageActionKind) => void;
+  onView: (emailId: string) => void;
+  onApplyAllSuggested: (kind: TriageActionKind) => void;
+}) {
+  if (items.length === 0) return null;
+  const { label, icon: Icon, color } = BULK_KIND_META[kind];
+  const pending = items.filter(i => (itemStates[i.email_id]?.status ?? 'pending') === 'pending');
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className={cn('flex items-center gap-1.5 text-xs font-medium', color)}>
+          <Icon className="w-3.5 h-3.5" />
+          <span>{label}</span>
+          <span className="text-muted-foreground">({pending.length}/{items.length})</span>
+        </div>
+        {pending.length > 0 && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onApplyAllSuggested(kind)}
+            className="text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+          >
+            Apply all suggested
+          </button>
+        )}
+      </div>
+      <ul className="space-y-1">
+        {items.map(item => {
+          const state = itemStates[item.email_id] ?? { status: 'pending' as ItemStatus };
+          const isDone = state.status === 'done';
+          const isProcessing = state.status === 'processing';
+          const isError = state.status === 'error';
+          return (
+            <li
+              key={item.email_id}
+              className={cn(
+                'group flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-all',
+                isDone ? 'opacity-40' : 'bg-muted/30 hover:bg-muted/60',
+                isError && 'ring-1 ring-red-500/40',
+              )}
+            >
+              <button
+                type="button"
+                disabled={disabled || isDone}
+                onClick={() => onView(item.email_id)}
+                title="View original"
+                className={cn(
+                  'min-w-0 flex-1 flex items-start gap-1.5 text-left rounded transition-colors',
+                  !isDone && 'cursor-pointer',
+                )}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className={cn('block truncate text-foreground', isDone && 'line-through')}>
+                    {item.subject ?? item.email_id}
+                  </span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {item.sender ?? item.sender_email ?? ''}
+                    {item.reason && <span> · <span className="italic">{item.reason}</span></span>}
+                  </span>
+                  {item.body_preview && (
+                    <span className="block truncate text-[10px] text-muted-foreground/70 mt-0.5">
+                      {item.body_preview}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <div className="shrink-0 flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                {isDone && state.appliedKind && (
+                  <span className={cn('text-[10px] px-1.5 py-0.5 rounded border', BULK_KIND_META[state.appliedKind].badge)}>
+                    ✓ {BULK_KIND_META[state.appliedKind].pastTense}
+                  </span>
+                )}
+                {isProcessing && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                {!isDone && !isProcessing && (
+                  <>
+                    {(['mark_read', 'archive', 'delete'] as TriageActionKind[]).map(k => (
+                      <ActionPill
+                        key={k}
+                        kind={k}
+                        suggested={item.action === k}
+                        disabled={disabled}
+                        onClick={() => onApply(item, k)}
+                      />
+                    ))}
+                  </>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function NeedsReplySection({
+  items,
+  disabled,
+  onView,
+  onDraft,
+}: {
+  items: NeedsReplyItem[];
+  disabled: boolean;
+  onView: (emailId: string) => void;
+  onDraft: (item: NeedsReplyItem) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+        <MessageSquare className="w-3.5 h-3.5" />
+        <span>Needs your reply</span>
+        <span className="text-muted-foreground">({items.length})</span>
+        <span className="text-[10px] text-muted-foreground font-normal ml-1">— one at a time</span>
+      </div>
+      <ul className="space-y-1">
+        {items.map((item, i) => (
+          <li key={i} className="group flex items-start gap-2 rounded-md px-2 py-1.5 text-xs bg-amber-500/5 border-l-2 border-l-amber-500/60 hover:bg-amber-500/10 transition-colors">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onView(item.email_id)}
+              title="View original"
+              className="min-w-0 flex-1 flex items-start gap-1.5 text-left cursor-pointer"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-foreground">{item.subject ?? item.email_id}</span>
+                <span className="block truncate text-[10px] text-muted-foreground">
+                  {item.sender ?? item.sender_email ?? ''}
+                  {item.reason && <span> · <span className="italic">{item.reason}</span></span>}
+                </span>
+                {item.body_preview && (
+                  <span className="block truncate text-[10px] text-muted-foreground/70 mt-0.5">
+                    {item.body_preview}
+                  </span>
+                )}
+              </span>
+            </button>
+            <div className="shrink-0 flex items-center gap-1" onClick={e => e.stopPropagation()}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onDraft(item)}
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                title="Draft a reply"
+              >
+                <MessageSquare className="w-3 h-3" />
+                <span>Draft reply</span>
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BatchTriageReviewCard({
+  plan,
+  threadId,
+  onView,
+  onDraft,
+}: {
+  plan: TriagePlan;
+  threadId: string;
+  onView: (emailId: string) => void;
+  onDraft: (item: NeedsReplyItem) => void;
+}) {
+  const bulk = plan.bulk ?? [];
+  const needsReply = plan.needs_reply ?? [];
+  const [itemStates, setItemStates] = useState<Record<string, BulkItemState>>({});
+
+  const applyOne = async (item: BulkTriageItem, chosenKind: TriageActionKind) => {
+    setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'processing' } }));
+    try {
+      const { row_id } = await triageAction(item.email_id, chosenKind, threadId);
+      setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'done', appliedKind: chosenKind, rowId: row_id } }));
+      const past = BULK_KIND_META[chosenKind].pastTense;
+      const title = item.subject ?? item.email_id;
+      toast.success(`${past} · ${title.length > 30 ? title.slice(0, 30) + '…' : title}`, {
+        duration: 6000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              await triageUndo(row_id);
+              setItemStates(prev => {
+                const next = { ...prev };
+                delete next[item.email_id];
+                return next;
+              });
+              toast.success('Undone');
+            } catch (err) {
+              toast.error('Undo failed');
+            }
+          },
+        },
+      });
+    } catch (err) {
+      toast.error(`Failed: ${item.subject ?? item.email_id}`);
+      setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'error' } }));
+    }
+  };
+
+  const applyAllSuggestedInSection = async (kind: TriageActionKind) => {
+    const targets = bulk.filter(b => b.action === kind && (itemStates[b.email_id]?.status ?? 'pending') === 'pending');
+    for (const item of targets) {
+      await applyOne(item, kind);
+    }
+  };
+
+  const markRead = bulk.filter(b => b.action === 'mark_read');
+  const archive = bulk.filter(b => b.action === 'archive');
+  const del = bulk.filter(b => b.action === 'delete');
+
+  const total = bulk.length + needsReply.length;
+  const doneCount = Object.values(itemStates).filter(s => s.status === 'done').length;
+
+  return (
+    <div className="w-[95%] mt-1 rounded-xl border border-border bg-card p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Hand className="w-4 h-4" />
+          <span className="text-xs font-medium">
+            Batch triage · {total} email{total === 1 ? '' : 's'}
+          </span>
+        </div>
+        <span className="text-[10px] text-muted-foreground">
+          {doneCount}/{bulk.length} processed
+        </span>
+      </div>
+
+      <div className="space-y-3">
+        <BulkSection
+          kind="mark_read"
+          items={markRead}
+          itemStates={itemStates}
+          disabled={false}
+          onApply={applyOne}
+          onView={onView}
+          onApplyAllSuggested={applyAllSuggestedInSection}
+        />
+        <BulkSection
+          kind="archive"
+          items={archive}
+          itemStates={itemStates}
+          disabled={false}
+          onApply={applyOne}
+          onView={onView}
+          onApplyAllSuggested={applyAllSuggestedInSection}
+        />
+        <BulkSection
+          kind="delete"
+          items={del}
+          itemStates={itemStates}
+          disabled={false}
+          onApply={applyOne}
+          onView={onView}
+          onApplyAllSuggested={applyAllSuggestedInSection}
+        />
+        <NeedsReplySection
+          items={needsReply}
+          disabled={false}
+          onView={onView}
+          onDraft={onDraft}
+        />
+      </div>
+
+      <div className="text-[10px] text-muted-foreground italic pt-1">
+        Dry-run mode · click any action to apply immediately
+      </div>
+    </div>
+  );
+}
+
 function SentDryRunChip() {
   return (
     <div className="w-fit flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium">
@@ -365,7 +728,7 @@ export default function Home() {
           if (t.step === 'tool_start' && t.tool) {
             segments.push({ kind: 'tool_start', tool: t.tool, args: t.args });
           } else if (t.step === 'tool_end' && t.tool) {
-            segments.push({ kind: 'tool_end', tool: t.tool, output: t.output });
+            segments.push({ kind: 'tool_end', tool: t.tool, output: t.output, resultCount: t.result_count });
           }
           return { ...msg, segments };
         }));
@@ -386,6 +749,11 @@ export default function Home() {
       onInterrupt: (i) => {
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, pendingInterrupt: i, isLoading: false } : msg
+        ));
+      },
+      onPlan: (plan) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, triagePlan: plan, isLoading: false } : msg
         ));
       },
       onDone: () => {},
@@ -444,6 +812,12 @@ export default function Home() {
     } finally {
       setIsSendingChat(false);
     }
+  };
+
+  const handleDraftFromTriage = (item: NeedsReplyItem) => {
+    const sender = item.sender ?? item.sender_email ?? '';
+    const subject = item.subject ?? item.email_id;
+    setChatInput(`Draft a reply to ${sender} re: ${subject}`);
   };
 
   const handleNewChat = () => {
@@ -1070,6 +1444,7 @@ export default function Home() {
                                   tool={item.tool}
                                   args={item.args}
                                   output={item.output}
+                                  resultCount={item.resultCount}
                                   running={item.running}
                                 />
                               )
@@ -1099,6 +1474,15 @@ export default function Home() {
                             onDecide={(approve, note) => handleResume(msg.id, approve, note)}
                           />
                         )
+                      )}
+
+                      {msg.role === 'assistant' && msg.triagePlan && (
+                        <BatchTriageReviewCard
+                          plan={msg.triagePlan}
+                          threadId={threadId}
+                          onView={handleOpenEmailDetail}
+                          onDraft={handleDraftFromTriage}
+                        />
                       )}
 
                       {msg.role === 'assistant'
