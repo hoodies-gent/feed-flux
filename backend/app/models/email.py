@@ -24,16 +24,18 @@ class SentAction(Base):
 
 
 class LabelAction(Base):
-    """Dry-run record of an inbox label the agent proposed and the user approved.
+    """Dry-run record of an inbox label the user applied (via card) or agent-proposed.
 
-    Kinds: 'mark_read', 'archive'. Never mutates Graph in Phase 1.
+    Kinds: 'mark_read', 'archive', 'delete'. Never mutates Graph in Phase 1
+    but does mutate the local Email row state so the inbox view stays coherent
+    (deleted emails disappear, archived ones drop out of unread, etc.).
     """
     __tablename__ = 'label_actions'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     thread_id = Column(String, nullable=False)
     email_id = Column(String, nullable=False)
-    kind = Column(String, nullable=False)  # 'mark_read' | 'archive'
+    kind = Column(String, nullable=False)  # 'mark_read' | 'archive' | 'delete'
     approved_at = Column(Integer, nullable=False,
                          default=lambda: int(datetime.utcnow().timestamp()))
 
@@ -65,6 +67,7 @@ class Email(Base):
     is_read = Column(Boolean, default=False)
     is_starred = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
+    is_deleted = Column(Boolean, default=False)
     
     # Email specific
     has_attachments = Column(Boolean, default=False)

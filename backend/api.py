@@ -73,6 +73,11 @@ class AgentResumeRequest(BaseModel):
     edited_body: Optional[str] = None
     decisions: Optional[List[dict]] = None  # batch flows: [{index, approve, edited_body?}]
 
+class TriageActionRequest(BaseModel):
+    email_id: str
+    kind: str  # 'mark_read' | 'archive' | 'delete'
+    thread_id: Optional[str] = None
+
 import asyncio
 import os
 from contextlib import asynccontextmanager
@@ -455,6 +460,27 @@ async def agent_chat_stream(request: AgentChatRequest):
         _agent_ndjson(new_turn_input(request.message), request.thread_id),
         media_type="application/x-ndjson",
     )
+
+@app.post("/api/triage/action")
+async def triage_action(request: TriageActionRequest):
+    """Apply a single-email triage action (mark_read / archive / delete).
+
+    Called by the batch triage card when the user clicks a per-row action.
+    Writes label_actions + mutates local Email state (dry-run — nothing hits
+    Microsoft Graph in Phase 1).
+    """
+    try:
+        row_id = db.apply_email_action(
+            email_id=request.email_id,
+            kind=request.kind,
+            thread_id=request.thread_id or "user-direct",
+        )
+        return {"ok": True, "row_id": row_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"triage_action failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/agent/resume")
 async def agent_resume(request: AgentResumeRequest):
