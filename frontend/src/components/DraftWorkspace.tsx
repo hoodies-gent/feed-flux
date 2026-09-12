@@ -23,6 +23,9 @@ interface DraftWorkspaceProps {
   sender: string;
   senderEmail?: string;
   autoDraft?: boolean;
+  focusDraftId?: number | null;
+  onDraftsChange?: (drafts: DraftReply[]) => void;
+  onDraftFocus?: (draftId: number | null) => void;
 }
 
 const intents = [
@@ -40,7 +43,16 @@ function formatDraftTime(timestamp: number) {
   });
 }
 
-export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraft = false }: DraftWorkspaceProps) {
+export function DraftWorkspace({
+  emailId,
+  subject,
+  sender,
+  senderEmail,
+  autoDraft = false,
+  focusDraftId = null,
+  onDraftsChange,
+  onDraftFocus,
+}: DraftWorkspaceProps) {
   const [drafts, setDrafts] = useState<DraftReply[]>([]);
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
@@ -140,8 +152,10 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     try {
       const nextDrafts = await getEmailDrafts(emailId);
       setDrafts(nextDrafts);
+      onDraftsChange?.(nextDrafts);
       if (selectId && nextDrafts.some((draft) => draft.id === selectId)) {
         setEditingDraftId(selectId);
+        onDraftFocus?.(selectId);
       }
       return nextDrafts;
     } catch {
@@ -172,6 +186,12 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
       saveTimers.current = {};
     };
   }, [emailId]);
+
+  useEffect(() => {
+    if (focusDraftId && drafts.some((draft) => draft.id === focusDraftId)) {
+      setEditingDraftId(focusDraftId);
+    }
+  }, [drafts, focusDraftId]);
 
   useEffect(() => {
     const clearSelectionOnPointerDown = (event: PointerEvent) => {
@@ -466,7 +486,11 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
       await sendDraft(draftId);
       if (undoState?.draftId === draftId) clearUndo();
       setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      if (editingDraftId === draftId) setEditingDraftId(null);
+      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
+      if (editingDraftId === draftId) {
+        setEditingDraftId(null);
+        onDraftFocus?.(null);
+      }
       toast.success('Reply recorded as sent (dry-run).');
     } catch {
       toast.error('Failed to send draft.');
@@ -481,7 +505,11 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
       await discardDraft(draftId);
       if (undoState?.draftId === draftId) clearUndo();
       setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      if (editingDraftId === draftId) setEditingDraftId(null);
+      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
+      if (editingDraftId === draftId) {
+        setEditingDraftId(null);
+        onDraftFocus?.(null);
+      }
       toast.success('Draft discarded.');
     } catch {
       toast.error('Failed to discard draft.');
@@ -581,7 +609,15 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
                       </Button>
                     )}
                     {!editing && (
-                      <Button variant="ghost" size="sm" onClick={() => setEditingDraftId(draft.id)} disabled={busy}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingDraftId(draft.id);
+                          onDraftFocus?.(draft.id);
+                        }}
+                        disabled={busy}
+                      >
                         <Pencil className="h-3.5 w-3.5" /> Edit
                       </Button>
                     )}

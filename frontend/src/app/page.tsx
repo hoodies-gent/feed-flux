@@ -6,13 +6,13 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2 } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -709,13 +709,22 @@ export default function Home() {
 
   // Email Detail Modal State
   const [emailDetailsById, setEmailDetailsById] = useState<Record<string, EmailDetail>>({});
-  const [openEmailIds, setOpenEmailIds] = useState<string[]>([]);
+  const [mountedEmailIds, setMountedEmailIds] = useState<string[]>([]);
+  const [draftsByEmailId, setDraftsByEmailId] = useState<Record<string, DraftReply[]>>({});
+  const [focusedDraftByEmailId, setFocusedDraftByEmailId] = useState<Record<string, number | null>>({});
   const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
   const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
   const [autoDraftOnOpen, setAutoDraftOnOpen] = useState(false);
   const emailDetailData = activeEmailId ? emailDetailsById[activeEmailId] ?? null : null;
   const isLoadingDetail = activeEmailId ? Boolean(loadingEmailIds[activeEmailId]) : false;
+  const draftTabs = mountedEmailIds.flatMap((emailId) => (
+    (draftsByEmailId[emailId] ?? []).map((draft) => ({
+      emailId,
+      draft,
+      subject: emailDetailsById[emailId]?.subject || 'Reply draft',
+    }))
+  ));
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -819,15 +828,40 @@ export default function Home() {
     void handleOpenEmailDetail(item.email_id, true);
   };
 
+  const handleDraftsChange = (emailId: string, drafts: DraftReply[]) => {
+    setDraftsByEmailId((current) => {
+      if (drafts.length > 0) return { ...current, [emailId]: drafts };
+      if (!(emailId in current)) return current;
+      const next = { ...current };
+      delete next[emailId];
+      return next;
+    });
+    if (drafts.length === 0 && emailId !== activeEmailId) {
+      setMountedEmailIds((current) => current.filter((id) => id !== emailId));
+    }
+  };
+
+  const handleDraftFocus = (emailId: string, draftId: number | null) => {
+    setFocusedDraftByEmailId((current) => ({ ...current, [emailId]: draftId }));
+  };
+
+  const handleDraftTabSelect = (emailId: string, draftId: number) => {
+    handleDraftFocus(emailId, draftId);
+    void handleOpenEmailDetail(emailId);
+  };
+
   const handleNewChat = () => {
     setChatMessages([]);
     setThreadId(crypto.randomUUID());
   };
 
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
+    if (activeEmailId && activeEmailId !== id && !(draftsByEmailId[activeEmailId]?.length)) {
+      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
+    }
     setAutoDraftOnOpen(autoDraft);
     setActiveEmailId(id);
-    setOpenEmailIds((current) => current.includes(id) ? current : [...current, id]);
+    setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
     if (emailDetailsById[id]) {
       setLoadingEmailIds((current) => ({ ...current, [id]: false }));
       return;
@@ -843,18 +877,12 @@ export default function Home() {
     }
   };
 
-  const handleCloseEmailTab = (id: string) => {
-    const closingIndex = openEmailIds.indexOf(id);
-    const remainingIds = openEmailIds.filter((emailId) => emailId !== id);
-    setOpenEmailIds(remainingIds);
+  const handleCloseEmailDetail = () => {
+    if (activeEmailId && !(draftsByEmailId[activeEmailId]?.length)) {
+      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
+    }
     setAutoDraftOnOpen(false);
-    if (remainingIds.length === 0) {
-      setActiveEmailId(null);
-      return;
-    }
-    if (id === activeEmailId) {
-      setActiveEmailId(remainingIds[Math.min(closingIndex, remainingIds.length - 1)]);
-    }
+    setActiveEmailId(null);
   };
 
   const loadFeed = async (query: string = '', silent: boolean = false) => {
@@ -1536,37 +1564,6 @@ export default function Home() {
         )}
         {/* Right column: Email reading pane (master-detail) */}
         <section className="order-1 flex h-full min-h-0 min-w-0 flex-[1.4] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            {openEmailIds.length > 0 && (
-              <div className="flex h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-2">
-                {openEmailIds.map((id) => {
-                  const detail = emailDetailsById[id];
-                  const active = id === activeEmailId;
-                  return (
-                    <div
-                      key={id}
-                      className={`group flex h-8 max-w-[220px] min-w-[120px] shrink-0 items-center rounded-t-md border border-b-0 ${active ? 'border-border bg-background text-foreground' : 'border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenEmailDetail(id)}
-                        className="min-w-0 flex-1 truncate px-2 text-left text-xs font-medium"
-                        title={detail?.subject || id}
-                      >
-                        {detail?.subject || 'Loading email...'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleCloseEmailTab(id)}
-                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                        aria-label={`Close ${detail?.subject || 'email'}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
             {emailDetailData || isLoadingDetail ? (
               <>
                 <div className="shrink-0 border-b border-border bg-muted/30 p-6">
@@ -1578,7 +1575,7 @@ export default function Home() {
                       variant="ghost"
                       size="icon"
                       className="-mr-2 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={() => activeEmailId && handleCloseEmailTab(activeEmailId)}
+                      onClick={handleCloseEmailDetail}
                       title="Close"
                     >
                       <X className="w-4 h-4" />
@@ -1631,7 +1628,32 @@ export default function Home() {
                 minSize={12}
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
-                {openEmailIds.map((id) => {
+                {draftTabs.length > 0 && (
+                  <div className="scrollbar-none flex min-h-9 shrink-0 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border/60 bg-background/70 px-2 py-1">
+                    <span className="shrink-0 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      Drafts
+                    </span>
+                    {draftTabs.map(({ emailId, draft, subject }) => {
+                      const active = emailId === activeEmailId && focusedDraftByEmailId[emailId] === draft.id;
+                      return (
+                        <button
+                          key={`${emailId}-${draft.id}`}
+                          type="button"
+                          onClick={() => handleDraftTabSelect(emailId, draft.id)}
+                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-[11px] transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
+                          title={`${subject} · Edited ${new Date(draft.updated_at * 1000).toLocaleString()}`}
+                        >
+                          <Pencil className="h-3 w-3 shrink-0" />
+                          <span className="max-w-[140px] truncate">{subject}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                            {new Date(draft.updated_at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {mountedEmailIds.map((id) => {
                   const detail = emailDetailsById[id];
                   if (!detail) return null;
                   const active = id === activeEmailId && !isLoadingDetail;
@@ -1643,6 +1665,9 @@ export default function Home() {
                         sender={detail.sender || detail.sender_email}
                         senderEmail={detail.sender_email}
                         autoDraft={active && autoDraftOnOpen}
+                        focusDraftId={focusedDraftByEmailId[id]}
+                        onDraftsChange={(drafts) => handleDraftsChange(id, drafts)}
+                        onDraftFocus={(draftId) => handleDraftFocus(id, draftId)}
                       />
                     </div>
                   );
