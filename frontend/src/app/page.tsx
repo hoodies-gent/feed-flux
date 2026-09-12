@@ -1160,81 +1160,73 @@ export default function Home() {
 
   return (
     <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className="mx-auto flex h-full w-full max-w-[1800px] items-stretch gap-3">
+      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
+        <header className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
+          <div className="flex w-full items-center gap-3">
+            <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
 
-        {/* Left column: Feed */}
-        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
-
-          {/* Header & Omnibar */}
-          <header className="flex flex-col gap-2 mb-0">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">FeedFlux</h1>
-                <p className="text-muted-foreground text-sm">Your Intelligent Email Digest</p>
+            <div className="relative min-w-0 flex-1 rounded-full shadow-sm">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+                <Search className="h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={handleSync}
-                  disabled={isSyncing}
+              <Input
+                type="text"
+                placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
+                className="w-full rounded-full border-0 bg-muted/50 py-2 pl-11 pr-4 text-sm shadow-none focus-visible:ring-1"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              className="shrink-0 whitespace-nowrap px-4"
+              onClick={() => {
+                setIsChatOpen(true);
+                if (searchQuery.trim()) {
+                  setChatInput(searchQuery);
+                  setSearchQuery('');
+                }
+              }}
+            >
+              <Sparkles className="w-4 h-4 mr-1.5" />
+              Ask AI
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={handleSync}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Sync'}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  title="Dev menu"
                 >
-                  <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? 'Syncing...' : 'Sync'}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      title="Dev menu"
-                    >
-                      <User className="w-4 h-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => loadFeed(debouncedQuery)}
-                      disabled={loading || isSyncing}
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      {loading ? 'Loading...' : 'Reload Local Data'}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+                  <User className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => loadFeed(debouncedQuery)}
+                  disabled={loading || isSyncing}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {loading ? 'Loading...' : 'Reload Local Data'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
 
-            {/* Omnibar (Search & Ask AI) */}
-            <div className="flex gap-2 w-full">
-              <div className="relative w-full shadow-sm rounded-md">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <Input
-                  type="text"
-                  placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                  className="pl-9 pr-4 py-2 w-full text-sm bg-card"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <Button
-                variant="outline"
-                className="px-4 whitespace-nowrap"
-                onClick={() => {
-                  setIsChatOpen(true);
-                  if (searchQuery.trim()) {
-                    setChatInput(searchQuery);
-                    setSearchQuery('');
-                  }
-                }}
-              >
-                <Sparkles className="w-4 h-4 mr-1.5" />
-                Ask AI
-              </Button>
-            </div>
-          </header>
+        <div className="flex min-h-0 flex-1 items-stretch gap-3">
+          {/* Left column: Feed */}
+          <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {/* Daily Briefing Banner */}
@@ -1694,6 +1686,7 @@ export default function Home() {
               </div>
             )}
           </section>
+        </div>
       </div>
     </div >
   );
