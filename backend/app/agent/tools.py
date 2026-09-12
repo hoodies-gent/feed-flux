@@ -167,9 +167,12 @@ def read_calendar(days_ahead: int = 7) -> dict:
 
 
 class SendReplyInput(BaseModel):
-    original_email_id: str | None = Field(
+    draft_id: int | None = Field(
         default=None,
-        description="ID of the email being replied to (from find_email results). Optional for cold sends.",
+        description="Existing draft ID to revise; omit when creating a new draft.",
+    )
+    original_email_id: str = Field(
+        description="ID of the email being replied to (from find_email results).",
     )
     recipient: str = Field(description="Email address of the recipient.")
     subject: str = Field(description="Subject line of the reply, typically prefixed with 'Re: '.")
@@ -181,30 +184,149 @@ def send_reply(
     recipient: str,
     subject: str,
     body: str,
-    original_email_id: str | None = None,
+    original_email_id: str,
+    draft_id: int | None = None,
 ) -> str:
-    """Send a reply on the user's behalf.
+    """Create or revise a reply draft for the user to review in the email panel.
 
-    Use after you've drafted a reply the user should review. This is a
-    high-risk action: the user will see the draft in a confirmation card
-    and either approve, decline, or edit it before it runs.
-
-    Dry-run in Phase 1 — the message is recorded locally, never sent to
-    Microsoft Graph. Never retry silently on decline: read the user's note
-    and redraft accordingly.
+    Use after composing or revising the best reply body. This stores a draft
+    artifact; it does not send email or write to Microsoft Graph. The user
+    edits, sends in dry-run mode, or discards it from the email detail panel.
     """
     db = DatabaseService()
-    row_id = db.insert_sent_action({
-        "thread_id": current_thread_id.get(),
-        "original_email_id": original_email_id,
-        "recipient": recipient,
-        "subject": subject,
-        "body": body,
-    })
+    if draft_id is None:
+        active_drafts = db.get_drafts_for_email(original_email_id)
+        if active_drafts:
+            draft_id = active_drafts[0]["id"]
+    if draft_id is not None:
+        row_id = db.update_draft(draft_id, body)["id"]
+        marker = "DRAFT UPDATED"
+    else:
+        row_id = db.create_draft({
+            "thread_id": current_thread_id.get(),
+            "email_id": original_email_id,
+            "recipient": recipient,
+            "subject": subject,
+            "body": body,
+        })
+        marker = "DRAFT READY"
     return (
-        f"SEND COMPLETE (dry-run mode, id={row_id}). "
-        f"The reply to {recipient} has been sent from the user's workflow perspective. "
-        f"Do NOT offer further edits or ask for feedback on this reply — the action is finished."
+        f"{marker} (id={row_id}). "
+        f"The reply draft for email {original_email_id} is saved in its email panel. "
+        f"Tell the user it is ready for review, then stop. Do not claim it was sent."
+    )
+
+
+class ApplyDraftPatchInput(BaseModel):
+    draft_id: int = Field(description="ID of the active draft being revised.")
+    original_email_id: str = Field(description="ID of the email that owns the draft.")
+    selection_start: int = Field(description="Character offset where the selected text starts.")
+    selection_end: int = Field(description="Character offset immediately after the selected text.")
+    replacement: str = Field(description="Replacement text for only the selected range.")
+
+
+@tool("apply_draft_patch", args_schema=ApplyDraftPatchInput)
+def apply_draft_patch(
+    draft_id: int,
+    original_email_id: str,
+    selection_start: int,
+    selection_end: int,
+    replacement: str,
+) -> str:
+    """Replace only a selected range in an active draft body."""
+    db = DatabaseService()
+    draft = db.apply_draft_patch(
+        draft_id,
+        selection_start,
+        selection_end,
+        replacement,
+        email_id=original_email_id,
+    )
+    return (
+        f"DRAFT UPDATED (id={draft['id']}). "
+        "Only the selected text was replaced; the rest of the draft is unchanged. "
+        "Tell the user the revised draft is ready for review, then stop."
+    )
+
+
+class ReadDraftContextInput(BaseModel):
+    draft_id: int = Field(description="ID of the active draft to inspect.")
+    original_email_id: str = Field(description="ID of the email that owns the draft.")
+    scope: Literal["around", "full"] = Field(
+        default="around",
+        description="Read nearby context by default; use full only when the instruction needs the whole draft.",
+    )
+    selection_start: int | None = Field(
+        default=None,
+        description="Character offset where the selected text starts; required for around scope.",
+    )
+    selection_end: int | None = Field(
+        default=None,
+        description="Character offset immediately after the selected text; required for around scope.",
+    )
+    context_chars: int = Field(
+        default=600,
+        description="Approximate number of characters to include on each side for around scope.",
+    )
+
+
+@tool("read_draft_context", args_schema=ReadDraftContextInput)
+def read_draft_context(
+    draft_id: int,
+    original_email_id: str,
+    scope: Literal["around", "full"] = "around",
+    selection_start: int | None = None,
+    selection_end: int | None = None,
+    context_chars: int = 600,
+) -> dict:
+    """Read draft text for semantic context without changing the draft."""
+    db = DatabaseService()
+    return db.get_draft_context(
+        draft_id,
+        selection_start=selection_start,
+        selection_end=selection_end,
+        scope=scope,
+        context_chars=context_chars,
+        email_id=original_email_id,
+    )
+
+
+class ReadOriginalEmailContextInput(BaseModel):
+    original_email_id: str = Field(description="ID of the original email to inspect.")
+    scope: Literal["around", "full"] = Field(
+        default="around",
+        description="Read nearby context by default; use full only when the instruction needs the whole email.",
+    )
+    selection_start: int | None = Field(
+        default=None,
+        description="Character offset where the related passage starts; required for around scope.",
+    )
+    selection_end: int | None = Field(
+        default=None,
+        description="Character offset immediately after the related passage; required for around scope.",
+    )
+    context_chars: int = Field(
+        default=600,
+        description="Approximate number of characters to include on each side for around scope.",
+    )
+
+
+@tool("read_original_email_context", args_schema=ReadOriginalEmailContextInput)
+def read_original_email_context(
+    original_email_id: str,
+    scope: Literal["around", "full"] = "around",
+    selection_start: int | None = None,
+    selection_end: int | None = None,
+    context_chars: int = 600,
+) -> dict:
+    """Read the incoming email text for a grounded reply or rewrite."""
+    db = DatabaseService()
+    return db.get_original_email_context(
+        original_email_id,
+        selection_start=selection_start,
+        selection_end=selection_end,
+        scope=scope,
+        context_chars=context_chars,
     )
 
 
@@ -294,6 +416,16 @@ def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
     )
 
 
-TOOLS = [send_test_email, find_email, list_unread_emails, read_calendar, send_reply, apply_triage_batch]
+TOOLS = [
+    send_test_email,
+    find_email,
+    list_unread_emails,
+    read_calendar,
+    send_reply,
+    read_draft_context,
+    read_original_email_context,
+    apply_draft_patch,
+    apply_triage_batch,
+]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
-HIGH_RISK_TOOLS = {"send_test_email", "send_reply"}
+HIGH_RISK_TOOLS = {"send_test_email"}

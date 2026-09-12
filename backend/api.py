@@ -59,6 +59,9 @@ class DraftRequest(BaseModel):
     intent: str
     custom_prompt: Optional[str] = None
 
+class DraftUpdateRequest(BaseModel):
+    body: str
+
 class ConfigSetupRequest(BaseModel):
     google_api_key: str
 
@@ -329,6 +332,91 @@ async def get_email_detail(email_id: str):
         raise
     except Exception as e:
         logger.error(f"Error fetching email detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/emails/{email_id}/drafts")
+async def list_email_drafts(email_id: str):
+    """List active reply drafts belonging to an email."""
+    try:
+        if not db.get_email_by_id(email_id):
+            raise HTTPException(status_code=404, detail="Email not found")
+        return db.get_drafts_for_email(email_id)[:1]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Draft listing failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/emails/{email_id}/drafts")
+async def create_email_draft(email_id: str):
+    """Create a blank local reply draft, reusing the active draft if present."""
+    try:
+        email = db.get_email_by_id(email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        active_drafts = db.get_drafts_for_email(email_id)
+        if active_drafts:
+            return active_drafts[0]
+
+        subject = email["subject"] or ""
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        draft_id = db.create_draft({
+            "thread_id": "manual-reply",
+            "email_id": email_id,
+            "recipient": email["sender_email"],
+            "subject": subject,
+            "body": "",
+        })
+        return next(draft for draft in db.get_drafts_for_email(email_id) if draft["id"] == draft_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Manual reply draft creation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _draft_mutation_error(error: ValueError) -> HTTPException:
+    detail = str(error)
+    status_code = 404 if "not found" in detail.lower() else 409
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+@app.patch("/api/drafts/{draft_id}")
+async def update_draft(draft_id: int, request: DraftUpdateRequest):
+    """Persist edits to an active draft body."""
+    try:
+        return db.update_draft(draft_id, request.body)
+    except ValueError as e:
+        raise _draft_mutation_error(e)
+    except Exception as e:
+        logger.error(f"Draft update failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/drafts/{draft_id}")
+async def discard_draft(draft_id: int):
+    """Discard an active draft without touching Microsoft Graph."""
+    try:
+        return db.discard_draft(draft_id)
+    except ValueError as e:
+        raise _draft_mutation_error(e)
+    except Exception as e:
+        logger.error(f"Draft discard failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/drafts/{draft_id}/send")
+async def send_draft(draft_id: int):
+    """Record a dry-run send and close the draft locally."""
+    try:
+        result = db.send_draft(draft_id)
+        return {"ok": True, **result}
+    except ValueError as e:
+        raise _draft_mutation_error(e)
+    except Exception as e:
+        logger.error(f"Draft send failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/summarize")

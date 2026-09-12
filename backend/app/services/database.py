@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from sqlalchemy import create_engine, desc, or_, text
 from sqlalchemy.orm import sessionmaker
-from app.models.email import Base, Email, SentAction, LabelAction
+from app.models.email import Base, DraftReply, Email, SentAction, LabelAction
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -141,6 +141,229 @@ class DatabaseService:
         except Exception as e:
             session.rollback()
             logger.error(f"Failed to record sent_action: {e}")
+            raise
+        finally:
+            session.close()
+
+    def create_draft(self, draft_data: dict) -> int:
+        """Create a reply draft. Returns the new row id."""
+        session = self.Session()
+        try:
+            draft = DraftReply(**draft_data)
+            session.add(draft)
+            session.commit()
+            session.refresh(draft)
+            return draft.id
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_drafts_for_email(self, email_id: str) -> list[dict]:
+        """Return active drafts for an email, newest version first."""
+        session = self.Session()
+        try:
+            drafts = (
+                session.query(DraftReply)
+                .filter_by(email_id=email_id, status="draft")
+                .order_by(desc(DraftReply.created_at), desc(DraftReply.id))
+                .all()
+            )
+            return [self._draft_to_dict(draft) for draft in drafts]
+        finally:
+            session.close()
+
+    def get_draft_context(
+        self,
+        draft_id: int,
+        selection_start: int | None = None,
+        selection_end: int | None = None,
+        scope: str = "around",
+        context_chars: int = 600,
+        email_id: str | None = None,
+    ) -> dict:
+        """Read a bounded or full active draft context without mutating it."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            if email_id is not None and draft.email_id != email_id:
+                raise ValueError(f"draft does not belong to email: {email_id!r}")
+            if scope not in {"around", "full"}:
+                raise ValueError("draft context scope is invalid")
+            if scope == "full":
+                start, end = 0, len(draft.body)
+            else:
+                if selection_start is None or selection_end is None:
+                    raise ValueError("selection range is required for around context")
+                if (
+                    selection_start < 0
+                    or selection_end < selection_start
+                    or selection_end > len(draft.body)
+                ):
+                    raise ValueError("draft selection range is invalid")
+                margin = max(100, min(context_chars, 2000))
+                start = max(0, selection_start - margin)
+                end = min(len(draft.body), selection_end + margin)
+            return {
+                "draft_id": draft.id,
+                "scope": scope,
+                "body": draft.body[start:end],
+                "context_start": start,
+                "context_end": end,
+                "selection_start": selection_start,
+                "selection_end": selection_end,
+            }
+        finally:
+            session.close()
+
+    def get_original_email_context(
+        self,
+        email_id: str,
+        selection_start: int | None = None,
+        selection_end: int | None = None,
+        scope: str = "around",
+        context_chars: int = 600,
+    ) -> dict:
+        """Read a bounded or full original email context without mutating it."""
+        session = self.Session()
+        try:
+            email = session.query(Email).filter_by(id=email_id).first()
+            if not email:
+                raise ValueError(f"email not found: {email_id!r}")
+            if scope not in {"around", "full"}:
+                raise ValueError("original email context scope is invalid")
+
+            body = email.body_content or email.body_preview or ""
+            if scope == "full":
+                start, end = 0, len(body)
+            else:
+                if selection_start is None or selection_end is None:
+                    raise ValueError("selection range is required for around context")
+                if (
+                    selection_start < 0
+                    or selection_end < selection_start
+                    or selection_end > len(body)
+                ):
+                    raise ValueError("original email selection range is invalid")
+                margin = max(100, min(context_chars, 2000))
+                start = max(0, selection_start - margin)
+                end = min(len(body), selection_end + margin)
+
+            return {
+                "email_id": email.id,
+                "subject": email.subject,
+                "sender": email.sender_name or email.sender_email,
+                "sender_email": email.sender_email,
+                "scope": scope,
+                "body": body[start:end],
+                "context_start": start,
+                "context_end": end,
+                "selection_start": selection_start,
+                "selection_end": selection_end,
+            }
+        finally:
+            session.close()
+
+    def update_draft(self, draft_id: int, body: str) -> dict:
+        """Persist edits to an active draft."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            draft.body = body
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def apply_draft_patch(
+        self,
+        draft_id: int,
+        selection_start: int,
+        selection_end: int,
+        replacement: str,
+        email_id: str | None = None,
+    ) -> dict:
+        """Replace a selected body range while preserving the rest of a draft."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            if email_id is not None and draft.email_id != email_id:
+                raise ValueError(f"draft does not belong to email: {email_id!r}")
+            if (
+                selection_start < 0
+                or selection_end < selection_start
+                or selection_end > len(draft.body)
+            ):
+                raise ValueError("draft selection range is invalid")
+            draft.body = draft.body[:selection_start] + replacement + draft.body[selection_end:]
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def discard_draft(self, draft_id: int) -> dict:
+        """Mark an active draft as discarded."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            draft.status = "discarded"
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def send_draft(self, draft_id: int) -> dict:
+        """Record a dry-run send and close the draft in one transaction."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            action = SentAction(
+                thread_id=draft.thread_id,
+                original_email_id=draft.email_id,
+                recipient=draft.recipient,
+                subject=draft.subject,
+                body=draft.body,
+            )
+            session.add(action)
+            draft.status = "sent"
+            session.commit()
+            session.refresh(action)
+            return {"draft_id": draft.id, "sent_action_id": action.id}
+        except Exception:
+            session.rollback()
             raise
         finally:
             session.close()
@@ -288,4 +511,17 @@ class DatabaseService:
             "is_deleted": email.is_deleted,
             "has_attachments": email.has_attachments,
             "attachments": email.attachments,
+        }
+
+    def _draft_to_dict(self, draft):
+        return {
+            "id": draft.id,
+            "thread_id": draft.thread_id,
+            "email_id": draft.email_id,
+            "recipient": draft.recipient,
+            "subject": draft.subject,
+            "body": draft.body,
+            "status": draft.status,
+            "created_at": draft.created_at,
+            "updated_at": draft.updated_at,
         }

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Text, Boolean, Integer, JSON
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -20,7 +20,7 @@ class SentAction(Base):
     subject = Column(Text, nullable=False)
     body = Column(Text, nullable=False)
     approved_at = Column(Integer, nullable=False,
-                         default=lambda: int(datetime.utcnow().timestamp()))
+                         default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
 
 class LabelAction(Base):
@@ -38,6 +38,23 @@ class LabelAction(Base):
     kind = Column(String, nullable=False)  # 'mark_read' | 'archive' | 'delete'
     approved_at = Column(Integer, nullable=False,
                          default=lambda: int(datetime.utcnow().timestamp()))
+
+
+class DraftReply(Base):
+    __tablename__ = 'draft_replies'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    thread_id = Column(String, nullable=False)
+    email_id = Column(String, nullable=False, index=True)
+    recipient = Column(String, nullable=False)
+    subject = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default='draft')
+    created_at = Column(Integer, nullable=False,
+                        default=lambda: int(datetime.now(timezone.utc).timestamp()))
+    updated_at = Column(Integer, nullable=False,
+                        default=lambda: int(datetime.now(timezone.utc).timestamp()),
+                        onupdate=lambda: int(datetime.now(timezone.utc).timestamp()))
 
 
 class Email(Base):

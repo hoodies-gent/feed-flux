@@ -1,18 +1,18 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2 } from 'lucide-react';
+import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -69,6 +69,30 @@ function outputSummary(tool: string, output: string | undefined, resultCount?: n
     return 'plan ready';
   }
   return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
+}
+
+const avatarPalettes = [
+  { background: 'bg-blue-100 dark:bg-blue-900/40', foreground: 'text-blue-700 dark:text-blue-300' },
+  { background: 'bg-indigo-100 dark:bg-indigo-900/40', foreground: 'text-indigo-700 dark:text-indigo-300' },
+  { background: 'bg-teal-100 dark:bg-teal-900/40', foreground: 'text-teal-700 dark:text-teal-300' },
+  { background: 'bg-emerald-100 dark:bg-emerald-900/40', foreground: 'text-emerald-700 dark:text-emerald-300' },
+  { background: 'bg-violet-100 dark:bg-violet-900/40', foreground: 'text-violet-700 dark:text-violet-300' },
+  { background: 'bg-amber-100 dark:bg-amber-900/40', foreground: 'text-amber-700 dark:text-amber-300' },
+];
+
+function getAvatarPresentation(label: string) {
+  const normalized = label.trim() || '?';
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const initials = words.length > 1
+    ? `${words[0][0]}${words[words.length - 1][0]}`
+    : normalized.slice(0, 1);
+  const hash = Array.from(normalized).reduce((value, character) => (
+    (value * 31 + character.charCodeAt(0)) >>> 0
+  ), 0);
+  return {
+    initials: initials.toUpperCase(),
+    ...avatarPalettes[hash % avatarPalettes.length],
+  };
 }
 
 function ToolCallLine({
@@ -339,9 +363,10 @@ function ActionPill({
       type="button"
       disabled={disabled}
       onClick={onClick}
+      aria-label={suggested ? `Suggested: ${short}` : `Change to: ${short}`}
       title={suggested ? `Suggested: ${short}` : `Change to: ${short}`}
       className={cn(
-        'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+        'flex h-6 w-6 items-center justify-center rounded-md border p-0 transition-colors',
         suggested
           ? badge
           : 'bg-transparent text-muted-foreground/60 border-transparent hover:border-border hover:text-foreground',
@@ -349,7 +374,6 @@ function ActionPill({
       )}
     >
       <Icon className="w-3 h-3" />
-      <span>{short}</span>
     </button>
   );
 }
@@ -511,11 +535,11 @@ function NeedsReplySection({
                 type="button"
                 disabled={disabled}
                 onClick={() => onDraft(item)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                aria-label="Draft a reply"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-amber-500/30 bg-amber-500/10 p-0 text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-40 dark:text-amber-400"
                 title="Draft a reply"
               >
-                <MessageSquare className="w-3 h-3" />
-                <span>Draft reply</span>
+                <MessageSquare className="h-3.5 w-3.5" />
               </button>
             </div>
           </li>
@@ -708,16 +732,26 @@ export default function Home() {
   }, [chatMessages, isChatOpen]);
 
   // Email Detail Modal State
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
-  const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [emailDetailsById, setEmailDetailsById] = useState<Record<string, EmailDetail>>({});
+  const [mountedEmailIds, setMountedEmailIds] = useState<string[]>([]);
+  const [draftsByEmailId, setDraftsByEmailId] = useState<Record<string, DraftReply[]>>({});
+  const [focusedDraftByEmailId, setFocusedDraftByEmailId] = useState<Record<string, number | null>>({});
+  const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
+  const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
-  // Email Drafting State
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
-  const [customDraftPrompt, setCustomDraftPrompt] = useState('');
-  const [draftCopied, setDraftCopied] = useState(false);
+  const [autoDraftOnOpen, setAutoDraftOnOpen] = useState(false);
+  const emailDetailData = activeEmailId ? emailDetailsById[activeEmailId] ?? null : null;
+  const isLoadingDetail = activeEmailId ? Boolean(loadingEmailIds[activeEmailId]) : false;
+  const draftTabs = mountedEmailIds.flatMap((emailId) => (
+    (draftsByEmailId[emailId] ?? []).map((draft) => ({
+      emailId,
+      draft,
+      subject: emailDetailsById[emailId]?.subject || 'Reply draft',
+    }))
+  ));
+  const detailAvatar = emailDetailData
+    ? getAvatarPresentation(emailDetailData.sender || emailDetailData.sender_email)
+    : null;
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -755,6 +789,9 @@ export default function Home() {
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, triagePlan: plan, isLoading: false } : msg
         ));
+      },
+      onDraft: (event) => {
+        void handleOpenEmailDetail(event.email_id);
       },
       onDone: () => {},
       onError: (msg) => {
@@ -815,9 +852,29 @@ export default function Home() {
   };
 
   const handleDraftFromTriage = (item: NeedsReplyItem) => {
-    const sender = item.sender ?? item.sender_email ?? '';
-    const subject = item.subject ?? item.email_id;
-    setChatInput(`Draft a reply to ${sender} re: ${subject}`);
+    void handleOpenEmailDetail(item.email_id, true);
+  };
+
+  const handleDraftsChange = (emailId: string, drafts: DraftReply[]) => {
+    setDraftsByEmailId((current) => {
+      if (drafts.length > 0) return { ...current, [emailId]: drafts };
+      if (!(emailId in current)) return current;
+      const next = { ...current };
+      delete next[emailId];
+      return next;
+    });
+    if (drafts.length === 0 && emailId !== activeEmailId) {
+      setMountedEmailIds((current) => current.filter((id) => id !== emailId));
+    }
+  };
+
+  const handleDraftFocus = (emailId: string, draftId: number | null) => {
+    setFocusedDraftByEmailId((current) => ({ ...current, [emailId]: draftId }));
+  };
+
+  const handleDraftTabSelect = (emailId: string, draftId: number) => {
+    handleDraftFocus(emailId, draftId);
+    void handleOpenEmailDetail(emailId);
   };
 
   const handleNewChat = () => {
@@ -825,51 +882,34 @@ export default function Home() {
     setThreadId(crypto.randomUUID());
   };
 
-  const handleOpenEmailDetail = async (id: string) => {
-    setSelectedEmailId(id);
-    setGeneratedDraft(null);
-    setCustomDraftPrompt('');
-    setIsEmailDetailOpen(true);
-    setIsLoadingDetail(true);
-    setEmailDetailData(null);
+  const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
+    if (activeEmailId && activeEmailId !== id && !(draftsByEmailId[activeEmailId]?.length)) {
+      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
+    }
+    setAutoDraftOnOpen(autoDraft);
+    setActiveEmailId(id);
+    setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
+    if (emailDetailsById[id]) {
+      setLoadingEmailIds((current) => ({ ...current, [id]: false }));
+      return;
+    }
+    setLoadingEmailIds((current) => ({ ...current, [id]: true }));
     try {
       const data = await getEmailDetail(id);
-      setEmailDetailData(data);
+      setEmailDetailsById((current) => ({ ...current, [id]: data }));
     } catch (err) {
       toast.error('Failed to load full email content');
-      setIsEmailDetailOpen(false);
     } finally {
-      setIsLoadingDetail(false);
+      setLoadingEmailIds((current) => ({ ...current, [id]: false }));
     }
   };
 
-  const handleGenerateDraft = async (intent: string) => {
-    if (!selectedEmailId) return;
-    setIsDrafting(true);
-    setGeneratedDraft(null);
-    setDraftCopied(false);
-    try {
-      const res = await generateDraftReply({
-        email_id: selectedEmailId,
-        intent,
-        custom_prompt: customDraftPrompt.trim() ? customDraftPrompt.trim() : undefined
-      });
-      setGeneratedDraft(res.draft);
-      toast.success("Draft generated!");
-    } catch (err) {
-      toast.error("Failed to generate draft.");
-    } finally {
-      setIsDrafting(false);
+  const handleCloseEmailDetail = () => {
+    if (activeEmailId && !(draftsByEmailId[activeEmailId]?.length)) {
+      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
     }
-  };
-
-  const copyDraftToClipboard = () => {
-    if (generatedDraft) {
-      navigator.clipboard.writeText(generatedDraft);
-      setDraftCopied(true);
-      toast.success("Copied to clipboard!");
-      setTimeout(() => setDraftCopied(false), 2000);
-    }
+    setAutoDraftOnOpen(false);
+    setActiveEmailId(null);
   };
 
   const loadFeed = async (query: string = '', silent: boolean = false) => {
@@ -986,13 +1026,20 @@ export default function Home() {
   }, []);
 
   /**
-   * Format timestamp to human-readable relative time
-   * Example: "2 hours ago", "yesterday"
+   * Format timestamps like a mail client: relative day labels for recent mail,
+   * calendar dates for older messages.
    */
   const formatTime = (timestamp: number) => {
     try {
-      // Convert Unix timestamp (seconds) to milliseconds
-      return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
+      const date = new Date(timestamp * 1000);
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      if (date >= today) return `Today ${time}`;
+      if (date >= yesterday) return `Yesterday ${time}`;
+      return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     } catch {
       return new Date(timestamp * 1000).toLocaleDateString();
     }
@@ -1138,87 +1185,232 @@ export default function Home() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className={`mx-auto flex gap-3 items-start transition-all duration-300 ${isChatOpen || isEmailDetailOpen ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
-
-        {/* Left column: Feed */}
-        <main className="flex-1 min-w-0 space-y-3">
-
-          {/* Header & Omnibar */}
-          <header className="flex flex-col gap-2 mb-0">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">FeedFlux</h1>
-                <p className="text-muted-foreground text-sm">Your Intelligent Email Digest</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={handleSync}
-                  disabled={isSyncing}
-                >
-                  <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                  {isSyncing ? 'Syncing...' : 'Sync'}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      title="Dev menu"
-                    >
-                      <User className="w-4 h-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={() => loadFeed(debouncedQuery)}
-                      disabled={loading || isSyncing}
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      {loading ? 'Loading...' : 'Reload Local Data'}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+  const chatSidebar = isChatOpen ? (
+    <ResizablePanel id="chat-panel" defaultSize="20%" minSize="18%" maxSize="38%">
+      <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
+          <div className="flex items-center gap-2">
+            <div className="rounded-md bg-muted p-1.5">
+              <Sparkles className="h-4 w-4 text-foreground" />
             </div>
-
-            {/* Omnibar (Search & Ask AI) */}
-            <div className="flex gap-2 w-full">
-              <div className="relative w-full shadow-sm rounded-md">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <Input
-                  type="text"
-                  placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                  className="pl-9 pr-4 py-2 w-full text-sm bg-card"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <Button
-                variant="outline"
-                className="px-4 whitespace-nowrap"
-                onClick={() => {
-                  setIsChatOpen(true);
-                  if (searchQuery.trim()) {
-                    setChatInput(searchQuery);
-                    setSearchQuery('');
-                  }
-                }}
-              >
-                <Sparkles className="w-4 h-4 mr-1.5" />
-                Ask AI
+            <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            {chatMessages.length > 0 && (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" onClick={handleNewChat} title="New chat (clears history and resets thread)">
+                <Trash2 className="h-4 w-4" />
               </Button>
-            </div>
-          </header>
+            )}
+            <Button variant="ghost" size="icon" className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
 
+        <div className="relative flex-1 overflow-y-auto p-5">
+          <div className="space-y-6 pb-2">
+            {chatMessages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center space-y-4 pt-20 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <Sparkles className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-foreground">How can I help you today?</h3>
+                  <p className="mx-auto max-w-[250px] text-sm text-muted-foreground">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
+                </div>
+              </div>
+            ) : (
+              chatMessages.map(msg => (
+                <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
+                  <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
+
+                  {msg.role === 'user' ? (
+                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground">
+                      <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-snug">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    (msg.segments?.length || msg.isLoading) && (
+                      <div className="max-w-[95%] text-sm text-foreground">
+                        {pairSegments(msg.segments ?? []).map((item) =>
+                          item.kind === 'text' ? (
+                            <div key={item.key} className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-p:leading-snug">
+                              <ReactMarkdown>{item.text}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <ToolCallLine
+                              key={item.key}
+                              tool={item.tool}
+                              args={item.args}
+                              output={item.output}
+                              resultCount={item.resultCount}
+                              running={item.running}
+                            />
+                          )
+                        )}
+                        {msg.isLoading && (
+                          <div className="flex gap-1 pt-1">
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '0ms' }} />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '150ms' }} />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
+
+                  {msg.role === 'assistant' && msg.pendingInterrupt && (
+                    msg.pendingInterrupt.tool === 'send_reply' ? (
+                      <MeetingReplyReviewCard
+                        interrupt={msg.pendingInterrupt}
+                        disabled={isSendingChat}
+                        onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
+                      />
+                    ) : (
+                      <InterruptApprovalCard
+                        interrupt={msg.pendingInterrupt}
+                        disabled={isSendingChat}
+                        onDecide={(approve, note) => handleResume(msg.id, approve, note)}
+                      />
+                    )
+                  )}
+
+                  {msg.role === 'assistant' && msg.triagePlan && (
+                    <BatchTriageReviewCard
+                      plan={msg.triagePlan}
+                      threadId={threadId}
+                      onView={handleOpenEmailDetail}
+                      onDraft={handleDraftFromTriage}
+                    />
+                  )}
+
+                  {msg.role === 'assistant'
+                    && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
+                    <SentDryRunChip />
+                  )}
+
+                  {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
+                      {msg.sources.map((source, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleOpenEmailDetail(source.id)}
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          title={source.snippet}
+                        >
+                          <span className="whitespace-nowrap font-semibold text-primary">Source {i + 1}</span>
+                          <span className="max-w-[150px] truncate">{source.subject}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border bg-card p-4">
+          <form onSubmit={handleSendChatMessage} className="relative flex items-center">
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              disabled={isSendingChat}
+              placeholder="Ask a follow-up question..."
+              className="w-full rounded-full pr-12 shadow-sm"
+            />
+            <Button
+              type="submit"
+              disabled={!chatInput.trim() || isSendingChat}
+              size="icon"
+              variant="ghost"
+              className="absolute right-1 h-8 w-8 rounded-full text-primary"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </div>
+      </aside>
+    </ResizablePanel>
+  ) : null;
+
+  return (
+    <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
+      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
+        <header className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
+          <div className="flex w-full items-center gap-3">
+            <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
+
+            <div className="relative min-w-0 flex-1 rounded-full shadow-sm">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
+                <Search className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <Input
+                type="text"
+                placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
+                className="w-full rounded-full border-0 bg-muted/50 py-2 pl-11 pr-4 text-sm shadow-none focus-visible:ring-1"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <Button
+              variant="outline"
+              className="shrink-0 whitespace-nowrap px-4"
+              onClick={() => {
+                setIsChatOpen(true);
+                if (searchQuery.trim()) {
+                  setChatInput(searchQuery);
+                  setSearchQuery('');
+                }
+              }}
+            >
+              <Sparkles className="w-4 h-4 mr-1.5" />
+              Ask AI
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={handleSync}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Sync'}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  title="Dev menu"
+                >
+                  <User className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => loadFeed(debouncedQuery)}
+                  disabled={loading || isSyncing}
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  {loading ? 'Loading...' : 'Reload Local Data'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+
+        <ResizablePanelGroup id="mail-layout-group" orientation="horizontal" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }} className="min-h-0 flex-1">
+          {/* Left column: Feed */}
+          <ResizablePanel id="feed-panel" defaultSize="30%" minSize="22%" maxSize="50%">
+            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+
+          <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {/* Daily Briefing Banner */}
           {!debouncedQuery && (
-            <div className="mt-4 rounded-xl bg-muted text-foreground border">
+            <div className="rounded-none border-0 border-b border-border bg-muted text-foreground">
               <div className="flex items-center gap-2 p-4 pb-3">
                 <Sparkles className="h-5 w-5 text-foreground shrink-0" />
                 <h2 className="text-base font-semibold tracking-tight flex-1">Morning Intelligence Briefing</h2>
@@ -1256,7 +1448,7 @@ export default function Home() {
           )}
 
           {/* Feed List */}
-          <div className="space-y-4">
+          <div className="overflow-hidden bg-transparent">
             {loading ? (
               // Loading Skeletons
               Array.from({ length: 3 }).map((_, i) => (
@@ -1296,277 +1488,138 @@ export default function Home() {
                 const isSummarizing = summarizing[item.id];
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
+                const senderLabel = item.sender || 'Unknown sender';
+                const avatar = getAvatarPresentation(senderLabel);
 
                 return (
                   <Card
                     key={item.id}
                     onClick={() => handleOpenEmailDetail(item.id)}
-                    className="py-4 gap-3 cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-primary"
+                    className="group cursor-pointer rounded-none border-0 border-b border-border last:border-b-0 border-l-2 border-l-transparent gap-0 py-0 shadow-none transition-colors hover:border-l-primary hover:bg-accent/40"
                   >
-                    <CardHeader>
-                      <div className="flex justify-between items-start gap-4">
-                        <CardTitle className="text-base font-semibold text-foreground flex-1">
-                          {item.subject}
-                        </CardTitle>
-                        <Badge variant="secondary" className="text-xs whitespace-nowrap">
-                          {formatTime(item.received_datetime)}
-                        </Badge>
+                    <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatar.background} ${avatar.foreground}`}>
+                        {avatar.initials}
                       </div>
-                      <CardDescription className="text-muted-foreground">{item.sender}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <p className="text-sm text-muted-foreground line-clamp-3">
-                        {item.body_preview}
-                      </p>
-
-                      {/* Action button — fixed above the summary so toggling Show/Hide never moves it.
-                          stopPropagation so it doesn't trigger the card's open-original click. */}
-                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <CardDescription className="max-w-[30%] shrink-0 truncate text-xs font-medium text-foreground">
+                            {senderLabel}
+                          </CardDescription>
+                          <CardTitle className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                            {item.subject}
+                          </CardTitle>
+                        </div>
+                        <CardDescription className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {item.body_preview}
+                        </CardDescription>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground transition-opacity group-hover:opacity-0">
+                        {formatTime(item.received_datetime)}
+                      </span>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-card opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
-                          size="sm"
-                          className="text-primary"
+                          size="icon-sm"
+                          className="text-primary opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100 hover:bg-background hover:shadow-sm"
                           onClick={() => handleSummarize(item)}
                           disabled={isSummarizing}
+                          aria-label={summary ? (isExpanded ? 'Hide summary' : 'Show summary') : 'Summarize email'}
+                          title={summary ? (isExpanded ? 'Hide summary' : 'Show summary') : 'Summarize email'}
                         >
-                          {isSummarizing ? 'Summarizing...' : summary ? (isExpanded ? 'Hide Summary' : 'Show Summary') : 'Summarize with AI'} →
+                          {isSummarizing ? <Loader2 className="animate-spin" /> : summary ? (isExpanded ? <ChevronUp /> : <ChevronDown />) : <Sparkles />}
                         </Button>
                       </div>
-
-                      {/* AI Summary Section — stopPropagation so reading/selecting the summary doesn't open the original */}
-                      {isExpanded && (
-                        <div className="border-t pt-3 mt-2" onClick={(e) => e.stopPropagation()}>
-                          {isSummarizing ? (
-                            <div className="space-y-2">
-                              <Skeleton className="h-4 w-full" />
-                              <Skeleton className="h-4 w-5/6" />
-                              <Skeleton className="h-4 w-4/6" />
+                    </CardHeader>
+                    {isExpanded && (
+                      <CardContent className="bg-muted/20 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        {isSummarizing ? (
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-5/6" />
+                            <Skeleton className="h-4 w-4/6" />
+                          </div>
+                        ) : summary ? (
+                          <div className="space-y-2">
+                            {/* Generation Metadata: AI + Model */}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                AI Summary
+                              </Badge>
+                              {summary.model && (
+                                <span className="text-xs text-muted-foreground">
+                                  by {summary.model}
+                                </span>
+                              )}
                             </div>
-                          ) : summary ? (
-                            <div className="space-y-3">
-                              {/* Generation Metadata: AI + Model */}
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  AI Summary
-                                </Badge>
-                                {summary.model && (
-                                  <span className="text-xs text-muted-foreground">
-                                    by {summary.model}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="prose prose-sm dark:prose-invert max-w-none">
-                                <ReactMarkdown>{summary.summary}</ReactMarkdown>
-                              </div>
-                              {/* Related count (left) + last generated time (bottom-right) */}
-                              <div className="flex items-center gap-2 flex-wrap pt-1">
-                                {summary.context_count > 0 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
-                                  </span>
-                                )}
-                                {summary.generated_at && (
-                                  <span className="text-xs text-muted-foreground ml-auto">
-                                    Last generated: {formatDateTime(summary.generated_at)}
-                                  </span>
-                                )}
-                              </div>
+                            <div className="text-xs leading-4 text-muted-foreground [&_p]:my-0 [&_h1]:text-xs [&_h2]:text-xs [&_h3]:text-xs [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
+                              <ReactMarkdown>{summary.summary}</ReactMarkdown>
                             </div>
-                          ) : null}
-                        </div>
-                      )}
-                    </CardContent>
+                            {/* Related count (left) + last generated time (bottom-right) */}
+                            <div className="flex items-center gap-2 flex-wrap pt-1">
+                              {summary.context_count > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
+                                </span>
+                              )}
+                              {summary.generated_at && (
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  Last generated: {formatDateTime(summary.generated_at)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    )}
                   </Card>
                 );
               })
             )}
           </div>
-        </main>
+          </div>
+            </main>
+          </ResizablePanel>
+          <ResizableHandle id="feed-detail-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
 
-        {/* Right column: AI Sidebar (Multi-Turn Chat) */}
-        {isChatOpen && (
-          <aside className="order-2 w-[450px] shrink-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-            {/* Header */}
-            <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-muted rounded-md">
-                  <Sparkles className="w-4 h-4 text-foreground" />
-                </div>
-                <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
-              </div>
-              <div className="flex items-center gap-1">
-                {chatMessages.length > 0 && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleNewChat} title="New chat (clears history and resets thread)">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto p-5 relative">
-              <div className="space-y-6 pb-2">
-                {chatMessages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4 pt-20">
-                    <div className="p-4 bg-muted rounded-full">
-                      <Sparkles className="w-8 h-8 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-foreground mb-1">How can I help you today?</h3>
-                      <p className="text-sm text-muted-foreground max-w-[250px] mx-auto">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
-                    </div>
-                  </div>
-                ) : (
-                  chatMessages.map(msg => (
-                    <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-                      <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-
-                      {msg.role === 'user' ? (
-                        <div className="px-4 py-3 max-w-[90%] text-sm bg-primary text-primary-foreground rounded-2xl rounded-tr-sm">
-                          <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
-                        </div>
-                      ) : (
-                        (msg.segments?.length || msg.isLoading) && (
-                          <div className="max-w-[95%] text-sm text-foreground">
-                            {pairSegments(msg.segments ?? []).map((item) =>
-                              item.kind === 'text' ? (
-                                <div key={item.key} className="prose prose-sm dark:prose-invert prose-p:leading-snug prose-p:my-2 max-w-none">
-                                  <ReactMarkdown>{item.text}</ReactMarkdown>
-                                </div>
-                              ) : (
-                                <ToolCallLine
-                                  key={item.key}
-                                  tool={item.tool}
-                                  args={item.args}
-                                  output={item.output}
-                                  resultCount={item.resultCount}
-                                  running={item.running}
-                                />
-                              )
-                            )}
-                            {msg.isLoading && (
-                              <div className="flex gap-1 pt-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                              </div>
-                            )}
-                          </div>
-                        )
-                      )}
-
-                      {msg.role === 'assistant' && msg.pendingInterrupt && (
-                        msg.pendingInterrupt.tool === 'send_reply' ? (
-                          <MeetingReplyReviewCard
-                            interrupt={msg.pendingInterrupt}
-                            disabled={isSendingChat}
-                            onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
-                          />
-                        ) : (
-                          <InterruptApprovalCard
-                            interrupt={msg.pendingInterrupt}
-                            disabled={isSendingChat}
-                            onDecide={(approve, note) => handleResume(msg.id, approve, note)}
-                          />
-                        )
-                      )}
-
-                      {msg.role === 'assistant' && msg.triagePlan && (
-                        <BatchTriageReviewCard
-                          plan={msg.triagePlan}
-                          threadId={threadId}
-                          onView={handleOpenEmailDetail}
-                          onDraft={handleDraftFromTriage}
-                        />
-                      )}
-
-                      {msg.role === 'assistant'
-                        && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
-                        <SentDryRunChip />
-                      )}
-
-                      {/* Citations/Sources Cards attached to AI Response */}
-                      {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5 w-[90%]">
-                          {msg.sources.map((source, i) => (
-                            <button
-                              key={i}
-                              onClick={() => handleOpenEmailDetail(source.id)}
-                              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-card border border-border rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:border-primary transition-colors shadow-sm max-w-full text-left"
-                              title={source.snippet}
-                            >
-                              <span className="text-primary font-semibold whitespace-nowrap">Source {i + 1}</span>
-                              <span className="truncate max-w-[150px]">{source.subject}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-
-            {/* Input Overlay / Footer */}
-            <div className="p-4 bg-card border-t border-border shrink-0">
-              <form onSubmit={handleSendChatMessage} className="relative flex items-center">
-                <Input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isSendingChat}
-                  placeholder="Ask a follow-up question..."
-                  className="w-full pr-12 rounded-full shadow-sm"
-                />
-                <Button
-                  type="submit"
-                  disabled={!chatInput.trim() || isSendingChat}
-                  size="icon"
-                  variant="ghost"
-                  className="absolute right-1 text-primary h-8 w-8 rounded-full"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
-            </div>
-          </aside>
-        )}
         {/* Right column: Email reading pane (master-detail) */}
-        {isEmailDetailOpen && (
-          <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-border bg-muted/30 shrink-0">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="text-xl font-semibold text-foreground">
-                  {emailDetailData?.subject || "Loading..."}
-                </h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 -mr-2 shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsEmailDetailOpen(false)}
-                  title="Close"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            {emailDetailData && (
-              <div className="text-sm text-muted-foreground mt-2 flex items-center justify-between">
-                <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
-                <span>{formatDateTime(emailDetailData.received_datetime)}</span>
-              </div>
-            )}
-            </div>
-            {/* Resizable Container wrapping Body & Action Panel */}
-            <div className="flex-1 w-full bg-muted overflow-hidden relative">
-              <ResizablePanelGroup id="email-detail-group" orientation="vertical">
+        <ResizablePanel id="detail-panel" defaultSize={isChatOpen ? "50%" : "70%"} minSize="32%" maxSize="72%">
+          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            {emailDetailData || isLoadingDetail ? (
+              <>
+                <div className="shrink-0 border-b border-border bg-muted/30 p-6">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-xl font-semibold text-foreground">
+                      {emailDetailData?.subject || "Loading..."}
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="-mr-2 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={handleCloseEmailDetail}
+                      title="Close"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {emailDetailData && (
+                    <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${detailAvatar?.background} ${detailAvatar?.foreground}`}>
+                          {detailAvatar?.initials}
+                        </div>
+                        <span className="truncate">From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
+                      </div>
+                      <span>{formatDateTime(emailDetailData.received_datetime)}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Resizable Container wrapping Body & Action Panel */}
+                <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
+                  <ResizablePanelGroup id="email-detail-group" orientation="vertical" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}>
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-background flex flex-col relative pb-4">
+              <ResizablePanel id="email-body-panel" defaultSize="78%" minSize="45%" className="bg-background flex flex-col relative pb-4">
                 <div className="flex-1 overflow-y-auto w-full p-6">
                   {isLoadingDetail ? (
                     <div className="space-y-4">
@@ -1592,88 +1645,85 @@ export default function Home() {
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" withHandle className="hover:bg-primary hover:h-1.5 transition-all outline-none relative group/handle" />
+              <ResizableHandle id="email-divider" className="h-2 shrink-0 cursor-row-resize bg-transparent after:h-full after:bg-transparent hover:bg-transparent outline-none" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
-                defaultSize={30}
-                minSize={20}
+                defaultSize="22%"
+                minSize="12%"
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
-                <div className="p-6 h-full flex flex-col overflow-y-auto">
-                  {emailDetailData && !isLoadingDetail ? (
-                    <>
-                      <div className="flex items-center gap-2 mb-3 shrink-0">
-                        <Sparkles className="w-5 h-5 text-primary" />
-                        <h3 className="font-semibold text-foreground">Draft AI Reply</h3>
-                      </div>
-
-                      {/* Intent Buttons */}
-                      <div className="flex flex-wrap gap-2 shrink-0 mb-2">
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Sounds good / Agree / Acknowledge")} disabled={isDrafting}>
-                          👍 Sounds good
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Polite Decline / Cannot attend")} disabled={isDrafting}>
-                          ✋ Polite Decline
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Need more info / Ask for details")} disabled={isDrafting}>
-                          ❓ Need info
-                        </Button>
-                        <div className="flex-1 min-w-[200px] flex gap-2">
-                          <Input
-                            placeholder="Or type custom instructions..."
-                            value={customDraftPrompt}
-                            onChange={e => setCustomDraftPrompt(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleGenerateDraft("Follow custom instructions")}
-                            className="h-9 bg-background"
-                            disabled={isDrafting}
-                          />
-                          <Button size="sm" onClick={() => handleGenerateDraft("Follow custom instructions")} disabled={isDrafting}>
-                            Draft
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Loading State or Result */}
-                      {isDrafting && (
-                        <div className="mt-2 space-y-2 p-4 border border-border rounded-lg shrink-0">
-                          <Skeleton className="h-4 w-1/4 mb-4" />
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-5/6" />
-                          <Skeleton className="h-4 w-4/6" />
-                        </div>
-                      )}
-
-                      {generatedDraft && !isDrafting && (
-                        <div className="mt-2 p-4 bg-background border border-border rounded-lg relative group flex-1 overflow-y-auto shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={copyDraftToClipboard}
-                          >
-                            {draftCopied ? <Check className="w-4 h-4 mr-2 text-green-600 dark:text-green-400" /> : <Copy className="w-4 h-4 mr-2" />}
-                            {draftCopied ? 'Copied' : 'Copy'}
-                          </Button>
-                          <div className="prose prose-sm dark:prose-invert max-w-none mr-20 whitespace-pre-wrap font-sans text-foreground">
-                            <ReactMarkdown>{generatedDraft}</ReactMarkdown>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center text-muted-foreground space-y-3">
-                      <Sparkles className="w-8 h-8 opacity-20 animate-pulse" />
-                      <p className="text-sm font-medium">Preparing AI Assistant...</p>
+                {draftTabs.length > 0 && (
+                  <div className="scrollbar-none flex min-h-9 shrink-0 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border/60 bg-background/70 px-2 py-1">
+                    <span className="shrink-0 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      Drafts
+                    </span>
+                    {draftTabs.map(({ emailId, draft, subject }) => {
+                      const active = emailId === activeEmailId && focusedDraftByEmailId[emailId] === draft.id;
+                      return (
+                        <button
+                          key={`${emailId}-${draft.id}`}
+                          type="button"
+                          onClick={() => handleDraftTabSelect(emailId, draft.id)}
+                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-[11px] transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
+                          title={`${subject} · Edited ${new Date(draft.updated_at * 1000).toLocaleString()}`}
+                        >
+                          <Pencil className="h-3 w-3 shrink-0" />
+                          <span className="max-w-[140px] truncate">{subject}</span>
+                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                            {new Date(draft.updated_at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {mountedEmailIds.map((id) => {
+                  const detail = emailDetailsById[id];
+                  if (!detail) return null;
+                  const active = id === activeEmailId && !isLoadingDetail;
+                  return (
+                    <div key={id} className={active ? 'flex h-full w-full' : 'hidden'}>
+                      <DraftWorkspace
+                        emailId={detail.id}
+                        subject={detail.subject}
+                        sender={detail.sender || detail.sender_email}
+                        senderEmail={detail.sender_email}
+                        autoDraft={active && autoDraftOnOpen}
+                        focusDraftId={focusedDraftByEmailId[id]}
+                        onDraftsChange={(drafts) => handleDraftsChange(id, drafts)}
+                        onDraftFocus={(draftId) => handleDraftFocus(id, draftId)}
+                      />
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+                {(!emailDetailData || isLoadingDetail) && (
+                  <div className="flex h-full w-full flex-col items-center justify-center space-y-3 text-muted-foreground">
+                    <Sparkles className="h-8 w-8 animate-pulse opacity-20" />
+                    <p className="text-sm font-medium">Preparing AI Assistant...</p>
+                  </div>
+                )}
               </ResizablePanel>
-            </ResizablePanelGroup>
-            </div>
+                  </ResizablePanelGroup>
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-background p-6 text-center">
+                <div className="flex max-w-xs flex-col items-center gap-3 text-muted-foreground">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                    <Mail className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-base font-medium text-foreground">No Conversation Selected</h2>
+                  <p className="text-sm">Select an email from your inbox to read it here.</p>
+                </div>
+              </div>
+            )}
           </section>
-        )}
+        </ResizablePanel>
+        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
+        {chatSidebar}
+        </ResizablePanelGroup>
       </div>
     </div >
   );

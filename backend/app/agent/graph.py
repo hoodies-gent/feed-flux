@@ -21,8 +21,15 @@ SYSTEM_PROMPT = (
     "Tools:\n"
     "- find_email(sender_contains?, subject_contains?): locate an email the user references.\n"
     "- read_calendar(days_ahead?): list free 30-min slots this week.\n"
-    "- send_reply(recipient, subject, body, original_email_id?): send a drafted reply. "
-    "HIGH-RISK — user reviews and can approve, decline with feedback, or edit.\n"
+    "- send_reply(recipient, subject, body, original_email_id, draft_id?): save a reply draft "
+    "in the original email's detail panel. Pass draft_id to revise an existing draft; it "
+    "does NOT send.\n"
+    "- apply_draft_patch(draft_id, original_email_id, selection_start, selection_end, replacement): "
+    "replace only the selected text in an existing draft; preserve all other text.\n"
+    "- read_draft_context(draft_id, original_email_id, scope, selection_start?, selection_end?): "
+    "read nearby or full draft text for context without changing it.\n"
+    "- read_original_email_context(original_email_id, scope, selection_start?, selection_end?): "
+    "read nearby or full incoming email text for a grounded reply or rewrite.\n"
     "\n"
     "Meeting-reply workflow — DRAFT FIRST, ONE SEARCH:\n"
     "  (1) find_email with a SINGLE filter — prefer sender_contains alone when the user "
@@ -33,20 +40,26 @@ SYSTEM_PROMPT = (
     "  (2) read_calendar if the reply might propose or reference times.\n"
     "  (3) send_reply with your best draft. Pick 2–3 concrete slots from free_slots when "
     "scheduling; do not invent times outside that list.\n"
+    "When the user asks to revise a selected passage, use apply_draft_patch instead of "
+    "send_reply. Use the supplied selection for local changes; if the instruction refers "
+    "to surrounding paragraphs or the whole draft, call read_draft_context first with the "
+    "smallest scope that answers it. If the user asks to change text according to the original email, "
+    "or the instruction depends on what the sender asked "
+    "or said, call read_original_email_context first; use around scope when a nearby passage "
+    "is enough and full scope only when the user needs the complete original email. Keep the "
+    "supplied offsets and return only the replacement passage; never rewrite the surrounding "
+    "draft text.\n"
     "\n"
-    "The approval card IS the clarification step — do NOT ask clarifying questions in chat "
-    "before drafting. Commit to a reasonable draft; the user will approve, decline with a "
-    "note, or edit inline. Only ask in chat if the sender or target email cannot be "
+    "The draft workspace IS the clarification step — do NOT ask clarifying questions in chat "
+    "before drafting. Commit to a reasonable draft; the user will review, edit, send in "
+    "dry-run mode, or discard it in the email panel. Only ask in chat if the sender or target email cannot be "
     "identified after a good-faith search.\n"
     "\n"
-    "Handling review outcomes:\n"
-    "- ToolMessage starting with '[rejected by user]': read the note. If it explains what "
-    "to change, redraft immediately and call send_reply again with the improved body. "
-    "Only ask a clarifying question if the note is empty or ambiguous.\n"
-    "- ToolMessage starting with 'SEND COMPLETE': the reply is finalized. Give a ONE-LINE "
-    "acknowledgment (e.g. '已发送。' or 'Done — reply sent.') and stop. Do NOT summarize the "
-    "draft, do NOT offer further edits, do NOT invite feedback. The UI already shows the "
-    "user that it was sent in dry-run mode.\n"
+    "After calling send_reply:\n"
+    "- The DRAFT READY or DRAFT UPDATED tool result is the final agent step. The UI opens the email panel and "
+    "shows the saved draft; do not make another tool call or claim it was sent.\n"
+    "- Never send a draft from chat. Only the user's native Send action in the email panel "
+    "records the dry-run send.\n"
     "\n"
     "Batch triage workflow — CLASSIFY, DON'T EXECUTE:\n"
     "Your role in this flow is to classify unread email into buckets. The USER acts on\n"
@@ -107,6 +120,17 @@ SYSTEM_PROMPT = (
 )
 
 
+def _route_after_tools(state: AgentState) -> str:
+    """End a turn after draft creation; continue after read-only tools."""
+    for message in reversed(state["messages"]):
+        if not isinstance(message, ToolMessage):
+            break
+        content = message.content
+        if isinstance(content, str) and content.startswith(("DRAFT READY", "DRAFT UPDATED")):
+            return END
+    return "agent"
+
+
 def build_agent(checkpointer: BaseCheckpointSaver | None = None):
     llm = get_llm().bind_tools(TOOLS)
 
@@ -159,5 +183,5 @@ def build_agent(checkpointer: BaseCheckpointSaver | None = None):
     graph.add_node("tools", tools_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
-    graph.add_edge("tools", "agent")
+    graph.add_conditional_edges("tools", _route_after_tools, {"agent": "agent", END: END})
     return graph.compile(checkpointer=checkpointer or MemorySaver())

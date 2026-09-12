@@ -1,3 +1,4 @@
+import re
 from typing import Any, AsyncIterator
 
 from langchain_core.messages import HumanMessage
@@ -61,6 +62,18 @@ def _build_plan_event(args: dict) -> dict:
             }
             for n in needs_reply
         ],
+    }
+
+
+def _build_draft_event(args: dict, output_text: str) -> dict | None:
+    match = re.match(r"DRAFT (?:READY|UPDATED) \(id=(\d+)\)\.", output_text)
+    email_id = args.get("original_email_id")
+    if not match or not email_id:
+        return None
+    return {
+        "type": "draft",
+        "draft_id": int(match.group(1)),
+        "email_id": email_id,
     }
 
 
@@ -162,6 +175,10 @@ async def stream_agent(
             if name == "apply_triage_batch":
                 tool_input = data.get("input") or {}
                 yield _build_plan_event(tool_input)
+            elif name in {"send_reply", "apply_draft_patch"}:
+                draft_event = _build_draft_event(data.get("input") or {}, output_text)
+                if draft_event:
+                    yield draft_event
 
     async for ev in _emit_interrupts(agent, config, recent_tool_results):
         yield ev
