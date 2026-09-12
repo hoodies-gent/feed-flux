@@ -174,6 +174,53 @@ class DatabaseService:
         finally:
             session.close()
 
+    def get_draft_context(
+        self,
+        draft_id: int,
+        selection_start: int | None = None,
+        selection_end: int | None = None,
+        scope: str = "around",
+        context_chars: int = 600,
+        email_id: str | None = None,
+    ) -> dict:
+        """Read a bounded or full active draft context without mutating it."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            if email_id is not None and draft.email_id != email_id:
+                raise ValueError(f"draft does not belong to email: {email_id!r}")
+            if scope not in {"around", "full"}:
+                raise ValueError("draft context scope is invalid")
+            if scope == "full":
+                start, end = 0, len(draft.body)
+            else:
+                if selection_start is None or selection_end is None:
+                    raise ValueError("selection range is required for around context")
+                if (
+                    selection_start < 0
+                    or selection_end < selection_start
+                    or selection_end > len(draft.body)
+                ):
+                    raise ValueError("draft selection range is invalid")
+                margin = max(100, min(context_chars, 2000))
+                start = max(0, selection_start - margin)
+                end = min(len(draft.body), selection_end + margin)
+            return {
+                "draft_id": draft.id,
+                "scope": scope,
+                "body": draft.body[start:end],
+                "context_start": start,
+                "context_end": end,
+                "selection_start": selection_start,
+                "selection_end": selection_end,
+            }
+        finally:
+            session.close()
+
     def update_draft(self, draft_id: int, body: str) -> dict:
         """Persist edits to an active draft."""
         session = self.Session()
@@ -184,6 +231,40 @@ class DatabaseService:
             if draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
             draft.body = body
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def apply_draft_patch(
+        self,
+        draft_id: int,
+        selection_start: int,
+        selection_end: int,
+        replacement: str,
+        email_id: str | None = None,
+    ) -> dict:
+        """Replace a selected body range while preserving the rest of a draft."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "draft":
+                raise ValueError(f"draft is not active: {draft_id!r}")
+            if email_id is not None and draft.email_id != email_id:
+                raise ValueError(f"draft does not belong to email: {email_id!r}")
+            if (
+                selection_start < 0
+                or selection_end < selection_start
+                or selection_end > len(draft.body)
+            ):
+                raise ValueError("draft selection range is invalid")
+            draft.body = draft.body[:selection_start] + replacement + draft.body[selection_end:]
             session.commit()
             session.refresh(draft)
             return self._draft_to_dict(draft)

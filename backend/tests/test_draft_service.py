@@ -67,6 +67,34 @@ class DraftServiceTest(unittest.TestCase):
         self.assertEqual("Edited body", updated["body"])
         self.assertEqual("Edited body", self.db.get_drafts_for_email("email-a")[0]["body"])
 
+    def test_apply_draft_patch_replaces_only_selected_range(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Hello Sarah,\nTuesday works for me.\nBest,\nAlex",
+        })
+
+        updated = self.db.apply_draft_patch(draft_id, 13, 35, "Wednesday at 10:00 works.\n")
+
+        self.assertEqual(
+            "Hello Sarah,\nWednesday at 10:00 works.\nBest,\nAlex",
+            updated["body"],
+        )
+
+    def test_apply_draft_patch_rejects_invalid_range(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Short body",
+        })
+
+        with self.assertRaises(ValueError):
+            self.db.apply_draft_patch(draft_id, 3, 99, "replacement")
+
     def test_discard_draft_removes_it_from_active_drafts(self):
         draft_id = self.db.create_draft({
             "thread_id": "thread-a",

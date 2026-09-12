@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, generateDraftReply, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type DraftRequest, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type InterruptReference, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind } from '@/lib/api';
+import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
@@ -708,16 +709,15 @@ export default function Home() {
   }, [chatMessages, isChatOpen]);
 
   // Email Detail Modal State
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
-  const [emailDetailData, setEmailDetailData] = useState<EmailDetail | null>(null);
+  const [emailDetailsById, setEmailDetailsById] = useState<Record<string, EmailDetail>>({});
+  const [openEmailIds, setOpenEmailIds] = useState<string[]>([]);
+  const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
   const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
-  // Email Drafting State
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [generatedDraft, setGeneratedDraft] = useState<string | null>(null);
-  const [customDraftPrompt, setCustomDraftPrompt] = useState('');
-  const [draftCopied, setDraftCopied] = useState(false);
+  const [autoDraftOnOpen, setAutoDraftOnOpen] = useState(false);
+  const emailDetailData = activeEmailId ? emailDetailsById[activeEmailId] ?? null : null;
+  const isLoadingDetail = activeEmailId ? Boolean(loadingEmailIds[activeEmailId]) : false;
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -755,6 +755,9 @@ export default function Home() {
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, triagePlan: plan, isLoading: false } : msg
         ));
+      },
+      onDraft: (event) => {
+        void handleOpenEmailDetail(event.email_id);
       },
       onDone: () => {},
       onError: (msg) => {
@@ -815,9 +818,7 @@ export default function Home() {
   };
 
   const handleDraftFromTriage = (item: NeedsReplyItem) => {
-    const sender = item.sender ?? item.sender_email ?? '';
-    const subject = item.subject ?? item.email_id;
-    setChatInput(`Draft a reply to ${sender} re: ${subject}`);
+    void handleOpenEmailDetail(item.email_id, true);
   };
 
   const handleNewChat = () => {
@@ -825,50 +826,38 @@ export default function Home() {
     setThreadId(crypto.randomUUID());
   };
 
-  const handleOpenEmailDetail = async (id: string) => {
-    setSelectedEmailId(id);
-    setGeneratedDraft(null);
-    setCustomDraftPrompt('');
+  const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
+    setAutoDraftOnOpen(autoDraft);
     setIsEmailDetailOpen(true);
-    setIsLoadingDetail(true);
-    setEmailDetailData(null);
+    setActiveEmailId(id);
+    setOpenEmailIds((current) => current.includes(id) ? current : [...current, id]);
+    if (emailDetailsById[id]) {
+      setLoadingEmailIds((current) => ({ ...current, [id]: false }));
+      return;
+    }
+    setLoadingEmailIds((current) => ({ ...current, [id]: true }));
     try {
       const data = await getEmailDetail(id);
-      setEmailDetailData(data);
+      setEmailDetailsById((current) => ({ ...current, [id]: data }));
     } catch (err) {
       toast.error('Failed to load full email content');
+    } finally {
+      setLoadingEmailIds((current) => ({ ...current, [id]: false }));
+    }
+  };
+
+  const handleCloseEmailTab = (id: string) => {
+    const closingIndex = openEmailIds.indexOf(id);
+    const remainingIds = openEmailIds.filter((emailId) => emailId !== id);
+    setOpenEmailIds(remainingIds);
+    setAutoDraftOnOpen(false);
+    if (remainingIds.length === 0) {
+      setActiveEmailId(null);
       setIsEmailDetailOpen(false);
-    } finally {
-      setIsLoadingDetail(false);
+      return;
     }
-  };
-
-  const handleGenerateDraft = async (intent: string) => {
-    if (!selectedEmailId) return;
-    setIsDrafting(true);
-    setGeneratedDraft(null);
-    setDraftCopied(false);
-    try {
-      const res = await generateDraftReply({
-        email_id: selectedEmailId,
-        intent,
-        custom_prompt: customDraftPrompt.trim() ? customDraftPrompt.trim() : undefined
-      });
-      setGeneratedDraft(res.draft);
-      toast.success("Draft generated!");
-    } catch (err) {
-      toast.error("Failed to generate draft.");
-    } finally {
-      setIsDrafting(false);
-    }
-  };
-
-  const copyDraftToClipboard = () => {
-    if (generatedDraft) {
-      navigator.clipboard.writeText(generatedDraft);
-      setDraftCopied(true);
-      toast.success("Copied to clipboard!");
-      setTimeout(() => setDraftCopied(false), 2000);
+    if (id === activeEmailId) {
+      setActiveEmailId(remainingIds[Math.min(closingIndex, remainingIds.length - 1)]);
     }
   };
 
@@ -1539,6 +1528,37 @@ export default function Home() {
         {/* Right column: Email reading pane (master-detail) */}
         {isEmailDetailOpen && (
           <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+            {openEmailIds.length > 0 && (
+              <div className="flex h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-2">
+                {openEmailIds.map((id) => {
+                  const detail = emailDetailsById[id];
+                  const active = id === activeEmailId;
+                  return (
+                    <div
+                      key={id}
+                      className={`group flex h-8 max-w-[220px] min-w-[120px] shrink-0 items-center rounded-t-md border border-b-0 ${active ? 'border-border bg-background text-foreground' : 'border-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground'}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenEmailDetail(id)}
+                        className="min-w-0 flex-1 truncate px-2 text-left text-xs font-medium"
+                        title={detail?.subject || id}
+                      >
+                        {detail?.subject || 'Loading email...'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCloseEmailTab(id)}
+                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-60 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                        aria-label={`Close ${detail?.subject || 'email'}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <div className="p-6 border-b border-border bg-muted/30 shrink-0">
               <div className="flex items-start justify-between gap-3">
                 <h2 className="text-xl font-semibold text-foreground">
@@ -1548,7 +1568,7 @@ export default function Home() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 -mr-2 shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsEmailDetailOpen(false)}
+                  onClick={() => activeEmailId ? handleCloseEmailTab(activeEmailId) : setIsEmailDetailOpen(false)}
                   title="Close"
                 >
                   <X className="w-4 h-4" />
@@ -1601,74 +1621,28 @@ export default function Home() {
                 minSize={20}
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
-                <div className="p-6 h-full flex flex-col overflow-y-auto">
-                  {emailDetailData && !isLoadingDetail ? (
-                    <>
-                      <div className="flex items-center gap-2 mb-3 shrink-0">
-                        <Sparkles className="w-5 h-5 text-primary" />
-                        <h3 className="font-semibold text-foreground">Draft AI Reply</h3>
-                      </div>
-
-                      {/* Intent Buttons */}
-                      <div className="flex flex-wrap gap-2 shrink-0 mb-2">
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Sounds good / Agree / Acknowledge")} disabled={isDrafting}>
-                          👍 Sounds good
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Polite Decline / Cannot attend")} disabled={isDrafting}>
-                          ✋ Polite Decline
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => handleGenerateDraft("Need more info / Ask for details")} disabled={isDrafting}>
-                          ❓ Need info
-                        </Button>
-                        <div className="flex-1 min-w-[200px] flex gap-2">
-                          <Input
-                            placeholder="Or type custom instructions..."
-                            value={customDraftPrompt}
-                            onChange={e => setCustomDraftPrompt(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleGenerateDraft("Follow custom instructions")}
-                            className="h-9 bg-background"
-                            disabled={isDrafting}
-                          />
-                          <Button size="sm" onClick={() => handleGenerateDraft("Follow custom instructions")} disabled={isDrafting}>
-                            Draft
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Loading State or Result */}
-                      {isDrafting && (
-                        <div className="mt-2 space-y-2 p-4 border border-border rounded-lg shrink-0">
-                          <Skeleton className="h-4 w-1/4 mb-4" />
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-5/6" />
-                          <Skeleton className="h-4 w-4/6" />
-                        </div>
-                      )}
-
-                      {generatedDraft && !isDrafting && (
-                        <div className="mt-2 p-4 bg-background border border-border rounded-lg relative group flex-1 overflow-y-auto shadow-[inset_0_2px_10px_rgba(0,0,0,0.05)]">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={copyDraftToClipboard}
-                          >
-                            {draftCopied ? <Check className="w-4 h-4 mr-2 text-green-600 dark:text-green-400" /> : <Copy className="w-4 h-4 mr-2" />}
-                            {draftCopied ? 'Copied' : 'Copy'}
-                          </Button>
-                          <div className="prose prose-sm dark:prose-invert max-w-none mr-20 whitespace-pre-wrap font-sans text-foreground">
-                            <ReactMarkdown>{generatedDraft}</ReactMarkdown>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex-1 w-full h-full flex flex-col items-center justify-center text-muted-foreground space-y-3">
-                      <Sparkles className="w-8 h-8 opacity-20 animate-pulse" />
-                      <p className="text-sm font-medium">Preparing AI Assistant...</p>
+                {openEmailIds.map((id) => {
+                  const detail = emailDetailsById[id];
+                  if (!detail) return null;
+                  const active = id === activeEmailId && !isLoadingDetail;
+                  return (
+                    <div key={id} className={active ? 'flex h-full w-full' : 'hidden'}>
+                      <DraftWorkspace
+                        emailId={detail.id}
+                        subject={detail.subject}
+                        sender={detail.sender || detail.sender_email}
+                        senderEmail={detail.sender_email}
+                        autoDraft={active && autoDraftOnOpen}
+                      />
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+                {(!emailDetailData || isLoadingDetail) && (
+                  <div className="flex h-full w-full flex-col items-center justify-center space-y-3 text-muted-foreground">
+                    <Sparkles className="h-8 w-8 animate-pulse opacity-20" />
+                    <p className="text-sm font-medium">Preparing AI Assistant...</p>
+                  </div>
+                )}
               </ResizablePanel>
             </ResizablePanelGroup>
             </div>

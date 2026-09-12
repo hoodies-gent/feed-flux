@@ -170,6 +170,7 @@ export async function askInboxStream(
  * Full Email Details
  */
 export interface EmailDetail extends FeedItem {
+    sender_email: string;
     body_content: string;
     body_html: string;
 }
@@ -239,6 +240,54 @@ export interface DraftRequest {
 
 export interface DraftResponse {
     draft: string;
+}
+
+export interface DraftReply {
+    id: number;
+    thread_id: string;
+    email_id: string;
+    recipient: string;
+    subject: string;
+    body: string;
+    status: 'draft' | 'sent' | 'discarded';
+    created_at: number;
+    updated_at: number;
+}
+
+export async function getEmailDrafts(emailId: string): Promise<DraftReply[]> {
+    const response = await fetch(`/api/emails/${encodeURIComponent(emailId)}/drafts`);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch drafts: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function updateDraft(draftId: number, body: string): Promise<DraftReply> {
+    const response = await fetch(`/api/drafts/${draftId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to update draft: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function discardDraft(draftId: number): Promise<DraftReply> {
+    const response = await fetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
+    if (!response.ok) {
+        throw new Error(`Failed to discard draft: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function sendDraft(draftId: number): Promise<{ ok: boolean; draft_id: number; sent_action_id: number }> {
+    const response = await fetch(`/api/drafts/${draftId}/send`, { method: 'POST' });
+    if (!response.ok) {
+        throw new Error(`Failed to send draft: ${response.statusText}`);
+    }
+    return response.json();
 }
 
 /**
@@ -361,10 +410,16 @@ export interface InterruptEvent {
     references?: InterruptReference[];
 }
 
+export interface DraftEvent {
+    draft_id: number;
+    email_id: string;
+}
+
 export interface AgentStreamCallbacks {
     onTrace: (t: TraceEvent) => void;
     onToken: (text: string) => void;
     onInterrupt: (i: InterruptEvent) => void;
+    onDraft?: (d: DraftEvent) => void;
     onPlan?: (p: TriagePlan) => void;
     onDone: () => void;
     onError?: (msg: string) => void;
@@ -407,6 +462,9 @@ async function streamAgentNdjson(
                     draft_preview: ev.draft_preview,
                     references: ev.references,
                 });
+                break;
+            case 'draft':
+                cb.onDraft?.({ draft_id: ev.draft_id, email_id: ev.email_id });
                 break;
             case 'plan':
                 cb.onPlan?.({
