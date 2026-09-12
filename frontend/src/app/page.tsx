@@ -1405,12 +1405,12 @@ export default function Home() {
         <ResizablePanelGroup id="mail-layout-group" orientation="horizontal" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }} className="min-h-0 flex-1">
           {/* Left column: Feed */}
           <ResizablePanel id="feed-panel" defaultSize="30%" minSize="22%" maxSize="50%">
-            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
 
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {/* Daily Briefing Banner */}
           {!debouncedQuery && (
-            <div className="mt-4 rounded-xl bg-muted text-foreground border">
+            <div className="rounded-none border-0 border-b border-border bg-muted text-foreground">
               <div className="flex items-center gap-2 p-4 pb-3">
                 <Sparkles className="h-5 w-5 text-foreground shrink-0" />
                 <h2 className="text-base font-semibold tracking-tight flex-1">Morning Intelligence Briefing</h2>
@@ -1448,7 +1448,7 @@ export default function Home() {
           )}
 
           {/* Feed List */}
-          <div className="overflow-hidden rounded-lg border border-border/80 bg-card">
+          <div className="overflow-hidden bg-transparent">
             {loading ? (
               // Loading Skeletons
               Array.from({ length: 3 }).map((_, i) => (
