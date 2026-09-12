@@ -71,6 +71,30 @@ function outputSummary(tool: string, output: string | undefined, resultCount?: n
   return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
 }
 
+const avatarPalettes = [
+  { background: 'bg-blue-100 dark:bg-blue-900/40', foreground: 'text-blue-700 dark:text-blue-300' },
+  { background: 'bg-indigo-100 dark:bg-indigo-900/40', foreground: 'text-indigo-700 dark:text-indigo-300' },
+  { background: 'bg-teal-100 dark:bg-teal-900/40', foreground: 'text-teal-700 dark:text-teal-300' },
+  { background: 'bg-emerald-100 dark:bg-emerald-900/40', foreground: 'text-emerald-700 dark:text-emerald-300' },
+  { background: 'bg-violet-100 dark:bg-violet-900/40', foreground: 'text-violet-700 dark:text-violet-300' },
+  { background: 'bg-amber-100 dark:bg-amber-900/40', foreground: 'text-amber-700 dark:text-amber-300' },
+];
+
+function getAvatarPresentation(label: string) {
+  const normalized = label.trim() || '?';
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const initials = words.length > 1
+    ? `${words[0][0]}${words[words.length - 1][0]}`
+    : normalized.slice(0, 1);
+  const hash = Array.from(normalized).reduce((value, character) => (
+    (value * 31 + character.charCodeAt(0)) >>> 0
+  ), 0);
+  return {
+    initials: initials.toUpperCase(),
+    ...avatarPalettes[hash % avatarPalettes.length],
+  };
+}
+
 function ToolCallLine({
   tool,
   args,
@@ -725,6 +749,9 @@ export default function Home() {
       subject: emailDetailsById[emailId]?.subject || 'Reply draft',
     }))
   ));
+  const detailAvatar = emailDetailData
+    ? getAvatarPresentation(emailDetailData.sender || emailDetailData.sender_email)
+    : null;
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -1310,7 +1337,7 @@ export default function Home() {
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
                 const senderLabel = item.sender || 'Unknown sender';
-                const senderInitial = senderLabel.trim().charAt(0).toUpperCase() || '?';
+                const avatar = getAvatarPresentation(senderLabel);
 
                 return (
                   <Card
@@ -1319,8 +1346,8 @@ export default function Home() {
                     className="group cursor-pointer rounded-none border-0 border-b border-border last:border-b-0 border-l-2 border-l-transparent gap-0 py-0 shadow-none transition-colors hover:border-l-primary hover:bg-accent/40"
                   >
                     <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                        {senderInitial}
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatar.background} ${avatar.foreground}`}>
+                        {avatar.initials}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
@@ -1575,7 +1602,12 @@ export default function Home() {
                   </div>
                   {emailDetailData && (
                     <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-                      <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${detailAvatar?.background} ${detailAvatar?.foreground}`}>
+                          {detailAvatar?.initials}
+                        </div>
+                        <span className="truncate">From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
+                      </div>
                       <span>{formatDateTime(emailDetailData.received_datetime)}</span>
                     </div>
                   )}
