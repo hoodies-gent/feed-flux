@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type UIEvent } from 'react';
-import { Loader2, Pencil, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Loader2, Pencil, Send, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +48,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   const [selectionPosition, setSelectionPosition] = useState<{ left: number; top: number } | null>(null);
   const [recentChange, setRecentChange] = useState<{ draftId: number; start: number; end: number } | null>(null);
   const [recentChangeFading, setRecentChangeFading] = useState(false);
+  const [undoState, setUndoState] = useState<{ draftId: number; body: string } | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
@@ -65,6 +66,15 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   const recentChangeTimerRef = useRef<number | null>(null);
   const recentChangeFadeTimerRef = useRef<number | null>(null);
   const selectionNoticeTimerRef = useRef<number | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
+  const clearUndo = () => {
+    setUndoState(null);
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  };
 
   const clearSelection = () => {
     selectionAnchorRef.current = null;
@@ -143,6 +153,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     clearSelection();
     setRecentChange(null);
     setRecentChangeFading(false);
+    clearUndo();
     if (recentChangeTimerRef.current !== null) {
       window.clearTimeout(recentChangeTimerRef.current);
       recentChangeTimerRef.current = null;
@@ -190,6 +201,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     if (recentChangeTimerRef.current !== null) window.clearTimeout(recentChangeTimerRef.current);
     if (recentChangeFadeTimerRef.current !== null) window.clearTimeout(recentChangeFadeTimerRef.current);
     if (selectionNoticeTimerRef.current !== null) window.clearTimeout(selectionNoticeTimerRef.current);
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
   }, []);
 
   const requestDraft = async (intent: string) => {
@@ -246,6 +258,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   }, [emailId, autoDraft]);
 
   const handleBodyChange = (draftId: number, body: string) => {
+    if (undoState?.draftId === draftId) clearUndo();
     setDrafts((current) => current.map((draft) => draft.id === draftId ? {
       ...draft,
       body,
@@ -352,6 +365,12 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
             void loadDrafts(draft.id).then((nextDrafts) => {
               const updatedDraft = nextDrafts.find((item) => item.id === draft.id);
               if (updatedDraft && previousSelection) {
+                clearUndo();
+                setUndoState({ draftId: draft.id, body: previousBody });
+                undoTimerRef.current = window.setTimeout(() => {
+                  setUndoState(null);
+                  undoTimerRef.current = null;
+                }, 8000);
                 const unchangedSuffixLength = previousBody.length - previousSelection.end;
                 const changedEnd = Math.max(
                   previousSelection.start,
@@ -408,10 +427,27 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     }
   };
 
+  const handleUndo = async (draftId: number) => {
+    if (!undoState || undoState.draftId !== draftId) return;
+    setBusyDraftId(draftId);
+    try {
+      const restored = await updateDraft(draftId, undoState.body);
+      setDrafts((current) => current.map((draft) => draft.id === draftId ? restored : draft));
+      clearUndo();
+      setRecentChange(null);
+      setRecentChangeFading(false);
+    } catch {
+      toast.error('Failed to undo AI rewrite.');
+    } finally {
+      setBusyDraftId(null);
+    }
+  };
+
   const handleSend = async (draftId: number) => {
     setBusyDraftId(draftId);
     try {
       await sendDraft(draftId);
+      if (undoState?.draftId === draftId) clearUndo();
       setDrafts((current) => current.filter((draft) => draft.id !== draftId));
       if (editingDraftId === draftId) setEditingDraftId(null);
       toast.success('Reply recorded as sent (dry-run).');
@@ -426,6 +462,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     setBusyDraftId(draftId);
     try {
       await discardDraft(draftId);
+      if (undoState?.draftId === draftId) clearUndo();
       setDrafts((current) => current.filter((draft) => draft.id !== draftId));
       if (editingDraftId === draftId) setEditingDraftId(null);
       toast.success('Draft discarded.');
@@ -496,6 +533,11 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
                     Edited {formatDraftTime(draft.updated_at)}
                   </span>
                   <div className="flex items-center gap-1">
+                    {undoState?.draftId === draft.id && (
+                      <Button variant="ghost" size="sm" onClick={() => void handleUndo(draft.id)} disabled={busy}>
+                        <Undo2 className="h-3.5 w-3.5" /> Undo
+                      </Button>
+                    )}
                     {!editing && (
                       <Button variant="ghost" size="sm" onClick={() => setEditingDraftId(draft.id)} disabled={busy}>
                         <Pencil className="h-3.5 w-3.5" /> Edit
