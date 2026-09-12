@@ -262,6 +262,16 @@ export async function getEmailDrafts(emailId: string): Promise<DraftReply[]> {
     return response.json();
 }
 
+export async function createReplyDraft(emailId: string): Promise<DraftReply> {
+    const response = await fetch(`/api/emails/${encodeURIComponent(emailId)}/drafts`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to create reply draft: ${response.statusText}`);
+    }
+    return response.json();
+}
+
 export async function updateDraft(draftId: number, body: string): Promise<DraftReply> {
     const response = await fetch(`/api/drafts/${draftId}`, {
         method: 'PATCH',

@@ -58,6 +58,18 @@ class DraftApiTest(unittest.TestCase):
 
         self.assertEqual([second_id], [draft["id"] for draft in drafts])
 
+    def test_create_reply_draft_starts_blank_and_reuses_active_draft(self):
+        created = asyncio.run(api.create_email_draft("email-a"))
+
+        self.assertEqual("email-a", created["email_id"])
+        self.assertEqual("sarah@example.com", created["recipient"])
+        self.assertEqual("Re: Weekly sync", created["subject"])
+        self.assertEqual("", created["body"])
+        self.assertEqual("draft", created["status"])
+
+        reused = asyncio.run(api.create_email_draft("email-a"))
+        self.assertEqual(created["id"], reused["id"])
+
     def test_update_draft_returns_edited_draft(self):
         draft_id = self._draft()
 

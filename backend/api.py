@@ -348,6 +348,35 @@ async def list_email_drafts(email_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/emails/{email_id}/drafts")
+async def create_email_draft(email_id: str):
+    """Create a blank local reply draft, reusing the active draft if present."""
+    try:
+        email = db.get_email_by_id(email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        active_drafts = db.get_drafts_for_email(email_id)
+        if active_drafts:
+            return active_drafts[0]
+
+        subject = email["subject"] or ""
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        draft_id = db.create_draft({
+            "thread_id": "manual-reply",
+            "email_id": email_id,
+            "recipient": email["sender_email"],
+            "subject": subject,
+            "body": "",
+        })
+        return next(draft for draft in db.get_drafts_for_email(email_id) if draft["id"] == draft_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Manual reply draft creation failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _draft_mutation_error(error: ValueError) -> HTTPException:
     detail = str(error)
     status_code = 404 if "not found" in detail.lower() else 409

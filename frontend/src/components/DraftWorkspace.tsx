@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   askAgentStream,
+  createReplyDraft,
   discardDraft,
   getEmailDrafts,
   sendDraft,
@@ -51,6 +52,8 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   const [undoState, setUndoState] = useState<{ draftId: number; body: string } | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [isCreatingManualDraft, setIsCreatingManualDraft] = useState(false);
+  const [showAiTools, setShowAiTools] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -154,6 +157,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     setRecentChange(null);
     setRecentChangeFading(false);
     clearUndo();
+    setShowAiTools(false);
     if (recentChangeTimerRef.current !== null) {
       window.clearTimeout(recentChangeTimerRef.current);
       recentChangeTimerRef.current = null;
@@ -205,6 +209,7 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   }, []);
 
   const requestDraft = async (intent: string) => {
+    setShowAiTools(true);
     setIsDrafting(true);
     const target = senderEmail ? `${sender} <${senderEmail}>` : sender;
     const currentDraft = drafts.find((draft) => draft.id === editingDraftId) ?? drafts[0];
@@ -269,6 +274,18 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
     saveTimers.current[draftId] = setTimeout(() => {
       void updateDraft(draftId, body).catch(() => toast.error('Draft autosave failed.'));
     }, 600);
+  };
+
+  const handleManualReply = async () => {
+    setIsCreatingManualDraft(true);
+    try {
+      const draft = await createReplyDraft(emailId);
+      await loadDrafts(draft.id);
+    } catch {
+      toast.error('Failed to start a reply draft.');
+    } finally {
+      setIsCreatingManualDraft(false);
+    }
   };
 
   const handleTextareaScroll = (draftId: number, event: UIEvent<HTMLTextAreaElement>) => {
@@ -474,32 +491,57 @@ export function DraftWorkspace({ emailId, subject, sender, senderEmail, autoDraf
   };
 
   return (
-    <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full flex-col gap-3 overflow-y-auto p-6">
-      <div className="flex shrink-0 items-center gap-2">
-        <Sparkles className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold text-foreground">Draft AI Reply</h3>
-      </div>
-
-      <div className="flex shrink-0 flex-wrap gap-2">
-        {intents.map((intent) => (
-          <Button key={intent.prompt} variant="outline" size="sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
-            {intent.label}
-          </Button>
-        ))}
-        <div className="flex min-w-[200px] flex-1 gap-2">
-          <Input
-            placeholder={editingDraftId ? 'Ask AI to revise this draft...' : 'Or type custom instructions...'}
-            value={customPrompt}
-            onChange={(event) => setCustomPrompt(event.target.value)}
-            onKeyDown={(event) => event.key === 'Enter' && void requestDraft('Follow custom instructions')}
-            className="h-9 bg-background"
+      <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full w-full min-w-0 flex-col gap-3 overflow-y-auto p-6">
+      <div className="flex w-full shrink-0 items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Pencil className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold text-foreground">Reply</h3>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {drafts.length === 0 && !isDrafting && (
+            <Button size="sm" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
+              <Pencil className="h-3.5 w-3.5" /> Reply
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAiTools((visible) => !visible)}
             disabled={isDrafting}
-          />
-          <Button size="sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
-            Draft
+            className="transition-all hover:bg-accent hover:shadow-md"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> {showAiTools ? 'Hide AI' : 'Help me write'}
           </Button>
         </div>
       </div>
+
+      {showAiTools && (
+        <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5" /> Help me write
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {intents.map((intent) => (
+              <Button key={intent.prompt} variant="outline" size="sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
+                {intent.label}
+              </Button>
+            ))}
+            <div className="flex min-w-[200px] flex-1 gap-2">
+              <Input
+                placeholder={editingDraftId ? 'Ask AI to revise this draft...' : 'Or type custom instructions...'}
+                value={customPrompt}
+                onChange={(event) => setCustomPrompt(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && void requestDraft('Follow custom instructions')}
+                className="h-9 bg-background"
+                disabled={isDrafting}
+              />
+              <Button variant="outline" size="sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
+                Generate
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isDrafting && (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
