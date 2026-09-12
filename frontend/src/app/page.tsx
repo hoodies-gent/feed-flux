@@ -363,9 +363,10 @@ function ActionPill({
       type="button"
       disabled={disabled}
       onClick={onClick}
+      aria-label={suggested ? `Suggested: ${short}` : `Change to: ${short}`}
       title={suggested ? `Suggested: ${short}` : `Change to: ${short}`}
       className={cn(
-        'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+        'flex h-6 w-6 items-center justify-center rounded-md border p-0 transition-colors',
         suggested
           ? badge
           : 'bg-transparent text-muted-foreground/60 border-transparent hover:border-border hover:text-foreground',
@@ -373,7 +374,6 @@ function ActionPill({
       )}
     >
       <Icon className="w-3 h-3" />
-      <span>{short}</span>
     </button>
   );
 }
@@ -535,11 +535,11 @@ function NeedsReplySection({
                 type="button"
                 disabled={disabled}
                 onClick={() => onDraft(item)}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                aria-label="Draft a reply"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-amber-500/30 bg-amber-500/10 p-0 text-amber-700 transition-colors hover:bg-amber-500/20 disabled:opacity-40 dark:text-amber-400"
                 title="Draft a reply"
               >
-                <MessageSquare className="w-3 h-3" />
-                <span>Draft reply</span>
+                <MessageSquare className="h-3.5 w-3.5" />
               </button>
             </div>
           </li>
@@ -1185,6 +1185,157 @@ export default function Home() {
     );
   }
 
+  const chatSidebar = isChatOpen ? (
+    <ResizablePanel id="chat-panel" defaultSize="20%" minSize="18%" maxSize="38%">
+      <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
+          <div className="flex items-center gap-2">
+            <div className="rounded-md bg-muted p-1.5">
+              <Sparkles className="h-4 w-4 text-foreground" />
+            </div>
+            <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            {chatMessages.length > 0 && (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" onClick={handleNewChat} title="New chat (clears history and resets thread)">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="relative flex-1 overflow-y-auto p-5">
+          <div className="space-y-6 pb-2">
+            {chatMessages.length === 0 ? (
+              <div className="flex h-full flex-col items-center justify-center space-y-4 pt-20 text-center">
+                <div className="rounded-full bg-muted p-4">
+                  <Sparkles className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="mb-1 text-sm font-medium text-foreground">How can I help you today?</h3>
+                  <p className="mx-auto max-w-[250px] text-sm text-muted-foreground">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
+                </div>
+              </div>
+            ) : (
+              chatMessages.map(msg => (
+                <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
+                  <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
+
+                  {msg.role === 'user' ? (
+                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground">
+                      <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-snug">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    (msg.segments?.length || msg.isLoading) && (
+                      <div className="max-w-[95%] text-sm text-foreground">
+                        {pairSegments(msg.segments ?? []).map((item) =>
+                          item.kind === 'text' ? (
+                            <div key={item.key} className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-p:leading-snug">
+                              <ReactMarkdown>{item.text}</ReactMarkdown>
+                            </div>
+                          ) : (
+                            <ToolCallLine
+                              key={item.key}
+                              tool={item.tool}
+                              args={item.args}
+                              output={item.output}
+                              resultCount={item.resultCount}
+                              running={item.running}
+                            />
+                          )
+                        )}
+                        {msg.isLoading && (
+                          <div className="flex gap-1 pt-1">
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '0ms' }} />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '150ms' }} />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: '300ms' }} />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
+
+                  {msg.role === 'assistant' && msg.pendingInterrupt && (
+                    msg.pendingInterrupt.tool === 'send_reply' ? (
+                      <MeetingReplyReviewCard
+                        interrupt={msg.pendingInterrupt}
+                        disabled={isSendingChat}
+                        onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
+                      />
+                    ) : (
+                      <InterruptApprovalCard
+                        interrupt={msg.pendingInterrupt}
+                        disabled={isSendingChat}
+                        onDecide={(approve, note) => handleResume(msg.id, approve, note)}
+                      />
+                    )
+                  )}
+
+                  {msg.role === 'assistant' && msg.triagePlan && (
+                    <BatchTriageReviewCard
+                      plan={msg.triagePlan}
+                      threadId={threadId}
+                      onView={handleOpenEmailDetail}
+                      onDraft={handleDraftFromTriage}
+                    />
+                  )}
+
+                  {msg.role === 'assistant'
+                    && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
+                    <SentDryRunChip />
+                  )}
+
+                  {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
+                      {msg.sources.map((source, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleOpenEmailDetail(source.id)}
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          title={source.snippet}
+                        >
+                          <span className="whitespace-nowrap font-semibold text-primary">Source {i + 1}</span>
+                          <span className="max-w-[150px] truncate">{source.subject}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t border-border bg-card p-4">
+          <form onSubmit={handleSendChatMessage} className="relative flex items-center">
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              disabled={isSendingChat}
+              placeholder="Ask a follow-up question..."
+              className="w-full rounded-full pr-12 shadow-sm"
+            />
+            <Button
+              type="submit"
+              disabled={!chatInput.trim() || isSendingChat}
+              size="icon"
+              variant="ghost"
+              className="absolute right-1 h-8 w-8 rounded-full text-primary"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </div>
+      </aside>
+    </ResizablePanel>
+  ) : null;
+
   return (
     <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
       <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
@@ -1251,9 +1402,10 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 items-stretch gap-3">
+        <ResizablePanelGroup id="mail-layout-group" orientation="horizontal" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }} className="min-h-0 flex-1">
           {/* Left column: Feed */}
-          <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+          <ResizablePanel id="feed-panel" defaultSize="30%" minSize="22%" maxSize="50%">
+            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {/* Daily Briefing Banner */}
@@ -1426,163 +1578,13 @@ export default function Home() {
             )}
           </div>
           </div>
-        </main>
+            </main>
+          </ResizablePanel>
+          <ResizableHandle id="feed-detail-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
 
-        {/* Right column: AI Sidebar (Multi-Turn Chat) */}
-        {isChatOpen && (
-          <aside className="order-2 flex h-full min-h-0 w-[450px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-            {/* Header */}
-            <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-muted rounded-md">
-                  <Sparkles className="w-4 h-4 text-foreground" />
-                </div>
-                <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
-              </div>
-              <div className="flex items-center gap-1">
-                {chatMessages.length > 0 && (
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" onClick={handleNewChat} title="New chat (clears history and resets thread)">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Scrollable Content Area */}
-            <div className="flex-1 overflow-y-auto p-5 relative">
-              <div className="space-y-6 pb-2">
-                {chatMessages.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4 pt-20">
-                    <div className="p-4 bg-muted rounded-full">
-                      <Sparkles className="w-8 h-8 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-medium text-foreground mb-1">How can I help you today?</h3>
-                      <p className="text-sm text-muted-foreground max-w-[250px] mx-auto">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
-                    </div>
-                  </div>
-                ) : (
-                  chatMessages.map(msg => (
-                    <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-                      <span className="text-[11px] font-medium text-muted-foreground px-1">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-
-                      {msg.role === 'user' ? (
-                        <div className="px-4 py-3 max-w-[90%] text-sm bg-primary text-primary-foreground rounded-2xl rounded-tr-sm">
-                          <div className="prose prose-sm dark:prose-invert prose-p:leading-snug max-w-none">
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
-                          </div>
-                        </div>
-                      ) : (
-                        (msg.segments?.length || msg.isLoading) && (
-                          <div className="max-w-[95%] text-sm text-foreground">
-                            {pairSegments(msg.segments ?? []).map((item) =>
-                              item.kind === 'text' ? (
-                                <div key={item.key} className="prose prose-sm dark:prose-invert prose-p:leading-snug prose-p:my-2 max-w-none">
-                                  <ReactMarkdown>{item.text}</ReactMarkdown>
-                                </div>
-                              ) : (
-                                <ToolCallLine
-                                  key={item.key}
-                                  tool={item.tool}
-                                  args={item.args}
-                                  output={item.output}
-                                  resultCount={item.resultCount}
-                                  running={item.running}
-                                />
-                              )
-                            )}
-                            {msg.isLoading && (
-                              <div className="flex gap-1 pt-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: '300ms' }} />
-                              </div>
-                            )}
-                          </div>
-                        )
-                      )}
-
-                      {msg.role === 'assistant' && msg.pendingInterrupt && (
-                        msg.pendingInterrupt.tool === 'send_reply' ? (
-                          <MeetingReplyReviewCard
-                            interrupt={msg.pendingInterrupt}
-                            disabled={isSendingChat}
-                            onDecide={(approve, note, editedBody) => handleResume(msg.id, approve, note, editedBody)}
-                          />
-                        ) : (
-                          <InterruptApprovalCard
-                            interrupt={msg.pendingInterrupt}
-                            disabled={isSendingChat}
-                            onDecide={(approve, note) => handleResume(msg.id, approve, note)}
-                          />
-                        )
-                      )}
-
-                      {msg.role === 'assistant' && msg.triagePlan && (
-                        <BatchTriageReviewCard
-                          plan={msg.triagePlan}
-                          threadId={threadId}
-                          onView={handleOpenEmailDetail}
-                          onDraft={handleDraftFromTriage}
-                        />
-                      )}
-
-                      {msg.role === 'assistant'
-                        && msg.segments?.some(s => s.kind === 'tool_end' && s.tool === 'send_reply') && (
-                        <SentDryRunChip />
-                      )}
-
-                      {/* Citations/Sources Cards attached to AI Response */}
-                      {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5 w-[90%]">
-                          {msg.sources.map((source, i) => (
-                            <button
-                              key={i}
-                              onClick={() => handleOpenEmailDetail(source.id)}
-                              className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium bg-card border border-border rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:border-primary transition-colors shadow-sm max-w-full text-left"
-                              title={source.snippet}
-                            >
-                              <span className="text-primary font-semibold whitespace-nowrap">Source {i + 1}</span>
-                              <span className="truncate max-w-[150px]">{source.subject}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-
-            {/* Input Overlay / Footer */}
-            <div className="p-4 bg-card border-t border-border shrink-0">
-              <form onSubmit={handleSendChatMessage} className="relative flex items-center">
-                <Input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isSendingChat}
-                  placeholder="Ask a follow-up question..."
-                  className="w-full pr-12 rounded-full shadow-sm"
-                />
-                <Button
-                  type="submit"
-                  disabled={!chatInput.trim() || isSendingChat}
-                  size="icon"
-                  variant="ghost"
-                  className="absolute right-1 text-primary h-8 w-8 rounded-full"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
-            </div>
-          </aside>
-        )}
         {/* Right column: Email reading pane (master-detail) */}
-        <section className="order-1 flex h-full min-h-0 min-w-0 flex-[1.4] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <ResizablePanel id="detail-panel" defaultSize={isChatOpen ? "50%" : "70%"} minSize="32%" maxSize="72%">
+          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {emailDetailData || isLoadingDetail ? (
               <>
                 <div className="shrink-0 border-b border-border bg-muted/30 p-6">
@@ -1614,10 +1616,10 @@ export default function Home() {
                 </div>
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
-                  <ResizablePanelGroup id="email-detail-group" orientation="vertical">
+                  <ResizablePanelGroup id="email-detail-group" orientation="vertical" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}>
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize={78} minSize={45} className="bg-background flex flex-col relative pb-4">
+              <ResizablePanel id="email-body-panel" defaultSize="78%" minSize="45%" className="bg-background flex flex-col relative pb-4">
                 <div className="flex-1 overflow-y-auto w-full p-6">
                   {isLoadingDetail ? (
                     <div className="space-y-4">
@@ -1643,13 +1645,13 @@ export default function Home() {
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" withHandle className="hover:bg-primary hover:h-1.5 transition-all outline-none relative group/handle" />
+              <ResizableHandle id="email-divider" className="h-2 shrink-0 cursor-row-resize bg-transparent after:h-full after:bg-transparent hover:bg-transparent outline-none" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
-                defaultSize={22}
-                minSize={12}
+                defaultSize="22%"
+                minSize="12%"
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
                 {draftTabs.length > 0 && (
@@ -1718,7 +1720,10 @@ export default function Home() {
               </div>
             )}
           </section>
-        </div>
+        </ResizablePanel>
+        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
+        {chatSidebar}
+        </ResizablePanelGroup>
       </div>
     </div >
   );
