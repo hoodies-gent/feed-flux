@@ -711,7 +711,6 @@ export default function Home() {
   const [emailDetailsById, setEmailDetailsById] = useState<Record<string, EmailDetail>>({});
   const [openEmailIds, setOpenEmailIds] = useState<string[]>([]);
   const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
-  const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
   const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
   const [autoDraftOnOpen, setAutoDraftOnOpen] = useState(false);
@@ -827,7 +826,6 @@ export default function Home() {
 
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
     setAutoDraftOnOpen(autoDraft);
-    setIsEmailDetailOpen(true);
     setActiveEmailId(id);
     setOpenEmailIds((current) => current.includes(id) ? current : [...current, id]);
     if (emailDetailsById[id]) {
@@ -852,7 +850,6 @@ export default function Home() {
     setAutoDraftOnOpen(false);
     if (remainingIds.length === 0) {
       setActiveEmailId(null);
-      setIsEmailDetailOpen(false);
       return;
     }
     if (id === activeEmailId) {
@@ -1538,8 +1535,7 @@ export default function Home() {
           </aside>
         )}
         {/* Right column: Email reading pane (master-detail) */}
-        {isEmailDetailOpen && (
-          <section className="order-1 flex h-full min-h-0 min-w-0 flex-[1.4] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <section className="order-1 flex h-full min-h-0 min-w-0 flex-[1.4] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {openEmailIds.length > 0 && (
               <div className="flex h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-2">
                 {openEmailIds.map((id) => {
@@ -1571,34 +1567,36 @@ export default function Home() {
                 })}
               </div>
             )}
-            <div className="p-6 border-b border-border bg-muted/30 shrink-0">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="text-xl font-semibold text-foreground">
-                  {emailDetailData?.subject || "Loading..."}
-                </h2>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 -mr-2 shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => activeEmailId ? handleCloseEmailTab(activeEmailId) : setIsEmailDetailOpen(false)}
-                  title="Close"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            {emailDetailData && (
-              <div className="text-sm text-muted-foreground mt-2 flex items-center justify-between">
-                <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
-                <span>{formatDateTime(emailDetailData.received_datetime)}</span>
-              </div>
-            )}
-            </div>
-            {/* Resizable Container wrapping Body & Action Panel */}
-            <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
-              <ResizablePanelGroup id="email-detail-group" orientation="vertical">
+            {emailDetailData || isLoadingDetail ? (
+              <>
+                <div className="shrink-0 border-b border-border bg-muted/30 p-6">
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="text-xl font-semibold text-foreground">
+                      {emailDetailData?.subject || "Loading..."}
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="-mr-2 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => activeEmailId && handleCloseEmailTab(activeEmailId)}
+                      title="Close"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {emailDetailData && (
+                    <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+                      <span>From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
+                      <span>{formatDateTime(emailDetailData.received_datetime)}</span>
+                    </div>
+                  )}
+                </div>
+                {/* Resizable Container wrapping Body & Action Panel */}
+                <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
+                  <ResizablePanelGroup id="email-detail-group" orientation="vertical">
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize={70} minSize={25} className="bg-background flex flex-col relative pb-4">
+              <ResizablePanel id="email-body-panel" defaultSize={78} minSize={45} className="bg-background flex flex-col relative pb-4">
                 <div className="flex-1 overflow-y-auto w-full p-6">
                   {isLoadingDetail ? (
                     <div className="space-y-4">
@@ -1629,8 +1627,8 @@ export default function Home() {
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
-                defaultSize={30}
-                minSize={20}
+                defaultSize={22}
+                minSize={12}
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
                 {openEmailIds.map((id) => {
@@ -1656,10 +1654,21 @@ export default function Home() {
                   </div>
                 )}
               </ResizablePanel>
-            </ResizablePanelGroup>
-            </div>
+                  </ResizablePanelGroup>
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-background p-6 text-center">
+                <div className="flex max-w-xs flex-col items-center gap-3 text-muted-foreground">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                    <Mail className="h-8 w-8" />
+                  </div>
+                  <h2 className="text-base font-medium text-foreground">No Conversation Selected</h2>
+                  <p className="text-sm">Select an email from your inbox to read it here.</p>
+                </div>
+              </div>
+            )}
           </section>
-        )}
       </div>
     </div >
   );
