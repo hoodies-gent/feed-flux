@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -975,13 +974,20 @@ export default function Home() {
   }, []);
 
   /**
-   * Format timestamp to human-readable relative time
-   * Example: "2 hours ago", "yesterday"
+   * Format timestamps like a mail client: relative day labels for recent mail,
+   * calendar dates for older messages.
    */
   const formatTime = (timestamp: number) => {
     try {
-      // Convert Unix timestamp (seconds) to milliseconds
-      return formatDistanceToNow(new Date(timestamp * 1000), { addSuffix: true });
+      const date = new Date(timestamp * 1000);
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      if (date >= today) return `Today ${time}`;
+      if (date >= yesterday) return `Yesterday ${time}`;
+      return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     } catch {
       return new Date(timestamp * 1000).toLocaleDateString();
     }
@@ -1128,11 +1134,11 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className={`mx-auto flex gap-3 items-start transition-all duration-300 ${isChatOpen || isEmailDetailOpen ? 'max-w-[1600px]' : 'max-w-4xl'}`}>
+    <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
+      <div className="mx-auto flex h-full w-full max-w-[1800px] items-stretch gap-3">
 
         {/* Left column: Feed */}
-        <main className="flex-1 min-w-0 space-y-3">
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
 
           {/* Header & Omnibar */}
           <header className="flex flex-col gap-2 mb-0">
@@ -1205,6 +1211,7 @@ export default function Home() {
             </div>
           </header>
 
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {/* Daily Briefing Banner */}
           {!debouncedQuery && (
             <div className="mt-4 rounded-xl bg-muted text-foreground border">
@@ -1245,7 +1252,7 @@ export default function Home() {
           )}
 
           {/* Feed List */}
-          <div className="space-y-4">
+          <div className="overflow-hidden rounded-lg border border-border/80 bg-card">
             {loading ? (
               // Loading Skeletons
               Array.from({ length: 3 }).map((_, i) => (
@@ -1285,96 +1292,101 @@ export default function Home() {
                 const isSummarizing = summarizing[item.id];
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
+                const senderLabel = item.sender || 'Unknown sender';
+                const senderInitial = senderLabel.trim().charAt(0).toUpperCase() || '?';
 
                 return (
                   <Card
                     key={item.id}
                     onClick={() => handleOpenEmailDetail(item.id)}
-                    className="py-4 gap-3 cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-transparent hover:border-l-primary"
+                    className="group cursor-pointer rounded-none border-0 border-b border-border last:border-b-0 border-l-2 border-l-transparent gap-0 py-0 shadow-none transition-colors hover:border-l-primary hover:bg-accent/40"
                   >
-                    <CardHeader>
-                      <div className="flex justify-between items-start gap-4">
-                        <CardTitle className="text-base font-semibold text-foreground flex-1">
-                          {item.subject}
-                        </CardTitle>
-                        <Badge variant="secondary" className="text-xs whitespace-nowrap">
-                          {formatTime(item.received_datetime)}
-                        </Badge>
+                    <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                        {senderInitial}
                       </div>
-                      <CardDescription className="text-muted-foreground">{item.sender}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <p className="text-sm text-muted-foreground line-clamp-3">
-                        {item.body_preview}
-                      </p>
-
-                      {/* Action button — fixed above the summary so toggling Show/Hide never moves it.
-                          stopPropagation so it doesn't trigger the card's open-original click. */}
-                      <div className="flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <CardDescription className="max-w-[30%] shrink-0 truncate text-xs font-medium text-foreground">
+                            {senderLabel}
+                          </CardDescription>
+                          <CardTitle className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                            {item.subject}
+                          </CardTitle>
+                        </div>
+                        <CardDescription className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {item.body_preview}
+                        </CardDescription>
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground transition-opacity group-hover:opacity-0">
+                        {formatTime(item.received_datetime)}
+                      </span>
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-card opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
-                          size="sm"
-                          className="text-primary"
+                          size="icon-sm"
+                          className="text-primary opacity-0 transition-all group-hover:opacity-100 focus-visible:opacity-100 hover:bg-background hover:shadow-sm"
                           onClick={() => handleSummarize(item)}
                           disabled={isSummarizing}
+                          aria-label={summary ? (isExpanded ? 'Hide summary' : 'Show summary') : 'Summarize email'}
+                          title={summary ? (isExpanded ? 'Hide summary' : 'Show summary') : 'Summarize email'}
                         >
-                          {isSummarizing ? 'Summarizing...' : summary ? (isExpanded ? 'Hide Summary' : 'Show Summary') : 'Summarize with AI'} →
+                          {isSummarizing ? <Loader2 className="animate-spin" /> : summary ? (isExpanded ? <ChevronUp /> : <ChevronDown />) : <Sparkles />}
                         </Button>
                       </div>
-
-                      {/* AI Summary Section — stopPropagation so reading/selecting the summary doesn't open the original */}
-                      {isExpanded && (
-                        <div className="border-t pt-3 mt-2" onClick={(e) => e.stopPropagation()}>
-                          {isSummarizing ? (
-                            <div className="space-y-2">
-                              <Skeleton className="h-4 w-full" />
-                              <Skeleton className="h-4 w-5/6" />
-                              <Skeleton className="h-4 w-4/6" />
+                    </CardHeader>
+                    {isExpanded && (
+                      <CardContent className="bg-muted/20 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                        {isSummarizing ? (
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-full" />
+                            <Skeleton className="h-4 w-5/6" />
+                            <Skeleton className="h-4 w-4/6" />
+                          </div>
+                        ) : summary ? (
+                          <div className="space-y-2">
+                            {/* Generation Metadata: AI + Model */}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-xs">
+                                AI Summary
+                              </Badge>
+                              {summary.model && (
+                                <span className="text-xs text-muted-foreground">
+                                  by {summary.model}
+                                </span>
+                              )}
                             </div>
-                          ) : summary ? (
-                            <div className="space-y-3">
-                              {/* Generation Metadata: AI + Model */}
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  AI Summary
-                                </Badge>
-                                {summary.model && (
-                                  <span className="text-xs text-muted-foreground">
-                                    by {summary.model}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="prose prose-sm dark:prose-invert max-w-none">
-                                <ReactMarkdown>{summary.summary}</ReactMarkdown>
-                              </div>
-                              {/* Related count (left) + last generated time (bottom-right) */}
-                              <div className="flex items-center gap-2 flex-wrap pt-1">
-                                {summary.context_count > 0 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
-                                  </span>
-                                )}
-                                {summary.generated_at && (
-                                  <span className="text-xs text-muted-foreground ml-auto">
-                                    Last generated: {formatDateTime(summary.generated_at)}
-                                  </span>
-                                )}
-                              </div>
+                            <div className="text-xs leading-4 text-muted-foreground [&_p]:my-0 [&_h1]:text-xs [&_h2]:text-xs [&_h3]:text-xs [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0">
+                              <ReactMarkdown>{summary.summary}</ReactMarkdown>
                             </div>
-                          ) : null}
-                        </div>
-                      )}
-                    </CardContent>
+                            {/* Related count (left) + last generated time (bottom-right) */}
+                            <div className="flex items-center gap-2 flex-wrap pt-1">
+                              {summary.context_count > 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  Found {summary.context_count} related email{summary.context_count > 1 ? 's' : ''}
+                                </span>
+                              )}
+                              {summary.generated_at && (
+                                <span className="text-xs text-muted-foreground ml-auto">
+                                  Last generated: {formatDateTime(summary.generated_at)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    )}
                   </Card>
                 );
               })
             )}
           </div>
+          </div>
         </main>
 
         {/* Right column: AI Sidebar (Multi-Turn Chat) */}
         {isChatOpen && (
-          <aside className="order-2 w-[450px] shrink-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          <aside className="order-2 flex h-full min-h-0 w-[450px] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {/* Header */}
             <div className="p-4 border-b border-border bg-muted/30 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
@@ -1527,7 +1539,7 @@ export default function Home() {
         )}
         {/* Right column: Email reading pane (master-detail) */}
         {isEmailDetailOpen && (
-          <section className="order-1 flex-[1.4] min-w-0 h-[calc(100vh-1rem)] sticky top-2 flex flex-col bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+          <section className="order-1 flex h-full min-h-0 min-w-0 flex-[1.4] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {openEmailIds.length > 0 && (
               <div className="flex h-9 shrink-0 items-end gap-0.5 overflow-x-auto border-b border-border bg-muted/20 px-2">
                 {openEmailIds.map((id) => {
@@ -1582,7 +1594,7 @@ export default function Home() {
             )}
             </div>
             {/* Resizable Container wrapping Body & Action Panel */}
-            <div className="flex-1 w-full bg-muted overflow-hidden relative">
+            <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
               <ResizablePanelGroup id="email-detail-group" orientation="vertical">
 
               {/* TOP PANEL: Original Email */}
