@@ -8,7 +8,14 @@ from langgraph.graph import END
 
 from app.agent import graph as agent_graph
 from app.agent import stream as agent_stream
-from app.agent.tools import HIGH_RISK_TOOLS, apply_draft_patch, current_thread_id, read_draft_context, send_reply
+from app.agent.tools import (
+    HIGH_RISK_TOOLS,
+    apply_draft_patch,
+    current_thread_id,
+    read_draft_context,
+    read_original_email_context,
+    send_reply,
+)
 from app.models.email import SentAction
 from app.services.database import DatabaseService
 
@@ -154,6 +161,44 @@ class DraftAgentTest(unittest.TestCase):
         self.assertNotEqual(body, around["body"])
         self.assertIn("Selected paragraph.", around["body"])
         self.assertEqual(body, full["body"])
+
+    def test_read_original_email_context_returns_requested_scope(self):
+        db = DatabaseService(str(self.data_dir / "emails.db"))
+        body = "Opening. " + ("Earlier details. " * 20) + "The selected request." + (" Later details. " * 20)
+        db.insert_email({
+            "id": "email-a",
+            "subject": "Project proposal",
+            "sender_name": "Sarah",
+            "sender_email": "sarah@example.com",
+            "received_datetime": 1,
+            "body_preview": body[:80],
+            "body_content": body,
+        })
+
+        selected_start = body.index("The selected request.")
+        around = read_original_email_context.invoke({
+            "original_email_id": "email-a",
+            "scope": "around",
+            "selection_start": selected_start,
+            "selection_end": selected_start + len("The selected request."),
+            "context_chars": 10,
+        })
+        full = read_original_email_context.invoke({
+            "original_email_id": "email-a",
+            "scope": "full",
+        })
+
+        self.assertEqual("email-a", around["email_id"])
+        self.assertEqual("Project proposal", around["subject"])
+        self.assertEqual("Sarah", around["sender"])
+        self.assertEqual("around", around["scope"])
+        self.assertIn("The selected request.", around["body"])
+        self.assertNotEqual(body, around["body"])
+        self.assertEqual(body, full["body"])
+
+    def test_agent_prompt_exposes_original_email_context_for_grounded_rewrites(self):
+        self.assertIn("read_original_email_context", agent_graph.SYSTEM_PROMPT)
+        self.assertIn("according to the original email", agent_graph.SYSTEM_PROMPT)
 
     def test_draft_tool_result_builds_draft_stream_event(self):
         build_event = getattr(agent_stream, "_build_draft_event", None)

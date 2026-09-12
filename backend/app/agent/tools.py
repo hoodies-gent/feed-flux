@@ -291,6 +291,45 @@ def read_draft_context(
     )
 
 
+class ReadOriginalEmailContextInput(BaseModel):
+    original_email_id: str = Field(description="ID of the original email to inspect.")
+    scope: Literal["around", "full"] = Field(
+        default="around",
+        description="Read nearby context by default; use full only when the instruction needs the whole email.",
+    )
+    selection_start: int | None = Field(
+        default=None,
+        description="Character offset where the related passage starts; required for around scope.",
+    )
+    selection_end: int | None = Field(
+        default=None,
+        description="Character offset immediately after the related passage; required for around scope.",
+    )
+    context_chars: int = Field(
+        default=600,
+        description="Approximate number of characters to include on each side for around scope.",
+    )
+
+
+@tool("read_original_email_context", args_schema=ReadOriginalEmailContextInput)
+def read_original_email_context(
+    original_email_id: str,
+    scope: Literal["around", "full"] = "around",
+    selection_start: int | None = None,
+    selection_end: int | None = None,
+    context_chars: int = 600,
+) -> dict:
+    """Read the incoming email text for a grounded reply or rewrite."""
+    db = DatabaseService()
+    return db.get_original_email_context(
+        original_email_id,
+        selection_start=selection_start,
+        selection_end=selection_end,
+        scope=scope,
+        context_chars=context_chars,
+    )
+
+
 class TriageActionItem(BaseModel):
     email_id: str = Field(description="ID of the email this action applies to (from list_unread_emails).")
     action: Literal["mark_read", "archive", "delete"] = Field(
@@ -384,6 +423,7 @@ TOOLS = [
     read_calendar,
     send_reply,
     read_draft_context,
+    read_original_email_context,
     apply_draft_patch,
     apply_triage_batch,
 ]

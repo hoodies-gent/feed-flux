@@ -221,6 +221,54 @@ class DatabaseService:
         finally:
             session.close()
 
+    def get_original_email_context(
+        self,
+        email_id: str,
+        selection_start: int | None = None,
+        selection_end: int | None = None,
+        scope: str = "around",
+        context_chars: int = 600,
+    ) -> dict:
+        """Read a bounded or full original email context without mutating it."""
+        session = self.Session()
+        try:
+            email = session.query(Email).filter_by(id=email_id).first()
+            if not email:
+                raise ValueError(f"email not found: {email_id!r}")
+            if scope not in {"around", "full"}:
+                raise ValueError("original email context scope is invalid")
+
+            body = email.body_content or email.body_preview or ""
+            if scope == "full":
+                start, end = 0, len(body)
+            else:
+                if selection_start is None or selection_end is None:
+                    raise ValueError("selection range is required for around context")
+                if (
+                    selection_start < 0
+                    or selection_end < selection_start
+                    or selection_end > len(body)
+                ):
+                    raise ValueError("original email selection range is invalid")
+                margin = max(100, min(context_chars, 2000))
+                start = max(0, selection_start - margin)
+                end = min(len(body), selection_end + margin)
+
+            return {
+                "email_id": email.id,
+                "subject": email.subject,
+                "sender": email.sender_name or email.sender_email,
+                "sender_email": email.sender_email,
+                "scope": scope,
+                "body": body[start:end],
+                "context_start": start,
+                "context_end": end,
+                "selection_start": selection_start,
+                "selection_end": selection_end,
+            }
+        finally:
+            session.close()
+
     def update_draft(self, draft_id: int, body: str) -> dict:
         """Persist edits to an active draft."""
         session = self.Session()
