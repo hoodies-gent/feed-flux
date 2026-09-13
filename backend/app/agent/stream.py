@@ -128,7 +128,11 @@ async def _emit_interrupts(agent, config, recent_tool_results) -> AsyncIterator[
 
 
 async def stream_agent(
-    graph_input: Any, thread_id: str
+    graph_input: Any,
+    thread_id: str,
+    *,
+    callbacks: list[Any] | None = None,
+    tool_output_limit: int | None = 2000,
 ) -> AsyncIterator[dict]:
     """Yield NDJSON-friendly events for a single agent invocation.
 
@@ -136,6 +140,8 @@ async def stream_agent(
     """
     agent = get_agent()
     config = {"configurable": {"thread_id": thread_id}}
+    if callbacks:
+        config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []
 
     async for ev in agent.astream_events(graph_input, config, version="v2"):
@@ -164,7 +170,11 @@ async def stream_agent(
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)
-            truncated = output_text[:2000]
+            truncated = (
+                output_text
+                if tool_output_limit is None
+                else output_text[:tool_output_limit]
+            )
             recent_tool_results.append({"tool": name, "output": truncated})
             event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
             count = _count_list_result(output, output_text)
