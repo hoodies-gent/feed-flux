@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from langchain_core.messages import AIMessage, HumanMessage
+
+from app.agent.graph import build_agent
 from app.agent.llm import get_llm
 from app.agent import stream as agent_stream
 from app.core.config import Config
@@ -30,7 +33,30 @@ class _RecordingAgent:
         return SimpleNamespace(tasks=[])
 
 
+class _AsyncOnlyLLM:
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        raise AssertionError("agent graph used the blocking invoke path")
+
+    async def ainvoke(self, messages):
+        return AIMessage(content="done")
+
+
 class EvalRuntimeTest(unittest.TestCase):
+    def test_agent_graph_uses_async_llm_invocation(self):
+        agent = build_agent(llm=_AsyncOnlyLLM())
+
+        state = asyncio.run(
+            agent.ainvoke(
+                {"messages": [HumanMessage(content="hello")]},
+                {"configurable": {"thread_id": "async-runtime-test"}},
+            )
+        )
+
+        self.assertEqual("done", state["messages"][-1].content)
+
     def test_glm_uses_openai_compatible_configuration(self):
         client = object()
         with (
@@ -66,6 +92,18 @@ class EvalRuntimeTest(unittest.TestCase):
 
         self.assertIs(client, result)
         self.assertEqual(0.2, chat_openai.call_args.kwargs["temperature"])
+
+    def test_explicit_model_name_overrides_provider_default(self):
+        client = object()
+        with (
+            patch.object(Config, "DEEPSEEK_API_KEY", "deepseek-secret"),
+            patch.object(Config, "DEEPSEEK_MODEL_NAME", "configured-model"),
+            patch("langchain_openai.ChatOpenAI", return_value=client) as chat_openai,
+        ):
+            result = get_llm("deepseek", model_name="requested-model")
+
+        self.assertIs(client, result)
+        self.assertEqual("requested-model", chat_openai.call_args.kwargs["model"])
 
     def test_database_default_honors_eval_path_override(self):
         with tempfile.TemporaryDirectory() as temp_dir:

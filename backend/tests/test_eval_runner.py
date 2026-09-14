@@ -4,11 +4,12 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.agent.tools import current_thread_id, send_reply
 from app.evals.grader import load_golden_suite
 from app.evals.recorder import TrialRecorder
-from app.evals.runner import TokenPricing, run_suite, run_trial
+from app.evals.runner import TokenPricing, _build_provider_agent, run_suite, run_trial
 
 
 async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
@@ -16,6 +17,7 @@ async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
         "input_tokens": 100,
         "output_tokens": 20,
         "total_tokens": 120,
+        "input_token_details": {"cache_read": 40},
     }
     yield {
         "type": "trace",
@@ -79,12 +81,6 @@ async def _approval_events(graph_input, thread_id, callbacks, tool_output_limit)
         "subject": "Q3 expense report",
         "body": "The report is ready.",
     }
-    yield {
-        "type": "trace",
-        "step": "tool_start",
-        "tool": "send_test_email",
-        "args": args,
-    }
     yield {"type": "interrupt", "tool": "send_test_email", "args": args}
     yield {"type": "done"}
 
@@ -93,6 +89,12 @@ async def _failing_events(graph_input, thread_id, callbacks, tool_output_limit):
     if False:
         yield {}
     raise RuntimeError("provider timeout")
+
+
+async def _hanging_events(graph_input, thread_id, callbacks, tool_output_limit):
+    await asyncio.sleep(0.1)
+    if False:
+        yield {}
 
 
 class EvalRunnerTest(unittest.TestCase):
@@ -108,6 +110,29 @@ class EvalRunnerTest(unittest.TestCase):
 
     def tearDown(self):
         self.temp_dir.cleanup()
+
+    def test_provider_agent_uses_requested_model_and_request_limits(self):
+        llm = object()
+        agent = object()
+        with (
+            patch("app.evals.runner.get_llm", return_value=llm) as get_llm,
+            patch("app.evals.runner.build_agent", return_value=agent) as build_agent,
+        ):
+            result = _build_provider_agent(
+                "gemini",
+                "gemini-3.5-flash-lite",
+                request_timeout=12,
+                max_retries=0,
+            )
+
+        self.assertIs(agent, result)
+        get_llm.assert_called_once_with(
+            "gemini",
+            model_name="gemini-3.5-flash-lite",
+            timeout=12,
+            max_retries=0,
+        )
+        build_agent.assert_called_once_with(llm=llm)
 
     def test_completed_trial_records_trace_usage_cost_grade_and_isolated_state(self):
         untouched_db = Path(self.temp_dir.name) / "untouched.db"
@@ -126,6 +151,7 @@ class EvalRunnerTest(unittest.TestCase):
                     pricing=TokenPricing(
                         input_usd_per_million=1.0,
                         output_usd_per_million=2.0,
+                        cached_input_usd_per_million=0.25,
                     ),
                 )
             )
@@ -142,10 +168,15 @@ class EvalRunnerTest(unittest.TestCase):
         self.assertEqual("completed", record["status"])
         self.assertEqual(["started", "completed"], [item["status"] for item in record["lifecycle"]])
         self.assertEqual(
-            {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+            {
+                "input_tokens": 100,
+                "cached_input_tokens": 40,
+                "output_tokens": 20,
+                "total_tokens": 120,
+            },
             record["usage"],
         )
-        self.assertAlmostEqual(0.00014, record["estimated_cost_usd"])
+        self.assertAlmostEqual(0.00011, record["estimated_cost_usd"])
         self.assertTrue(record["grade"]["task_success"])
         self.assertEqual(["eval-mtg-002"], record["target_email_ids"])
         self.assertEqual(1, record["final_state"]["drafts"]["active_count"])
@@ -197,6 +228,23 @@ class EvalRunnerTest(unittest.TestCase):
         self.assertFalse(record["grade"]["task_success"])
         self.assertEqual("runner_error", record["grade"]["failures"][0]["code"])
         self.assertTrue(self.output_path.exists())
+
+    def test_trial_deadline_records_a_hanging_provider_as_failed(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["draft_creation"],
+                provider="deepseek",
+                model="deepseek-flash",
+                trial_number=1,
+                run_id="run-timeout",
+                recorder=self.recorder,
+                event_source=_hanging_events,
+                request_timeout=0.01,
+            )
+        )
+
+        self.assertEqual("failed", record["status"])
+        self.assertEqual("TimeoutError", record["error"]["type"])
 
     def test_suite_runs_requested_trial_count_with_stable_unique_ids(self):
         records = asyncio.run(

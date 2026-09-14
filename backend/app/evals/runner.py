@@ -14,6 +14,7 @@ from typing import Any, AsyncIterator, Callable
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from app.agent.graph import build_agent
+from app.agent.llm import get_llm
 from app.agent.stream import new_turn_input, stream_agent
 from app.core.config import Config
 from app.evals.grader import (
@@ -36,6 +37,7 @@ EventSource = Callable[..., AsyncIterator[dict[str, Any]]]
 class TokenPricing:
     input_usd_per_million: float
     output_usd_per_million: float
+    cached_input_usd_per_million: float | None = None
 
 
 def _now() -> str:
@@ -131,13 +133,20 @@ def _task_prompt(task: GoldenTask, setup: dict[str, Any]) -> str:
     )
 
 
-def _build_provider_agent(provider: str):
-    previous = Config.LLM_PROVIDER
-    Config.LLM_PROVIDER = provider
-    try:
-        return build_agent()
-    finally:
-        Config.LLM_PROVIDER = previous
+def _build_provider_agent(
+    provider: str,
+    model: str,
+    *,
+    request_timeout: float,
+    max_retries: int,
+):
+    llm = get_llm(
+        provider,
+        model_name=model,
+        timeout=request_timeout,
+        max_retries=max_retries,
+    )
+    return build_agent(llm=llm)
 
 
 async def _provider_events(
@@ -146,8 +155,16 @@ async def _provider_events(
     callbacks: list[Any],
     tool_output_limit: int | None,
     provider: str,
+    model: str,
+    request_timeout: float,
+    max_retries: int,
 ) -> AsyncIterator[dict[str, Any]]:
-    agent = _build_provider_agent(provider)
+    agent = _build_provider_agent(
+        provider,
+        model,
+        request_timeout=request_timeout,
+        max_retries=max_retries,
+    )
     async for event in stream_agent(
         graph_input,
         thread_id,
@@ -167,6 +184,10 @@ def _usage_totals(callback: UsageMetadataCallbackHandler) -> dict[str, int]:
         int(item.get("output_tokens", 0))
         for item in callback.usage_metadata.values()
     )
+    cached_input_tokens = sum(
+        int((item.get("input_token_details") or {}).get("cache_read", 0))
+        for item in callback.usage_metadata.values()
+    )
     total_tokens = sum(
         int(item.get("total_tokens", 0))
         for item in callback.usage_metadata.values()
@@ -175,6 +196,7 @@ def _usage_totals(callback: UsageMetadataCallbackHandler) -> dict[str, int]:
         total_tokens = input_tokens + output_tokens
     return {
         "input_tokens": input_tokens,
+        "cached_input_tokens": cached_input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
     }
@@ -183,8 +205,18 @@ def _usage_totals(callback: UsageMetadataCallbackHandler) -> dict[str, int]:
 def _estimate_cost(usage: dict[str, int], pricing: TokenPricing | None) -> float | None:
     if pricing is None:
         return None
+    cached_input_tokens = min(
+        usage["input_tokens"], usage.get("cached_input_tokens", 0)
+    )
+    uncached_input_tokens = usage["input_tokens"] - cached_input_tokens
+    cached_input_rate = (
+        pricing.cached_input_usd_per_million
+        if pricing.cached_input_usd_per_million is not None
+        else pricing.input_usd_per_million
+    )
     cost = (
-        usage["input_tokens"] * pricing.input_usd_per_million
+        uncached_input_tokens * pricing.input_usd_per_million
+        + cached_input_tokens * cached_input_rate
         + usage["output_tokens"] * pricing.output_usd_per_million
     ) / 1_000_000
     return round(cost, 10)
@@ -286,6 +318,8 @@ async def run_trial(
     model: str | None = None,
     pricing: TokenPricing | None = None,
     event_source: EventSource | None = None,
+    request_timeout: float = 60.0,
+    max_retries: int = 0,
 ) -> dict[str, Any]:
     trial_id = f"{run_id}:{task.id}:{trial_number}"
     thread_id = f"eval:{trial_id}"
@@ -296,6 +330,7 @@ async def run_trial(
     error: dict[str, str] | None = None
     status = "completed"
     output = ""
+    actual_model = model or _model_name(provider)
 
     with tempfile.TemporaryDirectory(prefix="feedflux-eval-") as temp_dir:
         db_path = Path(temp_dir) / "trial.db"
@@ -312,6 +347,9 @@ async def run_trial(
                         [usage_callback],
                         None,
                         provider,
+                        actual_model,
+                        request_timeout,
+                        max_retries,
                     )
                 else:
                     event_iterator = event_source(
@@ -320,10 +358,11 @@ async def run_trial(
                         [usage_callback],
                         None,
                     )
-                async for event in event_iterator:
-                    events.append(event)
-                    if event.get("type") == "token":
-                        output += str(event.get("content", ""))
+                async with asyncio.timeout(request_timeout):
+                    async for event in event_iterator:
+                        events.append(event)
+                        if event.get("type") == "token":
+                            output += str(event.get("content", ""))
                 if any(event.get("type") == "interrupt" for event in events):
                     status = "interrupted"
             except Exception as exc:
@@ -338,6 +377,15 @@ async def run_trial(
         for event in events
         if event.get("type") == "trace" and event.get("step") == "tool_start"
     ]
+    for event in events:
+        if event.get("type") != "interrupt":
+            continue
+        interrupted_call = {
+            "name": event.get("tool"),
+            "args": event.get("args") or {},
+        }
+        if interrupted_call not in tool_calls:
+            tool_calls.append(interrupted_call)
     target_email_ids: set[str] = set()
     for call in tool_calls:
         target_email_ids.update(_ids_from_value(call["args"]))
@@ -370,7 +418,7 @@ async def run_trial(
         "run_id": run_id,
         "trial_id": trial_id,
         "provider": provider,
-        "model": model or _model_name(provider),
+        "model": actual_model,
         "task_id": task.id,
         "category": task.category,
         "trial_number": trial_number,
@@ -385,6 +433,7 @@ async def run_trial(
             {
                 "input_usd_per_million": pricing.input_usd_per_million,
                 "output_usd_per_million": pricing.output_usd_per_million,
+                "cached_input_usd_per_million": pricing.cached_input_usd_per_million,
             }
             if pricing
             else None
@@ -414,6 +463,9 @@ async def run_suite(
     run_id: str | None = None,
     pricing: TokenPricing | None = None,
     event_source: EventSource | None = None,
+    model: str | None = None,
+    request_timeout: float = 60.0,
+    max_retries: int = 0,
 ) -> list[dict[str, Any]]:
     if trials < 1:
         raise ValueError("trials must be at least 1")
@@ -426,7 +478,7 @@ async def run_suite(
     actual_run_id = run_id or _new_run_id()
     actual_output = Path(output_path or DEFAULT_RESULTS_DIR / f"{actual_run_id}.jsonl")
     recorder = TrialRecorder(actual_output)
-    model = _model_name(provider)
+    actual_model = model or _model_name(provider)
     records = []
     for task in selected:
         for trial_number in range(1, trials + 1):
@@ -434,12 +486,14 @@ async def run_suite(
                 await run_trial(
                     task,
                     provider=provider,
-                    model=model,
+                    model=actual_model,
                     trial_number=trial_number,
                     run_id=actual_run_id,
                     recorder=recorder,
                     pricing=pricing,
                     event_source=event_source,
+                    request_timeout=request_timeout,
+                    max_retries=max_retries,
                 )
             )
     return records
@@ -448,11 +502,15 @@ async def run_suite(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the FeedFlux agent eval suite")
     parser.add_argument("--provider", choices=["deepseek", "glm", "gemini"], required=True)
+    parser.add_argument("--model")
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument("--task", action="append", dest="task_ids")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--input-cost-per-million", type=float)
     parser.add_argument("--output-cost-per-million", type=float)
+    parser.add_argument("--cached-input-cost-per-million", type=float)
+    parser.add_argument("--request-timeout", type=float, default=60.0)
+    parser.add_argument("--max-retries", type=int, default=0)
     args = parser.parse_args()
 
     if (args.input_cost_per_million is None) != (
@@ -463,6 +521,7 @@ def main() -> int:
         TokenPricing(
             input_usd_per_million=args.input_cost_per_million,
             output_usd_per_million=args.output_cost_per_million,
+            cached_input_usd_per_million=args.cached_input_cost_per_million,
         )
         if args.input_cost_per_million is not None
         else None
@@ -477,6 +536,9 @@ def main() -> int:
             output_path=output_path,
             run_id=run_id,
             pricing=pricing,
+            model=args.model,
+            request_timeout=args.request_timeout,
+            max_retries=args.max_retries,
         )
     )
     print(

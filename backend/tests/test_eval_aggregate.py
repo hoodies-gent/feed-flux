@@ -20,6 +20,7 @@ def _record(
     approval=None,
     latency=100,
     input_tokens=100,
+    cached_input_tokens=10,
     output_tokens=20,
     cost=0.001,
     failure_codes=(),
@@ -39,6 +40,7 @@ def _record(
         "latency_ms": latency,
         "usage": {
             "input_tokens": input_tokens,
+            "cached_input_tokens": cached_input_tokens,
             "output_tokens": output_tokens,
             "total_tokens": input_tokens + output_tokens,
         },
@@ -121,6 +123,7 @@ class EvalAggregateTest(unittest.TestCase):
         self.assertEqual(
             {
                 "input_tokens": 380,
+                "cached_input_tokens": 40,
                 "output_tokens": 85,
                 "total_tokens": 465,
                 "mean_total_per_trial": 116.25,
@@ -168,7 +171,7 @@ class EvalAggregateTest(unittest.TestCase):
                 "run-a:environment:1",
                 success=False,
                 status="failed",
-                failure_codes=("runner_error",),
+                failure_codes=("runner_error", "tool_sequence", "approval_trigger"),
                 error={"type": "RuntimeError", "message": "timeout"},
             ),
             _record(
@@ -197,7 +200,7 @@ class EvalAggregateTest(unittest.TestCase):
                 "model": "deepseek-chat",
                 "task_id": "meeting-reply-propose-time",
                 "categories": ["environment_data"],
-                "failure_codes": ["runner_error"],
+                "failure_codes": ["approval_trigger", "runner_error", "tool_sequence"],
                 "error": {"type": "RuntimeError", "message": "timeout"},
             },
             summary["failure_samples"][0],

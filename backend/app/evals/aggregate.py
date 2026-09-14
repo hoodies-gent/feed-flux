@@ -50,10 +50,14 @@ def _latency(records: list[dict[str, Any]]) -> dict[str, int | float | None]:
 
 def _usage(records: list[dict[str, Any]]) -> dict[str, int | float | None]:
     input_tokens = sum(int(record["usage"].get("input_tokens", 0)) for record in records)
+    cached_input_tokens = sum(
+        int(record["usage"].get("cached_input_tokens", 0)) for record in records
+    )
     output_tokens = sum(int(record["usage"].get("output_tokens", 0)) for record in records)
     total_tokens = sum(int(record["usage"].get("total_tokens", 0)) for record in records)
     return {
         "input_tokens": input_tokens,
+        "cached_input_tokens": cached_input_tokens,
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
         "mean_total_per_trial": (
@@ -144,13 +148,14 @@ def _failure_details(
                 for failure in record["grade"].get("failures", [])
             }
         )
-        categories = {
-            FAILURE_CATEGORY_BY_CODE[code]
-            for code in codes
-            if code in FAILURE_CATEGORY_BY_CODE
-        }
-        if record.get("error"):
-            categories.add("environment_data")
+        if record.get("error") or "runner_error" in codes:
+            categories = {"environment_data"}
+        else:
+            categories = {
+                FAILURE_CATEGORY_BY_CODE[code]
+                for code in codes
+                if code in FAILURE_CATEGORY_BY_CODE
+            }
         if not categories:
             categories.add("model_output")
         for category in categories:
