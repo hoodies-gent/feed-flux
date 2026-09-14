@@ -105,6 +105,25 @@ class EvalRuntimeTest(unittest.TestCase):
         tool_event = next(event for event in events if event.get("step") == "tool_end")
         self.assertEqual(output, tool_event["output"])
 
+    def test_stream_can_use_a_trial_specific_agent(self):
+        recording_agent = _RecordingAgent("trial output")
+
+        async def collect_events():
+            return [
+                event
+                async for event in agent_stream.stream_agent(
+                    {"messages": []},
+                    "eval-thread",
+                    agent=recording_agent,
+                    tool_output_limit=None,
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+
+        self.assertIsNotNone(recording_agent.config)
+        self.assertTrue(any(event.get("output") == "trial output" for event in events))
+
 
 if __name__ == "__main__":
     unittest.main()

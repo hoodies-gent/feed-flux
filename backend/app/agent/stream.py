@@ -133,18 +133,19 @@ async def stream_agent(
     *,
     callbacks: list[Any] | None = None,
     tool_output_limit: int | None = 2000,
+    agent: Any | None = None,
 ) -> AsyncIterator[dict]:
     """Yield NDJSON-friendly events for a single agent invocation.
 
     graph_input is either {"messages": [...]} for a new turn or a Command(resume=...) for post-interrupt.
     """
-    agent = get_agent()
+    runtime_agent = agent if agent is not None else get_agent()
     config = {"configurable": {"thread_id": thread_id}}
     if callbacks:
         config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []
 
-    async for ev in agent.astream_events(graph_input, config, version="v2"):
+    async for ev in runtime_agent.astream_events(graph_input, config, version="v2"):
         kind = ev["event"]
         name = ev.get("name", "")
         data = ev.get("data", {})
@@ -190,7 +191,7 @@ async def stream_agent(
                 if draft_event:
                     yield draft_event
 
-    async for ev in _emit_interrupts(agent, config, recent_tool_results):
+    async for ev in _emit_interrupts(runtime_agent, config, recent_tool_results):
         yield ev
 
     yield {"type": "done"}
