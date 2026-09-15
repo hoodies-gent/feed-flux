@@ -419,6 +419,10 @@ async def run_trial(
         "trial_id": trial_id,
         "provider": provider,
         "model": actual_model,
+        "runtime": {
+            "request_timeout_seconds": request_timeout,
+            "max_retries": max_retries,
+        },
         "task_id": task.id,
         "category": task.category,
         "trial_number": trial_number,

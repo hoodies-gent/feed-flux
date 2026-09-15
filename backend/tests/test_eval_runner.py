@@ -153,6 +153,8 @@ class EvalRunnerTest(unittest.TestCase):
                         output_usd_per_million=2.0,
                         cached_input_usd_per_million=0.25,
                     ),
+                    request_timeout=17.5,
+                    max_retries=2,
                 )
             )
         finally:
@@ -177,6 +179,10 @@ class EvalRunnerTest(unittest.TestCase):
             record["usage"],
         )
         self.assertAlmostEqual(0.00011, record["estimated_cost_usd"])
+        self.assertEqual(
+            {"request_timeout_seconds": 17.5, "max_retries": 2},
+            record["runtime"],
+        )
         self.assertTrue(record["grade"]["task_success"])
         self.assertEqual(["eval-mtg-002"], record["target_email_ids"])
         self.assertEqual(1, record["final_state"]["drafts"]["active_count"])
