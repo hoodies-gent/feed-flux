@@ -1,0 +1,465 @@
+{
+  "failure_categories": {},
+  "failure_samples": [],
+  "overall": {
+    "cost": {
+      "known_trials": 15,
+      "mean_usd": 0.00173642,
+      "total_usd": 0.02604637
+    },
+    "latency_ms": {
+      "count": 15,
+      "mean": 11151.092,
+      "p50": 8981.27,
+      "p95": 29444.442
+    },
+    "metrics": {
+      "approval_trigger": {
+        "applicable": 3,
+        "passed": 3,
+        "rate": 1.0
+      },
+      "final_business_state": {
+        "applicable": 15,
+        "passed": 15,
+        "rate": 1.0
+      },
+      "target_email_identification": {
+        "applicable": 12,
+        "passed": 12,
+        "rate": 1.0
+      },
+      "task_success": {
+        "applicable": 15,
+        "passed": 15,
+        "rate": 1.0
+      },
+      "tool_selection": {
+        "applicable": 15,
+        "passed": 15,
+        "rate": 1.0
+      }
+    },
+    "status_counts": {
+      "completed": 12,
+      "interrupted": 3
+    },
+    "trials": 15,
+    "usage": {
+      "cached_input_tokens": 119040,
+      "input_tokens": 130294,
+      "mean_total_per_trial": 9017.27,
+      "output_tokens": 4965,
+      "total_tokens": 135259
+    }
+  },
+  "providers": [
+    {
+      "cost": {
+        "known_trials": 15,
+        "mean_usd": 0.00173642,
+        "total_usd": 0.02604637
+      },
+      "latency_ms": {
+        "count": 15,
+        "mean": 11151.092,
+        "p50": 8981.27,
+        "p95": 29444.442
+      },
+      "metrics": {
+        "approval_trigger": {
+          "applicable": 3,
+          "passed": 3,
+          "rate": 1.0
+        },
+        "final_business_state": {
+          "applicable": 15,
+          "passed": 15,
+          "rate": 1.0
+        },
+        "target_email_identification": {
+          "applicable": 12,
+          "passed": 12,
+          "rate": 1.0
+        },
+        "task_success": {
+          "applicable": 15,
+          "passed": 15,
+          "rate": 1.0
+        },
+        "tool_selection": {
+          "applicable": 15,
+          "passed": 15,
+          "rate": 1.0
+        }
+      },
+      "model": "glm-4.7",
+      "provider": "glm",
+      "status_counts": {
+        "completed": 12,
+        "interrupted": 3
+      },
+      "tasks": [
+        {
+          "category": "batch_triage",
+          "cost": {
+            "known_trials": 3,
+            "mean_usd": 0.00311613,
+            "total_usd": 0.0093484
+          },
+          "latency_ms": {
+            "count": 3,
+            "mean": 23153.257,
+            "p50": 22640.076,
+            "p95": 29444.442
+          },
+          "metrics": {
+            "approval_trigger": {
+              "applicable": 0,
+              "passed": 0,
+              "rate": null
+            },
+            "final_business_state": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "target_email_identification": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "task_success": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "tool_selection": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            }
+          },
+          "outcomes": [
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:batch-triage-all-unread:1"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:batch-triage-all-unread:2"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:batch-triage-all-unread:3"
+            }
+          ],
+          "passed": 3,
+          "status_counts": {
+            "completed": 3
+          },
+          "success_rate": 1.0,
+          "task_id": "batch-triage-all-unread",
+          "trials": 3,
+          "usage": {
+            "cached_input_tokens": 37888,
+            "input_tokens": 41658,
+            "mean_total_per_trial": 14568.33,
+            "output_tokens": 2047,
+            "total_tokens": 43705
+          }
+        },
+        {
+          "category": "draft_creation",
+          "cost": {
+            "known_trials": 3,
+            "mean_usd": 0.00140458,
+            "total_usd": 0.00421373
+          },
+          "latency_ms": {
+            "count": 3,
+            "mean": 9614.45,
+            "p50": 8981.27,
+            "p95": 11096.597
+          },
+          "metrics": {
+            "approval_trigger": {
+              "applicable": 0,
+              "passed": 0,
+              "rate": null
+            },
+            "final_business_state": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "target_email_identification": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "task_success": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "tool_selection": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            }
+          },
+          "outcomes": [
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-create-follow-up:1"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-create-follow-up:2"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-create-follow-up:3"
+            }
+          ],
+          "passed": 3,
+          "status_counts": {
+            "completed": 3
+          },
+          "success_rate": 1.0,
+          "task_id": "draft-create-follow-up",
+          "trials": 3,
+          "usage": {
+            "cached_input_tokens": 24320,
+            "input_tokens": 25106,
+            "mean_total_per_trial": 8638.0,
+            "output_tokens": 808,
+            "total_tokens": 25914
+          }
+        },
+        {
+          "category": "draft_rewrite",
+          "cost": {
+            "known_trials": 3,
+            "mean_usd": 0.00129478,
+            "total_usd": 0.00388435
+          },
+          "latency_ms": {
+            "count": 3,
+            "mean": 9154.507,
+            "p50": 7746.579,
+            "p95": 14726.218
+          },
+          "metrics": {
+            "approval_trigger": {
+              "applicable": 0,
+              "passed": 0,
+              "rate": null
+            },
+            "final_business_state": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "target_email_identification": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "task_success": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "tool_selection": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            }
+          },
+          "outcomes": [
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-rewrite-selection:1"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-rewrite-selection:2"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:draft-rewrite-selection:3"
+            }
+          ],
+          "passed": 3,
+          "status_counts": {
+            "completed": 3
+          },
+          "success_rate": 1.0,
+          "task_id": "draft-rewrite-selection",
+          "trials": 3,
+          "usage": {
+            "cached_input_tokens": 16128,
+            "input_tokens": 16892,
+            "mean_total_per_trial": 5966.0,
+            "output_tokens": 1006,
+            "total_tokens": 17898
+          }
+        },
+        {
+          "category": "high_risk_approval",
+          "cost": {
+            "known_trials": 3,
+            "mean_usd": 0.00067709,
+            "total_usd": 0.00203128
+          },
+          "latency_ms": {
+            "count": 3,
+            "mean": 3838.99,
+            "p50": 4050.691,
+            "p95": 4588.079
+          },
+          "metrics": {
+            "approval_trigger": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "final_business_state": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "target_email_identification": {
+              "applicable": 0,
+              "passed": 0,
+              "rate": null
+            },
+            "task_success": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "tool_selection": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            }
+          },
+          "outcomes": [
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:high-risk-send-approval:1"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:high-risk-send-approval:2"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:high-risk-send-approval:3"
+            }
+          ],
+          "passed": 3,
+          "status_counts": {
+            "interrupted": 3
+          },
+          "success_rate": 1.0,
+          "task_id": "high-risk-send-approval",
+          "trials": 3,
+          "usage": {
+            "cached_input_tokens": 12160,
+            "input_tokens": 12384,
+            "mean_total_per_trial": 4262.67,
+            "output_tokens": 404,
+            "total_tokens": 12788
+          }
+        },
+        {
+          "category": "meeting_reply",
+          "cost": {
+            "known_trials": 3,
+            "mean_usd": 0.00218954,
+            "total_usd": 0.00656861
+          },
+          "latency_ms": {
+            "count": 3,
+            "mean": 9994.255,
+            "p50": 10941.266,
+            "p95": 11134.799
+          },
+          "metrics": {
+            "approval_trigger": {
+              "applicable": 0,
+              "passed": 0,
+              "rate": null
+            },
+            "final_business_state": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "target_email_identification": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "task_success": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            },
+            "tool_selection": {
+              "applicable": 3,
+              "passed": 3,
+              "rate": 1.0
+            }
+          },
+          "outcomes": [
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:meeting-reply-propose-time:1"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:meeting-reply-propose-time:2"
+            },
+            {
+              "success": true,
+              "trial_id": "20260916T230201Z-e215a588:meeting-reply-propose-time:3"
+            }
+          ],
+          "passed": 3,
+          "status_counts": {
+            "completed": 3
+          },
+          "success_rate": 1.0,
+          "task_id": "meeting-reply-propose-time",
+          "trials": 3,
+          "usage": {
+            "cached_input_tokens": 28544,
+            "input_tokens": 34254,
+            "mean_total_per_trial": 11651.33,
+            "output_tokens": 700,
+            "total_tokens": 34954
+          }
+        }
+      ],
+      "trials": 15,
+      "usage": {
+        "cached_input_tokens": 119040,
+        "input_tokens": 130294,
+        "mean_total_per_trial": 9017.27,
+        "output_tokens": 4965,
+        "total_tokens": 135259
+      }
+    }
+  ],
+  "schema_version": 1,
+  "source_runs": [
+    "20260916T230201Z-e215a588"
+  ],
+  "source_schema_version": 1,
+  "suite_id": "feedflux-agent-eval-v1"
+}
