@@ -42,6 +42,11 @@ class Config:
     DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
     DEEPSEEK_MODEL_NAME = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
+    GLM_API_KEY = os.getenv("GLM_API_KEY")
+    GLM_BASE_URL = os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
+    GLM_MODEL_NAME = os.getenv("GLM_MODEL_NAME", "glm-4.7")
+    _LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE")
+    LLM_TEMPERATURE = float(_LLM_TEMPERATURE) if _LLM_TEMPERATURE is not None else None
 
     # AI Feature Flags & Configs
     CUSTOM_SUMMARY_PROMPT = os.getenv("CUSTOM_SUMMARY_PROMPT")  # Optional user-defined instructions for summarization
@@ -75,8 +80,8 @@ class Config:
         """
         Validates critical configuration.
         """
-        if cls.LLM_PROVIDER not in ["deepseek", "gemini"]:
-            print(f"Error: Unsupported LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be 'deepseek' or 'gemini'.", file=sys.stderr)
+        if cls.LLM_PROVIDER not in ["deepseek", "glm", "gemini"]:
+            print(f"Error: Unsupported LLM_PROVIDER '{cls.LLM_PROVIDER}'. Must be 'deepseek', 'glm', or 'gemini'.", file=sys.stderr)
         
         if not cls.MS_CLIENT_ID:
              print("Warning: MS_CLIENT_ID not found in environment variables. Auth will fail.", file=sys.stderr)

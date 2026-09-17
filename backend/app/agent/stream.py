@@ -128,17 +128,24 @@ async def _emit_interrupts(agent, config, recent_tool_results) -> AsyncIterator[
 
 
 async def stream_agent(
-    graph_input: Any, thread_id: str
+    graph_input: Any,
+    thread_id: str,
+    *,
+    callbacks: list[Any] | None = None,
+    tool_output_limit: int | None = 2000,
+    agent: Any | None = None,
 ) -> AsyncIterator[dict]:
     """Yield NDJSON-friendly events for a single agent invocation.
 
     graph_input is either {"messages": [...]} for a new turn or a Command(resume=...) for post-interrupt.
     """
-    agent = get_agent()
+    runtime_agent = agent if agent is not None else get_agent()
     config = {"configurable": {"thread_id": thread_id}}
+    if callbacks:
+        config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []
 
-    async for ev in agent.astream_events(graph_input, config, version="v2"):
+    async for ev in runtime_agent.astream_events(graph_input, config, version="v2"):
         kind = ev["event"]
         name = ev.get("name", "")
         data = ev.get("data", {})
@@ -164,7 +171,11 @@ async def stream_agent(
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)
-            truncated = output_text[:2000]
+            truncated = (
+                output_text
+                if tool_output_limit is None
+                else output_text[:tool_output_limit]
+            )
             recent_tool_results.append({"tool": name, "output": truncated})
             event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
             count = _count_list_result(output, output_text)
@@ -180,7 +191,7 @@ async def stream_agent(
                 if draft_event:
                     yield draft_event
 
-    async for ev in _emit_interrupts(agent, config, recent_tool_results):
+    async for ev in _emit_interrupts(runtime_agent, config, recent_tool_results):
         yield ev
 
     yield {"type": "done"}

@@ -1,4 +1,5 @@
 from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
@@ -131,14 +132,18 @@ def _route_after_tools(state: AgentState) -> str:
     return "agent"
 
 
-def build_agent(checkpointer: BaseCheckpointSaver | None = None):
-    llm = get_llm().bind_tools(TOOLS)
+def build_agent(
+    checkpointer: BaseCheckpointSaver | None = None,
+    *,
+    llm: BaseChatModel | None = None,
+):
+    bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
-    def agent_node(state: AgentState) -> dict:
+    async def agent_node(state: AgentState) -> dict:
         messages = state["messages"]
         if not messages or not isinstance(messages[0], SystemMessage):
             messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
-        return {"messages": [llm.invoke(messages)]}
+        return {"messages": [await bound_llm.ainvoke(messages)]}
 
     def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")

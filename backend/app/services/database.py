@@ -18,9 +18,9 @@ class DatabaseService:
     def __init__(self, db_path: str = None):
         """Initialize database connection and create tables"""
         if db_path is None:
-            # Default to project root data directory
-            DATA_DIR.mkdir(exist_ok=True)
-            db_path = str(DATA_DIR / "emails.db")
+            db_path = os.getenv("FEEDFLUX_DB_PATH") or str(DATA_DIR / "emails.db")
+
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         
         self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
         Base.metadata.create_all(self.engine)
