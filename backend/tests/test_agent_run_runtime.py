@@ -110,16 +110,16 @@ class AgentRunRuntimeTest(unittest.TestCase):
             status_events,
         )
 
-    def test_stream_failure_marks_run_failed_before_reraising(self):
+    def test_transient_stream_failure_persists_category_before_reraising(self):
         runtime = _runtime_type()(
             self.store,
             provider="deepseek",
-            stream=_ScriptedStream([RuntimeError("provider unavailable")]),
+            stream=_ScriptedStream([TimeoutError("provider timed out")]),
         )
 
         async def exercise():
             events = []
-            with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+            with self.assertRaisesRegex(TimeoutError, "provider timed out"):
                 async for event in runtime.stream_new_run({}, "failed-thread"):
                     events.append(event)
             return events
@@ -130,7 +130,9 @@ class AgentRunRuntimeTest(unittest.TestCase):
 
         self.assertEqual(["running", "failed"], [event["status"] for event in run_events])
         self.assertEqual("failed", self.store.get_run(run_id)["status"])
-        self.assertIsNone(self.store.get_run(run_id)["error_category"])
+        self.assertEqual("transient", self.store.get_run(run_id)["error_category"])
+        self.assertEqual("transient", run_events[-1]["error_category"])
+        self.assertEqual("transient", self.store.list_events(run_id)[-1]["error_category"])
 
     def test_stream_cancellation_marks_run_cancelled(self):
         runtime = _runtime_type()(

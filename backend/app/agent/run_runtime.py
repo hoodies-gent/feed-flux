@@ -1,7 +1,8 @@
 import asyncio
 
+from app.agent.runtime_errors import classify_runtime_error
 from app.agent.stream import stream_agent
-from app.services.agent_run_store import AgentRunStore, RunStatus
+from app.services.agent_run_store import AgentRunStore, ErrorCategory, RunStatus
 
 
 class AgentRunRuntime:
@@ -56,11 +57,28 @@ class AgentRunRuntime:
             if not interrupted and not finished:
                 self.store.transition_run(run_id, RunStatus.CANCELLED)
             raise
-        except Exception:
-            self.store.transition_run(run_id, RunStatus.FAILED)
-            yield self._run_event(run_id, RunStatus.FAILED)
+        except Exception as error:
+            error_category = classify_runtime_error(error)
+            self.store.transition_run(
+                run_id,
+                RunStatus.FAILED,
+                error_category=error_category,
+            )
+            yield self._run_event(
+                run_id,
+                RunStatus.FAILED,
+                error_category=error_category,
+            )
             raise
 
     @staticmethod
-    def _run_event(run_id: str, status: RunStatus) -> dict:
-        return {"type": "run", "run_id": run_id, "status": status.value}
+    def _run_event(
+        run_id: str,
+        status: RunStatus,
+        *,
+        error_category: ErrorCategory | None = None,
+    ) -> dict:
+        event = {"type": "run", "run_id": run_id, "status": status.value}
+        if error_category is not None:
+            event["error_category"] = error_category.value
+        return event
