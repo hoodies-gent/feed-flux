@@ -15,7 +15,13 @@ from app.services.memory import MemoryService
 from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
-from app.agent.stream import stream_agent, new_turn_input, resume_input
+from app.agent.runtime import open_agent_checkpointer
+from app.agent.stream import (
+    new_turn_input,
+    resume_input,
+    set_agent_checkpointer,
+    stream_agent,
+)
 
 # Initialize Database Service
 db = DatabaseService()
@@ -110,15 +116,18 @@ async def periodic_sync_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the background sync task
-    sync_task = asyncio.create_task(periodic_sync_task())
-    yield
-    # Shutdown: Clean up the task
-    sync_task.cancel()
-    try:
-        await sync_task
-    except asyncio.CancelledError:
-        logger.info("Background sync scheduler cancelled on shutdown.")
+    async with open_agent_checkpointer(Config.AGENT_CHECKPOINT_DB) as checkpointer:
+        set_agent_checkpointer(checkpointer)
+        sync_task = asyncio.create_task(periodic_sync_task())
+        try:
+            yield
+        finally:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                logger.info("Background sync scheduler cancelled on shutdown.")
+            set_agent_checkpointer(None)
 
 # --- App Init ---
 app = FastAPI(

@@ -60,6 +60,7 @@ class Config:
 
     # App Persistence
     STATE_FILE = DATA_DIR / "state.json"
+    AGENT_CHECKPOINT_DB = DATA_DIR / "agent_checkpoints.sqlite"
 
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

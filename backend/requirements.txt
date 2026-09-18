@@ -10,6 +10,7 @@ uvicorn
 tenacity
 langchain-text-splitters
 langgraph
+langgraph-checkpoint-sqlite
 langchain-openai
 langchain-google-genai
 pytest

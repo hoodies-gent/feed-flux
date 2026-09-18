@@ -8,12 +8,21 @@ from app.agent.graph import build_agent
 from app.services.database import DatabaseService
 
 _agent = None
+_checkpointer = None
+
+
+def set_agent_checkpointer(checkpointer) -> None:
+    global _agent, _checkpointer
+    _agent = None
+    _checkpointer = checkpointer
 
 
 def get_agent():
     global _agent
     if _agent is None:
-        _agent = build_agent()
+        if _checkpointer is None:
+            raise RuntimeError("Agent runtime is not initialized.")
+        _agent = build_agent(checkpointer=_checkpointer)
     return _agent
 
 
@@ -120,7 +129,10 @@ def _load_email_meta(email_ids: set[str]) -> dict[str, dict]:
 
 
 async def _emit_interrupts(agent, config, recent_tool_results) -> AsyncIterator[dict]:
-    state = agent.get_state(config)
+    if hasattr(agent, "aget_state"):
+        state = await agent.aget_state(config)
+    else:
+        state = agent.get_state(config)
     for task in state.tasks:
         for iv in task.interrupts:
             payload = iv.value if isinstance(iv.value, dict) else {"value": iv.value}
