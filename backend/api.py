@@ -16,12 +16,13 @@ from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
+from app.agent.run_runtime import AgentRunRuntime
 from app.agent.stream import (
     new_turn_input,
     resume_input,
     set_agent_checkpointer,
-    stream_agent,
 )
+from app.services.agent_run_store import AgentRunStore
 
 # Initialize Database Service
 db = DatabaseService()
@@ -545,9 +546,15 @@ async def generate_draft_reply(request: DraftRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Agent endpoints ---
-async def _agent_ndjson(graph_input, thread_id: str):
+async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
+    runtime = AgentRunRuntime(AgentRunStore(db), provider=Config.LLM_PROVIDER)
     try:
-        async for event in stream_agent(graph_input, thread_id):
+        event_stream = (
+            runtime.stream_resumed_run(graph_input, thread_id)
+            if resume
+            else runtime.stream_new_run(graph_input, thread_id)
+        )
+        async for event in event_stream:
             yield json.dumps(event) + "\n"
     except Exception as e:
         logger.error(f"Agent stream failed: {e}", exc_info=True)
@@ -555,7 +562,7 @@ async def _agent_ndjson(graph_input, thread_id: str):
 
 @app.post("/api/agent/chat/stream")
 async def agent_chat_stream(request: AgentChatRequest):
-    """Start a new agent turn. Streams NDJSON events: trace | token | interrupt | done | error."""
+    """Start a new agent turn. Streams NDJSON events: run | trace | token | interrupt | done | error."""
     return StreamingResponse(
         _agent_ndjson(new_turn_input(request.message), request.thread_id),
         media_type="application/x-ndjson",
@@ -601,6 +608,7 @@ async def agent_resume(request: AgentResumeRequest):
         _agent_ndjson(
             resume_input(request.approve, request.note, request.edited_body, request.decisions),
             request.thread_id,
+            resume=True,
         ),
         media_type="application/x-ndjson",
     )

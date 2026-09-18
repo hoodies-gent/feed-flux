@@ -78,6 +78,21 @@ class AgentRunStore:
         finally:
             session.close()
 
+    def get_interrupted_run(self, thread_id: str) -> dict:
+        session = self.database.Session()
+        try:
+            run = (
+                session.query(AgentRun)
+                .filter_by(thread_id=thread_id, status=RunStatus.INTERRUPTED.value)
+                .order_by(AgentRun.updated_at.desc(), AgentRun.created_at.desc())
+                .first()
+            )
+            if run is None:
+                raise KeyError(f"interrupted agent run not found for thread: {thread_id}")
+            return self._run_to_dict(run)
+        finally:
+            session.close()
+
     def transition_run(
         self,
         run_id: str,
