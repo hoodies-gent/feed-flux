@@ -4,9 +4,10 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import RetryPolicy, interrupt
 
 from app.agent.llm import get_llm
+from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
 
@@ -136,6 +137,7 @@ def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
     llm: BaseChatModel | None = None,
+    provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
 ):
     bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
@@ -184,7 +186,7 @@ def build_agent(
         return END
 
     graph = StateGraph(AgentState)
-    graph.add_node("agent", agent_node)
+    graph.add_node("agent", agent_node, retry_policy=provider_retry_policy)
     graph.add_node("tools", tools_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
