@@ -6,6 +6,111 @@ from app.services.database import DatabaseService
 
 
 class AgentRunStoreTest(unittest.TestCase):
+    def test_usage_summary_aggregates_durable_provider_events(self):
+        from app.services.agent_run_store import AgentRunStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "runtime.db"
+            first_db = DatabaseService(str(db_path))
+            first_store = AgentRunStore(first_db)
+            run_id = first_store.create_run(
+                thread_id="usage-summary-thread",
+                provider="fixture-provider",
+            )["run_id"]
+            first_store.append_event(
+                run_id,
+                event_type="provider_usage",
+                provider="fixture-provider",
+                outcome={
+                    "schema_version": 1,
+                    "model": "fixture-model",
+                    "usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 20,
+                        "total_tokens": 120,
+                    },
+                    "pricing": {},
+                    "estimated_cost_usd": 0.00011,
+                },
+            )
+            first_store.append_event(
+                run_id,
+                event_type="provider_usage",
+                provider="fixture-provider",
+                outcome={
+                    "schema_version": 1,
+                    "model": "fixture-model",
+                    "usage": {
+                        "input_tokens": 50,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 10,
+                        "total_tokens": 60,
+                    },
+                    "pricing": {},
+                    "estimated_cost_usd": 0.00007,
+                },
+            )
+            first_db.engine.dispose()
+
+            reopened_db = DatabaseService(str(db_path))
+            summary = AgentRunStore(reopened_db).get_usage_summary(run_id)
+            reopened_db.engine.dispose()
+
+        self.assertEqual(
+            {
+                "input_tokens": 150,
+                "cached_input_tokens": 40,
+                "output_tokens": 30,
+                "total_tokens": 180,
+                "estimated_cost_usd": 0.00018,
+            },
+            summary,
+        )
+
+    def test_usage_summary_does_not_report_partial_cost(self):
+        from app.services.agent_run_store import AgentRunStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = DatabaseService(str(Path(temp_dir) / "runtime.db"))
+            store = AgentRunStore(db)
+            run_id = store.create_run(thread_id="partial-cost-thread")["run_id"]
+            for usage, cost in [
+                (
+                    {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 40,
+                        "output_tokens": 20,
+                        "total_tokens": 120,
+                    },
+                    0.00011,
+                ),
+                (
+                    {
+                        "input_tokens": 50,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 10,
+                        "total_tokens": 60,
+                    },
+                    None,
+                ),
+            ]:
+                store.append_event(
+                    run_id,
+                    event_type="provider_usage",
+                    outcome={
+                        "schema_version": 1,
+                        "usage": usage,
+                        "estimated_cost_usd": cost,
+                    },
+                )
+
+            summary = store.get_usage_summary(run_id)
+            db.engine.dispose()
+
+        self.assertEqual(180, summary["total_tokens"])
+        self.assertIsNone(summary["estimated_cost_usd"])
+
     def test_run_lifecycle_survives_database_reopen_with_same_run_id(self):
         try:
             from app.services.agent_run_store import AgentRunStore, RunStatus

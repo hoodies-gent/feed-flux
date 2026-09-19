@@ -184,6 +184,33 @@ class AgentRunStore:
         finally:
             session.close()
 
+    def get_usage_summary(self, run_id: str) -> dict[str, int | float | None]:
+        outcomes = [
+            event["outcome"] or {}
+            for event in self.list_events(run_id)
+            if event["event_type"] == "provider_usage"
+        ]
+        usage_items = [outcome.get("usage") or {} for outcome in outcomes]
+        costs = [outcome.get("estimated_cost_usd") for outcome in outcomes]
+        estimated_cost = (
+            round(sum(costs), 10)
+            if costs and all(cost is not None for cost in costs)
+            else None
+        )
+        return {
+            "input_tokens": sum(int(item.get("input_tokens", 0)) for item in usage_items),
+            "cached_input_tokens": sum(
+                int(item.get("cached_input_tokens", 0)) for item in usage_items
+            ),
+            "output_tokens": sum(
+                int(item.get("output_tokens", 0)) for item in usage_items
+            ),
+            "total_tokens": sum(
+                int(item.get("total_tokens", 0)) for item in usage_items
+            ),
+            "estimated_cost_usd": estimated_cost,
+        }
+
     @staticmethod
     def _run_to_dict(run: AgentRun) -> dict:
         return {
