@@ -9,6 +9,7 @@ from app.services.database import DatabaseService
 
 _agent = None
 _checkpointer = None
+DEFAULT_MAX_GRAPH_STEPS = 25
 
 
 def set_agent_checkpointer(checkpointer) -> None:
@@ -146,13 +147,17 @@ async def stream_agent(
     callbacks: list[Any] | None = None,
     tool_output_limit: int | None = 2000,
     agent: Any | None = None,
+    max_graph_steps: int = DEFAULT_MAX_GRAPH_STEPS,
 ) -> AsyncIterator[dict]:
     """Yield NDJSON-friendly events for a single agent invocation.
 
     graph_input is either {"messages": [...]} for a new turn or a Command(resume=...) for post-interrupt.
     """
     runtime_agent = agent if agent is not None else get_agent()
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": max_graph_steps,
+    }
     if callbacks:
         config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []

@@ -6,7 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import api
+from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.errors import GraphRecursionError
 
+from app.agent.graph import build_agent
+from app.agent.stream import stream_agent
 from app.core.config import Config
 from app.services.agent_run_store import AgentRunStore
 from app.services.database import DatabaseService
@@ -34,6 +38,32 @@ class _ScriptedStream:
                 yield item
 
         return generate()
+
+
+class _EventuallyCompletingToolLoop:
+    def __init__(self, tool_calls_before_completion: int):
+        self.tool_calls_before_completion = tool_calls_before_completion
+        self.tool_call_count = 0
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        if isinstance(messages[-1], ToolMessage):
+            self.tool_call_count += 1
+        if self.tool_call_count < self.tool_calls_before_completion:
+            return AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "read_calendar",
+                        "args": {"days_ahead": 1},
+                        "id": f"loop-{self.tool_call_count}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(content="eventually completed")
 
 
 async def _collect(stream):
@@ -172,6 +202,49 @@ class AgentRunRuntimeTest(unittest.TestCase):
 
         self.assertEqual("running", first_event["status"])
         self.assertEqual("cancelled", self.store.get_run(first_event["run_id"])["status"])
+
+    def test_graph_step_limit_stops_loop_and_persists_failed_run(self):
+        agent = build_agent(llm=_EventuallyCompletingToolLoop(6))
+
+        async def bounded_stream(graph_input, thread_id):
+            async for event in stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+                max_graph_steps=4,
+            ):
+                yield event
+
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture",
+            stream=bounded_stream,
+        )
+
+        async def exercise():
+            events = []
+            with self.assertRaises(GraphRecursionError):
+                async for event in runtime.stream_new_run(
+                    {"messages": [{"role": "user", "content": "loop"}]},
+                    "step-limit-thread",
+                ):
+                    events.append(event)
+            return events
+
+        events = asyncio.run(exercise())
+        run_events = [event for event in events if event["type"] == "run"]
+        run_id = run_events[0]["run_id"]
+
+        self.assertEqual(
+            ["running", "failed"],
+            [event["status"] for event in run_events],
+        )
+        self.assertEqual("failed", self.store.get_run(run_id)["status"])
+        self.assertEqual("terminal", self.store.get_run(run_id)["error_category"])
+        self.assertEqual(
+            "terminal",
+            self.store.list_events(run_id)[-1]["error_category"],
+        )
 
     def test_api_ndjson_uses_run_runtime(self):
         _runtime_type()
