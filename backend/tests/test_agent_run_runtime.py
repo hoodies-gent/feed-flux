@@ -11,6 +11,7 @@ from langgraph.errors import GraphRecursionError
 
 from app.agent.graph import build_agent
 from app.agent.stream import stream_agent
+from app.agent.usage import TokenPricing
 from app.core.config import Config
 from app.services.agent_run_store import AgentRunStore
 from app.services.database import DatabaseService
@@ -115,6 +116,85 @@ class AgentRunRuntimeTest(unittest.TestCase):
         tool_event = next(event for event in ledger_events if event["event_type"] == "tool_call")
         self.assertEqual("find_email", tool_event["tool_name"])
         self.assertIsNone(tool_event["tool_call_id"])
+
+    def test_usage_events_are_persisted_with_cost_and_not_forwarded(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture-provider",
+            stream=_ScriptedStream(
+                [
+                    {
+                        "type": "usage",
+                        "model": "fixture-model",
+                        "usage": {
+                            "input_tokens": 100,
+                            "cached_input_tokens": 40,
+                            "output_tokens": 20,
+                            "total_tokens": 120,
+                        },
+                    },
+                    {
+                        "type": "usage",
+                        "model": "fixture-model",
+                        "usage": {
+                            "input_tokens": 50,
+                            "cached_input_tokens": 0,
+                            "output_tokens": 10,
+                            "total_tokens": 60,
+                        },
+                    },
+                    {"type": "token", "content": "done"},
+                    {"type": "done"},
+                ]
+            ),
+            pricing=TokenPricing(
+                input_usd_per_million=1.0,
+                output_usd_per_million=2.0,
+                cached_input_usd_per_million=0.25,
+            ),
+        )
+
+        client_events = asyncio.run(
+            _collect(runtime.stream_new_run({}, "usage-ledger-thread"))
+        )
+        run_id = next(
+            event["run_id"] for event in client_events if event["type"] == "run"
+        )
+
+        self.assertNotIn("usage", [event["type"] for event in client_events])
+
+        self.db.engine.dispose()
+        reopened_db = DatabaseService(str(Path(self.temp_dir.name) / "runtime.db"))
+        reopened_store = AgentRunStore(reopened_db)
+        usage_events = [
+            event
+            for event in reopened_store.list_events(run_id)
+            if event["event_type"] == "provider_usage"
+        ]
+        reopened_db.engine.dispose()
+
+        self.assertEqual(2, len(usage_events))
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "model": "fixture-model",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 20,
+                    "total_tokens": 120,
+                },
+                "pricing": {
+                    "input_usd_per_million": 1.0,
+                    "output_usd_per_million": 2.0,
+                    "cached_input_usd_per_million": 0.25,
+                },
+                "estimated_cost_usd": 0.00011,
+            },
+            usage_events[0]["outcome"],
+        )
+        self.assertEqual("fixture-provider", usage_events[0]["provider"])
+        self.assertEqual(0.00007, usage_events[1]["outcome"]["estimated_cost_usd"])
 
     def test_resume_reuses_interrupted_run_id(self):
         runtime = _runtime_type()(

@@ -1,7 +1,9 @@
 import asyncio
+from dataclasses import asdict
 
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.stream import stream_agent
+from app.agent.usage import TokenPricing, estimate_cost
 from app.services.agent_run_store import AgentRunStore, ErrorCategory, RunStatus
 
 DEFAULT_RUN_TIMEOUT_SECONDS = 120.0
@@ -18,11 +20,13 @@ class AgentRunRuntime:
         provider: str,
         stream=None,
         run_timeout_seconds: float = DEFAULT_RUN_TIMEOUT_SECONDS,
+        pricing: TokenPricing | None = None,
     ):
         self.store = store
         self.provider = provider
         self.stream = stream or stream_agent
         self.run_timeout_seconds = run_timeout_seconds
+        self.pricing = pricing
 
     def stream_new_run(self, graph_input, thread_id: str):
         run = self.store.create_run(thread_id=thread_id, provider=self.provider)
@@ -56,6 +60,22 @@ class AgentRunRuntime:
                     if next_event.cancelled():
                         raise self._timeout_error() from error
                     raise
+
+                if event.get("type") == "usage":
+                    usage = event["usage"]
+                    self.store.append_event(
+                        run_id,
+                        event_type="provider_usage",
+                        provider=self.provider,
+                        outcome={
+                            "schema_version": 1,
+                            "model": event.get("model"),
+                            "usage": usage,
+                            "pricing": asdict(self.pricing) if self.pricing else None,
+                            "estimated_cost_usd": estimate_cost(usage, self.pricing),
+                        },
+                    )
+                    continue
 
                 if event.get("type") == "trace" and event.get("step") == "tool_start":
                     self.store.append_event(
