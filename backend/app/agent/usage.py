@@ -36,6 +36,19 @@ def usage_totals(
     }
 
 
+def usage_event_from_message(message: Any) -> dict[str, Any] | None:
+    usage_metadata = getattr(message, "usage_metadata", None)
+    if not usage_metadata:
+        return None
+    response_metadata = getattr(message, "response_metadata", None) or {}
+    model = response_metadata.get("model_name") or response_metadata.get("model")
+    return {
+        "type": "usage",
+        "model": model,
+        "usage": usage_totals({model or "unknown": usage_metadata}),
+    }
+
+
 def estimate_cost(
     usage: Mapping[str, int],
     pricing: TokenPricing | None,

@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from app.agent.graph import build_agent
+from app.agent.usage import usage_event_from_message
 from app.services.database import DatabaseService
 
 _agent = None
@@ -181,6 +182,11 @@ async def stream_agent(
                     )
             if text:
                 yield {"type": "token", "content": text}
+
+        elif kind == "on_chat_model_end":
+            usage_event = usage_event_from_message(data.get("output"))
+            if usage_event is not None:
+                yield usage_event
 
         elif kind == "on_tool_start":
             yield {"type": "trace", "step": "tool_start", "tool": name, "args": data.get("input")}
