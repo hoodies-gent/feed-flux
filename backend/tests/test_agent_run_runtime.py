@@ -40,6 +40,15 @@ class _ScriptedStream:
         return generate()
 
 
+class _BlockingStream:
+    def __call__(self, graph_input, thread_id):
+        async def generate():
+            yield {"type": "token", "content": "started"}
+            await asyncio.Event().wait()
+
+        return generate()
+
+
 class _EventuallyCompletingToolLoop:
     def __init__(self, tool_calls_before_completion: int):
         self.tool_calls_before_completion = tool_calls_before_completion
@@ -163,6 +172,36 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual("transient", self.store.get_run(run_id)["error_category"])
         self.assertEqual("transient", run_events[-1]["error_category"])
         self.assertEqual("transient", self.store.list_events(run_id)[-1]["error_category"])
+
+    def test_run_timeout_stops_blocked_stream_and_persists_failure(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture",
+            stream=_BlockingStream(),
+            run_timeout_seconds=0.01,
+        )
+
+        async def exercise():
+            events = []
+            with self.assertRaisesRegex(TimeoutError, "exceeded 0.01 seconds"):
+                async for event in runtime.stream_new_run({}, "timeout-thread"):
+                    events.append(event)
+            return events
+
+        events = asyncio.run(asyncio.wait_for(exercise(), timeout=0.5))
+        run_events = [event for event in events if event["type"] == "run"]
+        run_id = run_events[0]["run_id"]
+
+        self.assertEqual(
+            ["running", "failed"],
+            [event["status"] for event in run_events],
+        )
+        self.assertEqual("failed", self.store.get_run(run_id)["status"])
+        self.assertEqual("transient", self.store.get_run(run_id)["error_category"])
+        self.assertEqual(
+            "transient",
+            self.store.list_events(run_id)[-1]["error_category"],
+        )
 
     def test_stream_cancellation_marks_run_cancelled(self):
         runtime = _runtime_type()(
