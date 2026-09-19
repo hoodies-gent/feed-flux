@@ -11,6 +11,13 @@ from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
 
+DEFAULT_MAX_TOOL_CALLS = 8
+
+
+class ToolCallBudgetExceeded(RuntimeError):
+    pass
+
+
 SYSTEM_PROMPT = (
     "You are FeedFlux, a helpful email assistant. Answer concisely and remember prior turns.\n"
     "\n"
@@ -138,6 +145,7 @@ def build_agent(
     *,
     llm: BaseChatModel | None = None,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
+    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
 ):
     bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
@@ -152,6 +160,12 @@ def build_agent(
         token = current_thread_id.set(thread_id)
         try:
             last = state["messages"][-1]
+            tool_calls_used = state.get("tool_calls_used", 0)
+            requested_tool_calls = len(last.tool_calls)
+            if tool_calls_used + requested_tool_calls > max_tool_calls:
+                raise ToolCallBudgetExceeded(
+                    f"Agent run exceeded its limit of {max_tool_calls} tool calls."
+                )
             results = []
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
@@ -175,7 +189,10 @@ def build_agent(
 
                 output = TOOLS_BY_NAME[name].invoke(args)
                 results.append(ToolMessage(str(output), tool_call_id=call_id))
-            return {"messages": results}
+            return {
+                "messages": results,
+                "tool_calls_used": tool_calls_used + requested_tool_calls,
+            }
         finally:
             current_thread_id.reset(token)
 

@@ -215,7 +215,10 @@ async def stream_agent(
 
 
 def new_turn_input(message: str) -> dict:
-    return {"messages": [HumanMessage(content=message)]}
+    return {
+        "messages": [HumanMessage(content=message)],
+        "tool_calls_used": 0,
+    }
 
 
 def resume_input(
