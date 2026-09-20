@@ -1,17 +1,16 @@
-import contextvars
 from datetime import datetime, timedelta
 from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.services.database import DatabaseService
-
-# Set by the graph's tools_node before invoking any tool so that tools which
-# need to attribute their side effects to a conversation can read it.
-current_thread_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "current_thread_id", default="unknown"
+from app.agent.execution_context import (
+    current_run_id,
+    current_thread_id,
+    current_tool_call_id,
 )
+from app.services.database import DatabaseService
+from app.services.reply_draft_service import ReplyDraftService
 
 
 class SendTestEmailInput(BaseModel):
@@ -193,25 +192,24 @@ def send_reply(
     artifact; it does not send email or write to Microsoft Graph. The user
     edits, sends in dry-run mode, or discards it from the email detail panel.
     """
+    run_id = current_run_id.get()
+    tool_call_id = current_tool_call_id.get()
+    if run_id is None or tool_call_id is None:
+        raise RuntimeError("send_reply requires an agent run and tool call context")
+
     db = DatabaseService()
-    if draft_id is None:
-        active_drafts = db.get_drafts_for_email(original_email_id)
-        if active_drafts:
-            draft_id = active_drafts[0]["id"]
-    if draft_id is not None:
-        row_id = db.update_draft(draft_id, body)["id"]
-        marker = "DRAFT UPDATED"
-    else:
-        row_id = db.create_draft({
-            "thread_id": current_thread_id.get(),
-            "email_id": original_email_id,
-            "recipient": recipient,
-            "subject": subject,
-            "body": body,
-        })
-        marker = "DRAFT READY"
+    result = ReplyDraftService(db).save_once(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        thread_id=current_thread_id.get(),
+        recipient=recipient,
+        subject=subject,
+        body=body,
+        original_email_id=original_email_id,
+        draft_id=draft_id,
+    )
     return (
-        f"{marker} (id={row_id}). "
+        f"{result['marker']} (id={result['draft_id']}). "
         f"The reply draft for email {original_email_id} is saved in its email panel. "
         f"Tell the user it is ready for review, then stop. Do not claim it was sent."
     )

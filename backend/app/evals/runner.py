@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Callable
 
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
+from app.agent.execution_context import current_run_id
 from app.agent.graph import build_agent
 from app.agent.llm import get_llm
 from app.agent.stream import new_turn_input, stream_agent
@@ -286,29 +287,33 @@ async def run_trial(
             try:
                 setup = _prepare_trial(db, task)
                 prompt = _task_prompt(task, setup)
-                if event_source is None:
-                    event_iterator = _provider_events(
-                        new_turn_input(prompt),
-                        thread_id,
-                        [usage_callback],
-                        None,
-                        provider,
-                        actual_model,
-                        request_timeout,
-                        max_retries,
-                    )
-                else:
-                    event_iterator = event_source(
-                        new_turn_input(prompt),
-                        thread_id,
-                        [usage_callback],
-                        None,
-                    )
-                async with asyncio.timeout(request_timeout):
-                    async for event in event_iterator:
-                        events.append(event)
-                        if event.get("type") == "token":
-                            output += str(event.get("content", ""))
+                run_token = current_run_id.set(trial_id)
+                try:
+                    if event_source is None:
+                        event_iterator = _provider_events(
+                            new_turn_input(prompt),
+                            thread_id,
+                            [usage_callback],
+                            None,
+                            provider,
+                            actual_model,
+                            request_timeout,
+                            max_retries,
+                        )
+                    else:
+                        event_iterator = event_source(
+                            new_turn_input(prompt),
+                            thread_id,
+                            [usage_callback],
+                            None,
+                        )
+                    async with asyncio.timeout(request_timeout):
+                        async for event in event_iterator:
+                            events.append(event)
+                            if event.get("type") == "token":
+                                output += str(event.get("content", ""))
+                finally:
+                    current_run_id.reset(run_token)
                 if any(event.get("type") == "interrupt" for event in events):
                     status = "interrupted"
             except Exception as exc:

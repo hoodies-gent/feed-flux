@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import asdict
 
+from app.agent.execution_context import current_run_id
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.stream import stream_agent
 from app.agent.usage import TokenPricing, estimate_cost
@@ -37,11 +38,12 @@ class AgentRunRuntime:
         return self._stream_run(graph_input, thread_id, run["run_id"])
 
     async def _stream_run(self, graph_input, thread_id: str, run_id: str):
-        self.store.transition_run(run_id, RunStatus.RUNNING)
+        run_token = current_run_id.set(run_id)
         interrupted = False
         finished = False
         done_event = None
         try:
+            self.store.transition_run(run_id, RunStatus.RUNNING)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + self.run_timeout_seconds
             event_stream = self.stream(graph_input, thread_id).__aiter__()
@@ -120,6 +122,8 @@ class AgentRunRuntime:
                 error_category=error_category,
             )
             raise
+        finally:
+            current_run_id.reset(run_token)
 
     def _timeout_error(self) -> RunTimeoutError:
         return RunTimeoutError(

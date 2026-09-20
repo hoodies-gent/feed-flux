@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.agent.tools import current_thread_id, send_reply
+from app.agent.execution_context import current_thread_id, current_tool_call_id
+from app.agent.tools import send_reply
 from app.evals.grader import load_golden_suite
 from app.evals.recorder import TrialRecorder
 from app.evals.runner import TokenPricing, _build_provider_agent, run_suite, run_trial
@@ -55,11 +56,13 @@ async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
         "tool": "send_reply",
         "args": reply_args,
     }
-    token = current_thread_id.set(thread_id)
+    thread_token = current_thread_id.set(thread_id)
+    call_token = current_tool_call_id.set("eval-send-reply")
     try:
         output = send_reply.invoke(reply_args)
     finally:
-        current_thread_id.reset(token)
+        current_tool_call_id.reset(call_token)
+        current_thread_id.reset(thread_token)
     yield {
         "type": "trace",
         "step": "tool_end",

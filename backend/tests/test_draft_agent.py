@@ -1,23 +1,67 @@
+import asyncio
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph import END
 
 from app.agent import graph as agent_graph
 from app.agent import stream as agent_stream
+from app.agent.execution_context import (
+    current_run_id,
+    current_thread_id,
+    current_tool_call_id,
+)
+from app.agent.run_runtime import AgentRunRuntime
 from app.agent.tools import (
     HIGH_RISK_TOOLS,
     apply_draft_patch,
-    current_thread_id,
     read_draft_context,
     read_original_email_context,
     send_reply,
 )
 from app.models.email import SentAction
+from app.services.agent_run_store import AgentRunStore
 from app.services.database import DatabaseService
+
+
+class _SendReplyLLM:
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "send_reply",
+                    "args": {
+                        "original_email_id": "email-runtime-context",
+                        "recipient": "sarah@example.com",
+                        "subject": "Re: Runtime context",
+                        "body": "Create this draft with the runtime context.",
+                    },
+                    "id": "runtime-call-9",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+@contextmanager
+def _tool_execution_context(thread_id: str, run_id: str, tool_call_id: str):
+    thread_token = current_thread_id.set(thread_id)
+    run_token = current_run_id.set(run_id)
+    call_token = current_tool_call_id.set(tool_call_id)
+    try:
+        yield
+    finally:
+        current_tool_call_id.reset(call_token)
+        current_run_id.reset(run_token)
+        current_thread_id.reset(thread_token)
 
 
 class DraftAgentTest(unittest.TestCase):
@@ -32,16 +76,13 @@ class DraftAgentTest(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_send_reply_creates_draft_without_recording_send(self):
-        token = current_thread_id.set("agent-thread")
-        try:
+        with _tool_execution_context("agent-thread", "run-create", "call-create"):
             output = send_reply.invoke({
                 "original_email_id": "email-a",
                 "recipient": "sarah@example.com",
                 "subject": "Re: Weekly sync",
                 "body": "Tuesday works for me.",
             })
-        finally:
-            current_thread_id.reset(token)
 
         db = DatabaseService(str(self.data_dir / "emails.db"))
         drafts = db.get_drafts_for_email("email-a")
@@ -59,6 +100,79 @@ class DraftAgentTest(unittest.TestCase):
         self.assertIn(f"DRAFT READY (id={drafts[0]['id']})", output)
         self.assertNotIn("send_reply", HIGH_RISK_TOOLS)
 
+    def test_send_reply_replays_same_tool_call_without_duplicate_draft(self):
+        from app.models.tool_execution import ToolExecution
+
+        args = {
+            "original_email_id": "email-idempotent",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Reliable draft",
+            "body": "Create this draft once.",
+        }
+        with _tool_execution_context("idempotent-thread", "run-123", "call-7"):
+            first_output = send_reply.invoke(args)
+            first_replay = send_reply.invoke(args)
+            second_replay = send_reply.invoke(args)
+
+        db = DatabaseService(str(self.data_dir / "emails.db"))
+        drafts = db.get_drafts_for_email("email-idempotent")
+        session = db.Session()
+        try:
+            executions = session.query(ToolExecution).all()
+        finally:
+            session.close()
+            db.engine.dispose()
+
+        self.assertEqual(first_output, first_replay)
+        self.assertEqual(first_output, second_replay)
+        self.assertIn("DRAFT READY", second_replay)
+        self.assertEqual(1, len(drafts))
+        self.assertEqual(1, len(executions))
+        self.assertEqual("run-123", executions[0].run_id)
+        self.assertEqual("call-7", executions[0].tool_call_id)
+
+    def test_runtime_supplies_run_and_tool_call_identity_to_send_reply(self):
+        from app.models.tool_execution import ToolExecution
+
+        db = DatabaseService(str(self.data_dir / "emails.db"))
+        agent = agent_graph.build_agent(llm=_SendReplyLLM())
+
+        def stream(graph_input, thread_id):
+            return agent_stream.stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            )
+
+        runtime = AgentRunRuntime(
+            AgentRunStore(db),
+            provider="fixture-provider",
+            stream=stream,
+        )
+
+        async def exercise():
+            return [
+                event
+                async for event in runtime.stream_new_run(
+                    agent_stream.new_turn_input("Create a reply draft"),
+                    "runtime-context-thread",
+                )
+            ]
+
+        events = asyncio.run(exercise())
+        run_id = next(event["run_id"] for event in events if event["type"] == "run")
+        drafts = db.get_drafts_for_email("email-runtime-context")
+        session = db.Session()
+        try:
+            execution = session.query(ToolExecution).one()
+        finally:
+            session.close()
+            db.engine.dispose()
+
+        self.assertEqual(1, len(drafts))
+        self.assertEqual(run_id, execution.run_id)
+        self.assertEqual("runtime-call-9", execution.tool_call_id)
+
     def test_send_reply_updates_existing_draft_when_draft_id_is_given(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))
         draft_id = db.create_draft({
@@ -69,8 +183,7 @@ class DraftAgentTest(unittest.TestCase):
             "body": "Original draft",
         })
 
-        token = current_thread_id.set("revision-thread")
-        try:
+        with _tool_execution_context("revision-thread", "run-update", "call-update"):
             output = send_reply.invoke({
                 "draft_id": draft_id,
                 "original_email_id": "email-a",
@@ -78,8 +191,6 @@ class DraftAgentTest(unittest.TestCase):
                 "subject": "Re: Weekly sync",
                 "body": "Revised draft",
             })
-        finally:
-            current_thread_id.reset(token)
 
         drafts = db.get_drafts_for_email("email-a")
         self.assertEqual([draft_id], [draft["id"] for draft in drafts])
@@ -96,12 +207,13 @@ class DraftAgentTest(unittest.TestCase):
             "body": "Original draft",
         })
 
-        output = send_reply.invoke({
-            "original_email_id": "email-a",
-            "recipient": "sarah@example.com",
-            "subject": "Re: Weekly sync",
-            "body": "Revised canonical draft",
-        })
+        with _tool_execution_context("reuse-thread", "run-reuse", "call-reuse"):
+            output = send_reply.invoke({
+                "original_email_id": "email-a",
+                "recipient": "sarah@example.com",
+                "subject": "Re: Weekly sync",
+                "body": "Revised canonical draft",
+            })
 
         drafts = db.get_drafts_for_email("email-a")
         self.assertEqual([draft_id], [draft["id"] for draft in drafts])

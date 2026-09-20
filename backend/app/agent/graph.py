@@ -6,10 +6,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, interrupt
 
+from app.agent.execution_context import current_thread_id, current_tool_call_id
 from app.agent.llm import get_llm
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.state import AgentState
-from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
+from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
 from app.agent.usage import usage_event_from_message
 
 DEFAULT_MAX_TOOL_CALLS = 8
@@ -190,26 +191,31 @@ def build_agent(
             results = []
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
+                call_token = current_tool_call_id.set(call_id)
+                try:
+                    if name in HIGH_RISK_TOOLS:
+                        decision = interrupt(
+                            {"tool": name, "args": args, "tool_call_id": call_id}
+                        )
+                        edited_body = decision.get("edited_body")
+                        if not decision.get("approve"):
+                            note = decision.get("note") or "User declined the action."
+                            if edited_body:
+                                msg = (
+                                    f"[rejected by user] User edited the draft to:\n\n"
+                                    f"{edited_body}\n\nFeedback: {note}"
+                                )
+                            else:
+                                msg = f"[rejected by user] {note}"
+                            results.append(ToolMessage(msg, tool_call_id=call_id))
+                            continue
+                        if edited_body and "body" in args:
+                            args = {**args, "body": edited_body}
 
-                if name in HIGH_RISK_TOOLS:
-                    decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})
-                    edited_body = decision.get("edited_body")
-                    if not decision.get("approve"):
-                        note = decision.get("note") or "User declined the action."
-                        if edited_body:
-                            msg = (
-                                f"[rejected by user] User edited the draft to:\n\n"
-                                f"{edited_body}\n\nFeedback: {note}"
-                            )
-                        else:
-                            msg = f"[rejected by user] {note}"
-                        results.append(ToolMessage(msg, tool_call_id=call_id))
-                        continue
-                    if edited_body and "body" in args:
-                        args = {**args, "body": edited_body}
-
-                output = TOOLS_BY_NAME[name].invoke(args)
-                results.append(ToolMessage(str(output), tool_call_id=call_id))
+                    output = TOOLS_BY_NAME[name].invoke(args)
+                    results.append(ToolMessage(str(output), tool_call_id=call_id))
+                finally:
+                    current_tool_call_id.reset(call_token)
             return {
                 "messages": results,
                 "tool_calls_used": tool_calls_used + requested_tool_calls,
