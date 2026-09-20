@@ -8,6 +8,7 @@ from unittest.mock import patch
 import api
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
+from pydantic import BaseModel, ValidationError
 
 from app.agent.graph import build_agent
 from app.agent.stream import stream_agent
@@ -74,6 +75,18 @@ class _EventuallyCompletingToolLoop:
                 ],
             )
         return AIMessage(content="eventually completed")
+
+
+class _InvalidRuntimePayload(BaseModel):
+    count: int
+
+
+def _validation_error() -> ValidationError:
+    try:
+        _InvalidRuntimePayload.model_validate({"count": "invalid"})
+    except ValidationError as error:
+        return error
+    raise AssertionError("fixture must produce a validation error")
 
 
 async def _collect(stream):
@@ -390,6 +403,70 @@ class AgentRunRuntimeTest(unittest.TestCase):
         persisted = self.store.get_run(run_events[0]["run_id"])
         self.assertEqual("completed", persisted["status"])
         self.assertEqual("glm", persisted["provider"])
+
+    def test_api_ndjson_returns_safe_explainable_error_for_failed_run(self):
+        cases = (
+            (
+                TimeoutError("private timeout details"),
+                "transient",
+                "The agent service is temporarily busy or timed out. Please try again.",
+            ),
+            (
+                _validation_error(),
+                "llm_tool_repairable",
+                "The agent could not complete a model or tool step. Please try again.",
+            ),
+            (
+                PermissionError("private permission details"),
+                "user_repairable",
+                "The agent needs updated authorization or corrected input before it can continue.",
+            ),
+            (
+                ValueError("private terminal details"),
+                "terminal",
+                "The agent could not complete this request. The run has stopped without further actions.",
+            ),
+        )
+
+        for index, (failure, category, message) in enumerate(cases):
+            with self.subTest(category=category):
+                async def failing_stream(graph_input, thread_id):
+                    raise failure
+                    yield
+
+                async def collect_lines():
+                    return [
+                        json.loads(line)
+                        async for line in api._agent_ndjson(
+                            {},
+                            f"safe-error-thread-{index}",
+                        )
+                    ]
+
+                with (
+                    patch.object(api, "db", self.db),
+                    patch("app.agent.run_runtime.stream_agent", failing_stream),
+                    patch.object(Config, "LLM_PROVIDER", "fixture-provider"),
+                ):
+                    events = asyncio.run(collect_lines())
+
+                run_events = [event for event in events if event["type"] == "run"]
+                error_event = next(event for event in events if event["type"] == "error")
+
+                self.assertEqual(
+                    ["running", "failed"],
+                    [event["status"] for event in run_events],
+                )
+                self.assertEqual(category, run_events[-1]["error_category"])
+                self.assertEqual(
+                    {
+                        "type": "error",
+                        "error_category": category,
+                        "content": message,
+                    },
+                    error_event,
+                )
+                self.assertNotIn("private", error_event["content"])
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
 from app.agent.run_runtime import AgentRunRuntime
+from app.agent.runtime_errors import classify_runtime_error
 from app.agent.stream import (
     new_turn_input,
     resume_input,
@@ -545,6 +546,23 @@ async def generate_draft_reply(request: DraftRequest):
         logger.error(f"Draft generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+_AGENT_ERROR_MESSAGES = {
+    "transient": "The agent service is temporarily busy or timed out. Please try again.",
+    "llm_tool_repairable": "The agent could not complete a model or tool step. Please try again.",
+    "user_repairable": "The agent needs updated authorization or corrected input before it can continue.",
+    "terminal": "The agent could not complete this request. The run has stopped without further actions.",
+}
+
+
+def _agent_error_event(error: Exception) -> dict:
+    category = classify_runtime_error(error).value
+    return {
+        "type": "error",
+        "error_category": category,
+        "content": _AGENT_ERROR_MESSAGES[category],
+    }
+
+
 # --- Agent endpoints ---
 async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
     runtime = AgentRunRuntime(AgentRunStore(db), provider=Config.LLM_PROVIDER)
@@ -558,7 +576,7 @@ async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
             yield json.dumps(event) + "\n"
     except Exception as e:
         logger.error(f"Agent stream failed: {e}", exc_info=True)
-        yield json.dumps({"type": "error", "content": str(e)}) + "\n"
+        yield json.dumps(_agent_error_event(e)) + "\n"
 
 @app.post("/api/agent/chat/stream")
 async def agent_chat_stream(request: AgentChatRequest):
