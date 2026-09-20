@@ -18,6 +18,16 @@ class InjectedProviderError(RuntimeError):
         self.status_code = status_code
 
 
+class FaultInjectingTool:
+    def __init__(self, error: Exception):
+        self.error = error
+        self.attempt_count = 0
+
+    def invoke(self, tool_input):
+        self.attempt_count += 1
+        raise self.error
+
+
 class _InvalidFaultPayload(BaseModel):
     fault_value: int
 
