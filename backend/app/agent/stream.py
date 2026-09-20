@@ -224,6 +224,7 @@ def new_turn_input(message: str) -> dict:
     return {
         "messages": [HumanMessage(content=message)],
         "tool_calls_used": 0,
+        "total_tokens_used": 0,
     }
 
 

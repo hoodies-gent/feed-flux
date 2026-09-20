@@ -10,11 +10,17 @@ from app.agent.llm import get_llm
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
+from app.agent.usage import usage_event_from_message
 
 DEFAULT_MAX_TOOL_CALLS = 8
+DEFAULT_MAX_TOTAL_TOKENS = 32_000
 
 
 class ToolCallBudgetExceeded(RuntimeError):
+    pass
+
+
+class RunTokenBudgetExceeded(RuntimeError):
     pass
 
 
@@ -146,6 +152,7 @@ def build_agent(
     llm: BaseChatModel | None = None,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+    max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
 ):
     bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
@@ -153,7 +160,21 @@ def build_agent(
         messages = state["messages"]
         if not messages or not isinstance(messages[0], SystemMessage):
             messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
-        return {"messages": [await bound_llm.ainvoke(messages)]}
+        response = await bound_llm.ainvoke(messages)
+        usage_event = usage_event_from_message(response)
+        if usage_event is None:
+            return {"messages": [response]}
+        total_tokens_used = (
+            state.get("total_tokens_used", 0) + usage_event["usage"]["total_tokens"]
+        )
+        if total_tokens_used > max_total_tokens:
+            raise RunTokenBudgetExceeded(
+                f"Agent run exceeded its limit of {max_total_tokens} tokens."
+            )
+        return {
+            "messages": [response],
+            "total_tokens_used": total_tokens_used,
+        }
 
     def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
