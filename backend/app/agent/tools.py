@@ -232,16 +232,25 @@ def apply_draft_patch(
     replacement: str,
 ) -> str:
     """Replace only a selected range in an active draft body."""
+    run_id = current_run_id.get()
+    tool_call_id = current_tool_call_id.get()
+    if run_id is None or tool_call_id is None:
+        raise RuntimeError(
+            "apply_draft_patch requires an agent run and tool call context"
+        )
+
     db = DatabaseService()
-    draft = db.apply_draft_patch(
-        draft_id,
-        selection_start,
-        selection_end,
-        replacement,
-        email_id=original_email_id,
+    result = ReplyDraftService(db).apply_patch_once(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        draft_id=draft_id,
+        original_email_id=original_email_id,
+        selection_start=selection_start,
+        selection_end=selection_end,
+        replacement=replacement,
     )
     return (
-        f"DRAFT UPDATED (id={draft['id']}). "
+        f"DRAFT UPDATED (id={result['draft_id']}). "
         "Only the selected text was replaced; the rest of the draft is unchanged. "
         "Tell the user the revised draft is ready for review, then stop."
     )

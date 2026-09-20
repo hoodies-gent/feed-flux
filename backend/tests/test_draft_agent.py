@@ -230,19 +230,61 @@ class DraftAgentTest(unittest.TestCase):
             "body": "Hello Sarah,\nTuesday works for me.\nBest,\nAlex",
         })
 
-        output = apply_draft_patch.invoke({
-            "draft_id": draft_id,
-            "original_email_id": "email-a",
-            "selection_start": 13,
-            "selection_end": 35,
-            "replacement": "Wednesday at 10:00 works.\n",
-        })
+        with _tool_execution_context("patch-thread", "run-patch-once", "call-patch-once"):
+            output = apply_draft_patch.invoke({
+                "draft_id": draft_id,
+                "original_email_id": "email-a",
+                "selection_start": 13,
+                "selection_end": 35,
+                "replacement": "Wednesday at 10:00 works.\n",
+            })
 
         self.assertIn(f"DRAFT UPDATED (id={draft_id})", output)
         self.assertEqual(
             "Hello Sarah,\nWednesday at 10:00 works.\nBest,\nAlex",
             db.get_drafts_for_email("email-a")[0]["body"],
         )
+
+    def test_apply_draft_patch_replays_same_tool_call_without_reapplying_patch(self):
+        from app.models.tool_execution import ToolExecution
+
+        db = DatabaseService(str(self.data_dir / "emails.db"))
+        draft_id = db.create_draft({
+            "thread_id": "original-thread",
+            "email_id": "email-idempotent-patch",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Hello Sarah,\nTuesday works for me.\nBest,\nAlex",
+        })
+        args = {
+            "draft_id": draft_id,
+            "original_email_id": "email-idempotent-patch",
+            "selection_start": 13,
+            "selection_end": 35,
+            "replacement": "Wednesday at 10:00 works.\n",
+        }
+
+        with _tool_execution_context("patch-thread", "run-patch", "call-patch"):
+            first_output = apply_draft_patch.invoke(args)
+            first_replay = apply_draft_patch.invoke(args)
+            second_replay = apply_draft_patch.invoke(args)
+
+        patched_body = db.get_drafts_for_email("email-idempotent-patch")[0]["body"]
+        session = db.Session()
+        try:
+            executions = session.query(ToolExecution).all()
+        finally:
+            session.close()
+            db.engine.dispose()
+
+        self.assertEqual(first_output, first_replay)
+        self.assertEqual(first_output, second_replay)
+        self.assertEqual(
+            "Hello Sarah,\nWednesday at 10:00 works.\nBest,\nAlex",
+            patched_body,
+        )
+        self.assertEqual(1, len(executions))
+        self.assertEqual("apply_draft_patch", executions[0].operation)
 
     def test_read_draft_context_expands_only_when_requested(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))
