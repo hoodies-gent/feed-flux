@@ -209,6 +209,70 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual("fixture-provider", usage_events[0]["provider"])
         self.assertEqual(0.00007, usage_events[1]["outcome"]["estimated_cost_usd"])
 
+    def test_completed_run_persists_sanitized_artifact_outcome(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture-provider",
+            stream=_ScriptedStream(
+                [
+                    {
+                        "type": "draft",
+                        "draft_id": 7,
+                        "email_id": "draft-email",
+                        "body": "private draft body",
+                    },
+                    {
+                        "type": "plan",
+                        "bulk": [
+                            {
+                                "email_id": "bulk-email",
+                                "reason": "private bulk reason",
+                            }
+                        ],
+                        "needs_reply": [
+                            {
+                                "email_id": "reply-email",
+                                "body_preview": "private email preview",
+                            }
+                        ],
+                    },
+                    {"type": "done"},
+                ]
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(runtime.stream_new_run({}, "artifact-outcome-thread"))
+        )
+        run_id = next(event["run_id"] for event in events if event["type"] == "run")
+
+        self.db.engine.dispose()
+        reopened_db = DatabaseService(str(Path(self.temp_dir.name) / "runtime.db"))
+        reopened_store = AgentRunStore(reopened_db)
+        persisted = reopened_store.get_run(run_id)
+        completed_event = reopened_store.list_events(run_id)[-1]
+        reopened_db.engine.dispose()
+
+        expected = {
+            "schema_version": 1,
+            "kind": "completed",
+            "artifacts": [
+                {
+                    "type": "draft",
+                    "draft_id": 7,
+                    "email_id": "draft-email",
+                },
+                {
+                    "type": "triage_plan",
+                    "bulk_email_ids": ["bulk-email"],
+                    "needs_reply_email_ids": ["reply-email"],
+                },
+            ],
+        }
+        self.assertEqual(expected, persisted["outcome"])
+        self.assertEqual(expected, completed_event["outcome"])
+        self.assertNotIn("private", json.dumps(persisted["outcome"]))
+
     def test_resume_reuses_interrupted_run_id(self):
         runtime = _runtime_type()(
             self.store,
@@ -241,6 +305,47 @@ class AgentRunRuntimeTest(unittest.TestCase):
             ["queued", "running", "interrupted", "running", "completed"],
             status_events,
         )
+
+    def test_interrupted_run_persists_sanitized_approval_outcome(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture-provider",
+            stream=_ScriptedStream(
+                [
+                    {
+                        "type": "interrupt",
+                        "tool": "send_reply",
+                        "tool_call_id": "approval-call-1",
+                        "args": {"body": "private draft body"},
+                        "draft_preview": {"body": "private preview"},
+                        "references": [{"output": "private reference"}],
+                    },
+                    {"type": "done"},
+                ]
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(runtime.stream_new_run({}, "approval-outcome-thread"))
+        )
+        run_id = next(event["run_id"] for event in events if event["type"] == "run")
+
+        self.db.engine.dispose()
+        reopened_db = DatabaseService(str(Path(self.temp_dir.name) / "runtime.db"))
+        reopened_store = AgentRunStore(reopened_db)
+        persisted = reopened_store.get_run(run_id)
+        interrupted_event = reopened_store.list_events(run_id)[-1]
+        reopened_db.engine.dispose()
+
+        expected = {
+            "schema_version": 1,
+            "kind": "awaiting_approval",
+            "tool": "send_reply",
+            "tool_call_id": "approval-call-1",
+        }
+        self.assertEqual(expected, persisted["outcome"])
+        self.assertEqual(expected, interrupted_event["outcome"])
+        self.assertNotIn("private", json.dumps(persisted["outcome"]))
 
     def test_transient_stream_failure_persists_category_before_reraising(self):
         runtime = _runtime_type()(

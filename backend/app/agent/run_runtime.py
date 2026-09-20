@@ -14,6 +14,30 @@ class RunTimeoutError(TimeoutError):
     pass
 
 
+def _business_artifact(event: dict) -> dict | None:
+    if event.get("type") == "draft":
+        return {
+            "type": "draft",
+            "draft_id": event.get("draft_id"),
+            "email_id": event.get("email_id"),
+        }
+    if event.get("type") == "plan":
+        return {
+            "type": "triage_plan",
+            "bulk_email_ids": [
+                item["email_id"]
+                for item in event.get("bulk", [])
+                if item.get("email_id")
+            ],
+            "needs_reply_email_ids": [
+                item["email_id"]
+                for item in event.get("needs_reply", [])
+                if item.get("email_id")
+            ],
+        }
+    return None
+
+
 class AgentRunRuntime:
     def __init__(
         self,
@@ -42,6 +66,7 @@ class AgentRunRuntime:
         interrupted = False
         finished = False
         done_event = None
+        artifacts = []
         try:
             self.store.transition_run(run_id, RunStatus.RUNNING)
             loop = asyncio.get_running_loop()
@@ -88,19 +113,40 @@ class AgentRunRuntime:
                     )
 
                 if event.get("type") == "interrupt":
-                    self.store.transition_run(run_id, RunStatus.INTERRUPTED)
+                    self.store.transition_run(
+                        run_id,
+                        RunStatus.INTERRUPTED,
+                        outcome={
+                            "schema_version": 1,
+                            "kind": "awaiting_approval",
+                            "tool": event.get("tool"),
+                            "tool_call_id": event.get("tool_call_id"),
+                        },
+                    )
                     interrupted = True
 
                 if event.get("type") == "done":
                     done_event = event
                     continue
 
+                artifact = _business_artifact(event)
+                if artifact is not None:
+                    artifacts.append(artifact)
+
                 yield event
                 if event.get("type") == "interrupt":
                     yield self._run_event(run_id, RunStatus.INTERRUPTED)
 
             if not interrupted:
-                self.store.transition_run(run_id, RunStatus.COMPLETED)
+                self.store.transition_run(
+                    run_id,
+                    RunStatus.COMPLETED,
+                    outcome={
+                        "schema_version": 1,
+                        "kind": "completed",
+                        "artifacts": artifacts,
+                    },
+                )
                 finished = True
                 yield self._run_event(run_id, RunStatus.COMPLETED)
             if done_event is not None:
