@@ -109,7 +109,18 @@ class AgentRunRuntimeTest(unittest.TestCase):
             provider="deepseek",
             stream=_ScriptedStream(
                 [
-                    {"type": "trace", "step": "tool_start", "tool": "find_email"},
+                    {
+                        "type": "trace",
+                        "step": "tool_start",
+                        "tool": "find_email",
+                        "tool_call_id": "find-email-call-1",
+                    },
+                    {
+                        "type": "trace",
+                        "step": "tool_end",
+                        "tool": "find_email",
+                        "tool_call_id": "find-email-call-1",
+                    },
                     {"type": "token", "content": "done"},
                     {"type": "done"},
                 ]
@@ -126,9 +137,17 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual("completed", persisted["status"])
         self.assertEqual("deepseek", persisted["provider"])
         self.assertEqual("done", events[-1]["type"])
-        tool_event = next(event for event in ledger_events if event["event_type"] == "tool_call")
-        self.assertEqual("find_email", tool_event["tool_name"])
-        self.assertIsNone(tool_event["tool_call_id"])
+        tool_call = next(
+            event for event in ledger_events if event["event_type"] == "tool_call"
+        )
+        tool_result = next(
+            event for event in ledger_events if event["event_type"] == "tool_result"
+        )
+        self.assertEqual("find_email", tool_call["tool_name"])
+        self.assertEqual("find-email-call-1", tool_call["tool_call_id"])
+        self.assertEqual("deepseek", tool_call["provider"])
+        self.assertEqual("find-email-call-1", tool_result["tool_call_id"])
+        self.assertEqual("deepseek", tool_result["provider"])
 
     def test_usage_events_are_persisted_with_cost_and_not_forwarded(self):
         runtime = _runtime_type()(

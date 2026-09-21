@@ -137,7 +137,7 @@ class DraftAgentTest(unittest.TestCase):
         self.assertEqual("run-123", executions[0].run_id)
         self.assertEqual("call-7", executions[0].tool_call_id)
 
-    def test_runtime_supplies_run_and_tool_call_identity_to_save_reply_draft(self):
+    def test_runtime_links_saved_draft_outcome_to_tool_call(self):
         from app.models.tool_execution import ToolExecution
 
         db = DatabaseService(str(self.data_dir / "emails.db"))
@@ -150,8 +150,9 @@ class DraftAgentTest(unittest.TestCase):
                 agent=agent,
             )
 
+        run_store = AgentRunStore(db)
         runtime = AgentRunRuntime(
-            AgentRunStore(db),
+            run_store,
             provider="fixture-provider",
             stream=stream,
         )
@@ -175,9 +176,39 @@ class DraftAgentTest(unittest.TestCase):
             session.close()
             db.engine.dispose()
 
+        run_events = run_store.list_events(run_id)
+        tool_call = next(
+            event
+            for event in run_events
+            if event["event_type"] == "tool_call"
+        )
+        tool_result = next(
+            event
+            for event in run_events
+            if event["event_type"] == "tool_result"
+        )
+
         self.assertEqual(1, len(drafts))
         self.assertEqual(run_id, execution.run_id)
         self.assertEqual("runtime-call-9", execution.tool_call_id)
+        self.assertEqual("runtime-call-9", tool_call["tool_call_id"])
+        self.assertEqual("save_reply_draft", tool_call["tool_name"])
+        self.assertEqual("fixture-provider", tool_call["provider"])
+        self.assertEqual("runtime-call-9", tool_result["tool_call_id"])
+        self.assertEqual("save_reply_draft", tool_result["tool_name"])
+        self.assertEqual("fixture-provider", tool_result["provider"])
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "kind": "draft",
+                "draft_id": drafts[0]["id"],
+                "email_id": "email-runtime-context",
+                "result": "created",
+            },
+            tool_result["outcome"],
+        )
+        self.assertNotIn("recipient", tool_result["outcome"])
+        self.assertNotIn("body", tool_result["outcome"])
 
     def test_save_reply_draft_updates_existing_draft_when_draft_id_is_given(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))

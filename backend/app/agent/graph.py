@@ -212,7 +212,10 @@ def build_agent(
                         if edited_body and "body" in args:
                             args = {**args, "body": edited_body}
 
-                    output = TOOLS_BY_NAME[name].invoke(args)
+                    output = TOOLS_BY_NAME[name].invoke(
+                        args,
+                        config={"metadata": {"tool_call_id": call_id}},
+                    )
                     results.append(ToolMessage(str(output), tool_call_id=call_id))
                 finally:
                     current_tool_call_id.reset(call_token)

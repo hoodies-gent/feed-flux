@@ -23,7 +23,7 @@ class FaultInjectingTool:
         self.error = error
         self.attempt_count = 0
 
-    def invoke(self, tool_input):
+    def invoke(self, tool_input, config=None):
         self.attempt_count += 1
         raise self.error
 

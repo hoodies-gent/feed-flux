@@ -189,11 +189,23 @@ async def stream_agent(
                 yield usage_event
 
         elif kind == "on_tool_start":
-            yield {"type": "trace", "step": "tool_start", "tool": name, "args": data.get("input")}
+            tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
+            event = {
+                "type": "trace",
+                "step": "tool_start",
+                "tool": name,
+                "args": data.get("input"),
+            }
+            if tool_call_id is not None:
+                event["tool_call_id"] = tool_call_id
+            yield event
 
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)
+            tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
+            if tool_call_id is None:
+                tool_call_id = getattr(output, "tool_call_id", None)
             truncated = (
                 output_text
                 if tool_output_limit is None
@@ -201,18 +213,35 @@ async def stream_agent(
             )
             recent_tool_results.append({"tool": name, "output": truncated})
             event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
+            if tool_call_id is not None:
+                event["tool_call_id"] = tool_call_id
             count = _count_list_result(output, output_text)
             if count is not None:
                 event["result_count"] = count
+
+            draft_event = None
+            if name == "apply_triage_batch":
+                tool_input = data.get("input") or {}
+            elif name in {"save_reply_draft", "apply_draft_patch"}:
+                draft_event = _build_draft_event(data.get("input") or {}, output_text)
+                if draft_event is not None:
+                    event["outcome"] = {
+                        "schema_version": 1,
+                        "kind": "draft",
+                        "draft_id": draft_event["draft_id"],
+                        "email_id": draft_event["email_id"],
+                        "result": (
+                            "created"
+                            if output_text.startswith("DRAFT READY")
+                            else "updated"
+                        ),
+                    }
             yield event
 
             if name == "apply_triage_batch":
-                tool_input = data.get("input") or {}
                 yield _build_plan_event(tool_input)
-            elif name in {"save_reply_draft", "apply_draft_patch"}:
-                draft_event = _build_draft_event(data.get("input") or {}, output_text)
-                if draft_event:
-                    yield draft_event
+            elif draft_event is not None:
+                yield draft_event
 
     async for ev in _emit_interrupts(runtime_agent, config, recent_tool_results):
         yield ev

@@ -104,13 +104,24 @@ class AgentRunRuntime:
                     )
                     continue
 
-                if event.get("type") == "trace" and event.get("step") == "tool_start":
-                    self.store.append_event(
-                        run_id,
-                        event_type="tool_call",
-                        tool_name=event.get("tool"),
-                        tool_call_id=event.get("tool_call_id"),
-                    )
+                if event.get("type") == "trace":
+                    if event.get("step") == "tool_start":
+                        self.store.append_event(
+                            run_id,
+                            event_type="tool_call",
+                            provider=self.provider,
+                            tool_name=event.get("tool"),
+                            tool_call_id=event.get("tool_call_id"),
+                        )
+                    elif event.get("step") == "tool_end":
+                        self.store.append_event(
+                            run_id,
+                            event_type="tool_result",
+                            provider=self.provider,
+                            tool_name=event.get("tool"),
+                            tool_call_id=event.get("tool_call_id"),
+                            outcome=event.get("outcome"),
+                        )
 
                 if event.get("type") == "interrupt":
                     self.store.transition_run(
