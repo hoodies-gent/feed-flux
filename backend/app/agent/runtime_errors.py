@@ -22,6 +22,9 @@ def _http_status_code(error: Exception) -> int | None:
 
 
 def classify_runtime_error(error: Exception) -> ErrorCategory:
+    stored_category = getattr(error, "error_category", None)
+    if stored_category is not None:
+        return ErrorCategory(stored_category)
     if _is_timeout_error(error):
         return ErrorCategory.TRANSIENT
     if isinstance(error, ValidationError):

@@ -9,6 +9,7 @@ from langgraph.types import RetryPolicy, interrupt
 from app.agent.execution_context import current_thread_id, current_tool_call_id
 from app.agent.llm import get_llm
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
+from app.agent.runtime_errors import classify_runtime_error
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
 from app.agent.usage import usage_event_from_message
@@ -23,6 +24,12 @@ class ToolCallBudgetExceeded(RuntimeError):
 
 class RunTokenBudgetExceeded(RuntimeError):
     pass
+
+
+class ToolExecutionFailure(RuntimeError):
+    def __init__(self, message: str, error_category: str):
+        super().__init__(message)
+        self.error_category = error_category
 
 
 SYSTEM_PROMPT = (
@@ -138,6 +145,8 @@ SYSTEM_PROMPT = (
 
 def _route_after_tools(state: AgentState) -> str:
     """End a turn after draft creation; continue after read-only tools."""
+    if state.get("tool_error"):
+        return "tool_error"
     for message in reversed(state["messages"]):
         if not isinstance(message, ToolMessage):
             break
@@ -145,6 +154,14 @@ def _route_after_tools(state: AgentState) -> str:
         if isinstance(content, str) and content.startswith(("DRAFT READY", "DRAFT UPDATED")):
             return END
     return "agent"
+
+
+def _raise_tool_error(state: AgentState) -> None:
+    error = state.get("tool_error") or {}
+    raise ToolExecutionFailure(
+        error.get("message", "Agent tool execution failed."),
+        error.get("error_category", "terminal"),
+    )
 
 
 def build_agent(
@@ -189,6 +206,7 @@ def build_agent(
                     f"Agent run exceeded its limit of {max_tool_calls} tool calls."
                 )
             results = []
+            tool_error = None
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
                 call_token = current_tool_call_id.set(call_id)
@@ -212,16 +230,30 @@ def build_agent(
                         if edited_body and "body" in args:
                             args = {**args, "body": edited_body}
 
-                    output = TOOLS_BY_NAME[name].invoke(
-                        args,
-                        config={"metadata": {"tool_call_id": call_id}},
-                    )
-                    results.append(ToolMessage(str(output), tool_call_id=call_id))
+                    try:
+                        output = TOOLS_BY_NAME[name].invoke(
+                            args,
+                            config={"metadata": {"tool_call_id": call_id}},
+                        )
+                        results.append(ToolMessage(str(output), tool_call_id=call_id))
+                    except Exception as error:
+                        category = classify_runtime_error(error).value
+                        tool_error = tool_error or {
+                            "message": f"Tool {name} failed during execution.",
+                            "error_category": category,
+                        }
+                        results.append(
+                            ToolMessage(
+                                f"[tool error] Tool {name} failed. No result was produced.",
+                                tool_call_id=call_id,
+                            )
+                        )
                 finally:
                     current_tool_call_id.reset(call_token)
             return {
                 "messages": results,
                 "tool_calls_used": tool_calls_used + requested_tool_calls,
+                "tool_error": tool_error,
             }
         finally:
             current_thread_id.reset(token)
@@ -235,7 +267,13 @@ def build_agent(
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node, retry_policy=provider_retry_policy)
     graph.add_node("tools", tools_node)
+    graph.add_node("tool_error", _raise_tool_error)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
-    graph.add_conditional_edges("tools", _route_after_tools, {"agent": "agent", END: END})
+    graph.add_conditional_edges(
+        "tools",
+        _route_after_tools,
+        {"agent": "agent", "tool_error": "tool_error", END: END},
+    )
+    graph.add_edge("tool_error", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())
