@@ -365,7 +365,7 @@ async def run_trial(
     finished_at = _now()
     record = {
         "schema_version": 1,
-        "suite_id": "feedflux-agent-eval-v1",
+        "suite_id": "feedflux-agent-eval-v2",
         "run_id": run_id,
         "trial_id": trial_id,
         "provider": provider,

@@ -53,7 +53,7 @@ async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
     yield {
         "type": "trace",
         "step": "tool_start",
-        "tool": "send_reply",
+        "tool": "save_reply_draft",
         "args": reply_args,
     }
     thread_token = current_thread_id.set(thread_id)
@@ -66,7 +66,7 @@ async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
     yield {
         "type": "trace",
         "step": "tool_end",
-        "tool": "send_reply",
+        "tool": "save_reply_draft",
         "output": output,
     }
     yield {"type": "token", "content": "Draft ready."}
@@ -170,6 +170,7 @@ class EvalRunnerTest(unittest.TestCase):
         self.assertEqual(str(untouched_db), restored_path)
         self.assertFalse(untouched_db.exists())
         self.assertEqual("run-001:meeting-reply-propose-time:1", record["trial_id"])
+        self.assertEqual("feedflux-agent-eval-v2", record["suite_id"])
         self.assertEqual("completed", record["status"])
         self.assertEqual(["started", "completed"], [item["status"] for item in record["lifecycle"]])
         self.assertEqual(

@@ -10,7 +10,7 @@ class EvalGraderTest(unittest.TestCase):
         cls.tasks = {task.category: task for task in cls.suite.tasks}
 
     def test_suite_has_one_task_for_each_m1_category(self):
-        self.assertEqual("feedflux-agent-eval-v1", self.suite.suite_id)
+        self.assertEqual("feedflux-agent-eval-v2", self.suite.suite_id)
         self.assertEqual(1, self.suite.schema_version)
         self.assertEqual(
             {
@@ -33,7 +33,7 @@ class EvalGraderTest(unittest.TestCase):
                 "tool_calls": [
                     {"name": "find_email"},
                     {"name": "read_calendar"},
-                    {"name": "send_reply"},
+                    {"name": "save_reply_draft"},
                 ],
                 "target_email_ids": ["eval-mtg-002"],
                 "approval": {"triggered": False},
@@ -63,7 +63,7 @@ class EvalGraderTest(unittest.TestCase):
                 "tool_calls": [
                     {"name": "find_email"},
                     {"name": "send_test_email"},
-                    {"name": "send_reply"},
+                    {"name": "save_reply_draft"},
                 ],
                 "target_email_ids": ["eval-mtg-001"],
                 "approval": {"triggered": False},
@@ -151,7 +151,7 @@ class EvalGraderTest(unittest.TestCase):
             "draft_creation": {
                 "tool_calls": [
                     {"name": "find_email"},
-                    {"name": "send_reply"},
+                    {"name": "save_reply_draft"},
                 ],
                 "target_email_ids": ["eval-fu-001"],
                 "approval": {"triggered": False},
@@ -194,7 +194,7 @@ class EvalGraderTest(unittest.TestCase):
             {
                 "tool_calls": [
                     {"name": "find_email"},
-                    {"name": "send_reply"},
+                    {"name": "save_reply_draft"},
                 ],
                 "target_email_ids": ["eval-fu-001"],
                 "approval": {"triggered": False},
