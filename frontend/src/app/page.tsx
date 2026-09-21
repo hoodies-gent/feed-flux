@@ -34,6 +34,18 @@ interface ChatMessage {
   triagePlan?: TriagePlan;
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  send_test_email: 'Send test',
+  find_email: 'Find email',
+  list_unread_emails: 'List unread',
+  read_calendar: 'Check calendar',
+  save_reply_draft: 'Save draft',
+  apply_draft_patch: 'Update draft',
+  read_draft_context: 'Read draft',
+  read_original_email_context: 'Read email',
+  apply_triage_batch: 'Plan inbox',
+};
+
 function argsPreview(args: unknown): string {
   if (args === undefined || args === null) return '';
   if (typeof args !== 'object') return String(args);
@@ -122,7 +134,7 @@ function ToolCallLine({
           <Check className="w-3 h-3 shrink-0 text-emerald-600 dark:text-emerald-500" />
         )}
         <span className="flex-1 truncate">
-          <span className="text-foreground">{tool === 'save_reply_draft' ? 'Save reply draft' : tool}</span>
+          <span className="text-foreground">{TOOL_LABELS[tool] ?? tool}</span>
           {preview && <span>({preview})</span>}
           {!running && output !== undefined && (
             <span className="text-muted-foreground/70"> · {outputSummary(tool, output, resultCount)}</span>
