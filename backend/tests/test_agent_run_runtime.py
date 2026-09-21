@@ -509,6 +509,68 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual("completed", persisted["status"])
         self.assertEqual("glm", persisted["provider"])
 
+    def test_api_ndjson_applies_configured_token_pricing(self):
+        async def fake_stream(graph_input, thread_id):
+            yield {
+                "type": "usage",
+                "model": "fixture-model",
+                "usage": {
+                    "input_tokens": 100,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 20,
+                    "total_tokens": 120,
+                },
+            }
+            yield {"type": "done"}
+
+        async def collect_lines():
+            return [
+                json.loads(line)
+                async for line in api._agent_ndjson({}, "priced-api-thread")
+            ]
+
+        with (
+            patch.object(api, "db", self.db),
+            patch("app.agent.run_runtime.stream_agent", fake_stream),
+            patch.object(Config, "LLM_PROVIDER", "fixture-provider"),
+            patch.object(
+                Config,
+                "LLM_INPUT_COST_USD_PER_MILLION",
+                1.0,
+                create=True,
+            ),
+            patch.object(
+                Config,
+                "LLM_OUTPUT_COST_USD_PER_MILLION",
+                2.0,
+                create=True,
+            ),
+            patch.object(
+                Config,
+                "LLM_CACHED_INPUT_COST_USD_PER_MILLION",
+                0.25,
+                create=True,
+            ),
+        ):
+            events = asyncio.run(collect_lines())
+
+        run_id = next(event["run_id"] for event in events if event["type"] == "run")
+        usage_event = next(
+            event
+            for event in self.store.list_events(run_id)
+            if event["event_type"] == "provider_usage"
+        )
+
+        self.assertEqual(
+            {
+                "input_usd_per_million": 1.0,
+                "output_usd_per_million": 2.0,
+                "cached_input_usd_per_million": 0.25,
+            },
+            usage_event["outcome"]["pricing"],
+        )
+        self.assertEqual(0.00011, usage_event["outcome"]["estimated_cost_usd"])
+
     def test_api_ndjson_returns_safe_explainable_error_for_failed_run(self):
         cases = (
             (

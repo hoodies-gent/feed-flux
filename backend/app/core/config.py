@@ -8,6 +8,12 @@ CORE_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = CORE_DIR.parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 
+
+def _optional_float(name: str) -> float | None:
+    value = os.getenv(name)
+    return float(value) if value not in (None, "") else None
+
+
 class Config:
     """
     Centralized configuration management.
@@ -47,6 +53,15 @@ class Config:
     GLM_MODEL_NAME = os.getenv("GLM_MODEL_NAME", "glm-4.7")
     _LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE")
     LLM_TEMPERATURE = float(_LLM_TEMPERATURE) if _LLM_TEMPERATURE is not None else None
+    LLM_INPUT_COST_USD_PER_MILLION = _optional_float(
+        "LLM_INPUT_COST_USD_PER_MILLION"
+    )
+    LLM_OUTPUT_COST_USD_PER_MILLION = _optional_float(
+        "LLM_OUTPUT_COST_USD_PER_MILLION"
+    )
+    LLM_CACHED_INPUT_COST_USD_PER_MILLION = _optional_float(
+        "LLM_CACHED_INPUT_COST_USD_PER_MILLION"
+    )
 
     # AI Feature Flags & Configs
     CUSTOM_SUMMARY_PROMPT = os.getenv("CUSTOM_SUMMARY_PROMPT")  # Optional user-defined instructions for summarization

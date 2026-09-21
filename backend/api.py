@@ -18,6 +18,7 @@ from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
 from app.agent.run_runtime import AgentRunRuntime
 from app.agent.runtime_errors import classify_runtime_error
+from app.agent.usage import TokenPricing
 from app.agent.stream import (
     new_turn_input,
     resume_input,
@@ -563,9 +564,25 @@ def _agent_error_event(error: Exception) -> dict:
     }
 
 
+def _configured_token_pricing() -> TokenPricing | None:
+    input_price = Config.LLM_INPUT_COST_USD_PER_MILLION
+    output_price = Config.LLM_OUTPUT_COST_USD_PER_MILLION
+    if input_price is None or output_price is None:
+        return None
+    return TokenPricing(
+        input_usd_per_million=input_price,
+        output_usd_per_million=output_price,
+        cached_input_usd_per_million=Config.LLM_CACHED_INPUT_COST_USD_PER_MILLION,
+    )
+
+
 # --- Agent endpoints ---
 async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
-    runtime = AgentRunRuntime(AgentRunStore(db), provider=Config.LLM_PROVIDER)
+    runtime = AgentRunRuntime(
+        AgentRunStore(db),
+        provider=Config.LLM_PROVIDER,
+        pricing=_configured_token_pricing(),
+    )
     try:
         event_stream = (
             runtime.stream_resumed_run(graph_input, thread_id)
