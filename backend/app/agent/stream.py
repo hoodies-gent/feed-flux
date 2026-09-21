@@ -32,7 +32,7 @@ def _enrich_interrupt(payload: dict, recent_tool_results: list[dict]) -> dict:
     """Extract fields the frontend needs for the review card."""
     event = {"type": "interrupt", **payload}
     tool = payload.get("tool")
-    if tool == "send_reply":
+    if tool == "save_reply_draft":
         args = payload.get("args") or {}
         event["draft_preview"] = {
             "recipient": args.get("recipient"),
@@ -209,7 +209,7 @@ async def stream_agent(
             if name == "apply_triage_batch":
                 tool_input = data.get("input") or {}
                 yield _build_plan_event(tool_input)
-            elif name in {"send_reply", "apply_draft_patch"}:
+            elif name in {"save_reply_draft", "apply_draft_patch"}:
                 draft_event = _build_draft_event(data.get("input") or {}, output_text)
                 if draft_event:
                     yield draft_event

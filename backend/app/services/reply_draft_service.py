@@ -26,7 +26,7 @@ class ReplyDraftService:
     ) -> dict[str, Any]:
         result, _ = self.executions.execute_once(
             idempotency_key=f"{run_id}:{tool_call_id}",
-            operation="send_reply",
+            operation="save_reply_draft",
             request_payload={
                 "thread_id": thread_id,
                 "recipient": recipient,

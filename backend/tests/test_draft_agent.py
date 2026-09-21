@@ -18,17 +18,18 @@ from app.agent.execution_context import (
 from app.agent.run_runtime import AgentRunRuntime
 from app.agent.tools import (
     HIGH_RISK_TOOLS,
+    TOOLS_BY_NAME,
     apply_draft_patch,
     read_draft_context,
     read_original_email_context,
-    send_reply,
+    save_reply_draft,
 )
 from app.models.email import SentAction
 from app.services.agent_run_store import AgentRunStore
 from app.services.database import DatabaseService
 
 
-class _SendReplyLLM:
+class _SaveReplyDraftLLM:
     def bind_tools(self, tools):
         return self
 
@@ -37,7 +38,7 @@ class _SendReplyLLM:
             content="",
             tool_calls=[
                 {
-                    "name": "send_reply",
+                    "name": "save_reply_draft",
                     "args": {
                         "original_email_id": "email-runtime-context",
                         "recipient": "sarah@example.com",
@@ -75,9 +76,13 @@ class DraftAgentTest(unittest.TestCase):
         self.data_dir_patch.stop()
         self.temp_dir.cleanup()
 
-    def test_send_reply_creates_draft_without_recording_send(self):
+    def test_reply_draft_tool_uses_truthful_canonical_name(self):
+        self.assertIn("save_reply_draft", TOOLS_BY_NAME)
+        self.assertNotIn("send_reply", TOOLS_BY_NAME)
+
+    def test_save_reply_draft_creates_draft_without_recording_send(self):
         with _tool_execution_context("agent-thread", "run-create", "call-create"):
-            output = send_reply.invoke({
+            output = save_reply_draft.invoke({
                 "original_email_id": "email-a",
                 "recipient": "sarah@example.com",
                 "subject": "Re: Weekly sync",
@@ -98,9 +103,9 @@ class DraftAgentTest(unittest.TestCase):
         self.assertEqual("Tuesday works for me.", drafts[0]["body"])
         self.assertEqual(0, sent_count)
         self.assertIn(f"DRAFT READY (id={drafts[0]['id']})", output)
-        self.assertNotIn("send_reply", HIGH_RISK_TOOLS)
+        self.assertNotIn("save_reply_draft", HIGH_RISK_TOOLS)
 
-    def test_send_reply_replays_same_tool_call_without_duplicate_draft(self):
+    def test_save_reply_draft_replays_same_tool_call_without_duplicate_draft(self):
         from app.models.tool_execution import ToolExecution
 
         args = {
@@ -110,9 +115,9 @@ class DraftAgentTest(unittest.TestCase):
             "body": "Create this draft once.",
         }
         with _tool_execution_context("idempotent-thread", "run-123", "call-7"):
-            first_output = send_reply.invoke(args)
-            first_replay = send_reply.invoke(args)
-            second_replay = send_reply.invoke(args)
+            first_output = save_reply_draft.invoke(args)
+            first_replay = save_reply_draft.invoke(args)
+            second_replay = save_reply_draft.invoke(args)
 
         db = DatabaseService(str(self.data_dir / "emails.db"))
         drafts = db.get_drafts_for_email("email-idempotent")
@@ -128,14 +133,15 @@ class DraftAgentTest(unittest.TestCase):
         self.assertIn("DRAFT READY", second_replay)
         self.assertEqual(1, len(drafts))
         self.assertEqual(1, len(executions))
+        self.assertEqual("save_reply_draft", executions[0].operation)
         self.assertEqual("run-123", executions[0].run_id)
         self.assertEqual("call-7", executions[0].tool_call_id)
 
-    def test_runtime_supplies_run_and_tool_call_identity_to_send_reply(self):
+    def test_runtime_supplies_run_and_tool_call_identity_to_save_reply_draft(self):
         from app.models.tool_execution import ToolExecution
 
         db = DatabaseService(str(self.data_dir / "emails.db"))
-        agent = agent_graph.build_agent(llm=_SendReplyLLM())
+        agent = agent_graph.build_agent(llm=_SaveReplyDraftLLM())
 
         def stream(graph_input, thread_id):
             return agent_stream.stream_agent(
@@ -173,7 +179,7 @@ class DraftAgentTest(unittest.TestCase):
         self.assertEqual(run_id, execution.run_id)
         self.assertEqual("runtime-call-9", execution.tool_call_id)
 
-    def test_send_reply_updates_existing_draft_when_draft_id_is_given(self):
+    def test_save_reply_draft_updates_existing_draft_when_draft_id_is_given(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))
         draft_id = db.create_draft({
             "thread_id": "original-thread",
@@ -184,7 +190,7 @@ class DraftAgentTest(unittest.TestCase):
         })
 
         with _tool_execution_context("revision-thread", "run-update", "call-update"):
-            output = send_reply.invoke({
+            output = save_reply_draft.invoke({
                 "draft_id": draft_id,
                 "original_email_id": "email-a",
                 "recipient": "sarah@example.com",
@@ -197,7 +203,7 @@ class DraftAgentTest(unittest.TestCase):
         self.assertEqual("Revised draft", drafts[0]["body"])
         self.assertIn(f"DRAFT UPDATED (id={draft_id})", output)
 
-    def test_send_reply_reuses_latest_active_draft_by_default(self):
+    def test_save_reply_draft_reuses_latest_active_draft_by_default(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))
         draft_id = db.create_draft({
             "thread_id": "original-thread",
@@ -208,7 +214,7 @@ class DraftAgentTest(unittest.TestCase):
         })
 
         with _tool_execution_context("reuse-thread", "run-reuse", "call-reuse"):
-            output = send_reply.invoke({
+            output = save_reply_draft.invoke({
                 "original_email_id": "email-a",
                 "recipient": "sarah@example.com",
                 "subject": "Re: Weekly sync",

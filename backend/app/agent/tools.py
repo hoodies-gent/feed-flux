@@ -165,7 +165,7 @@ def read_calendar(days_ahead: int = 7) -> dict:
     }
 
 
-class SendReplyInput(BaseModel):
+class SaveReplyDraftInput(BaseModel):
     draft_id: int | None = Field(
         default=None,
         description="Existing draft ID to revise; omit when creating a new draft.",
@@ -178,8 +178,8 @@ class SendReplyInput(BaseModel):
     body: str = Field(description="Full body text of the reply.")
 
 
-@tool("send_reply", args_schema=SendReplyInput)
-def send_reply(
+@tool("save_reply_draft", args_schema=SaveReplyDraftInput)
+def save_reply_draft(
     recipient: str,
     subject: str,
     body: str,
@@ -195,7 +195,7 @@ def send_reply(
     run_id = current_run_id.get()
     tool_call_id = current_tool_call_id.get()
     if run_id is None or tool_call_id is None:
-        raise RuntimeError("send_reply requires an agent run and tool call context")
+        raise RuntimeError("save_reply_draft requires an agent run and tool call context")
 
     db = DatabaseService()
     result = ReplyDraftService(db).save_once(
@@ -386,7 +386,7 @@ class ApplyTriageBatchInput(BaseModel):
             "Emails that genuinely need a human-authored reply — do NOT draft them here. "
             "One item per email with a short reason so the user knows why. They surface "
             "as a follow-up list; the user picks one at a time and drafts through the "
-            "standard send_reply flow. Keep this short (0-5); if you find yourself "
+            "standard save_reply_draft flow. Keep this short (0-5); if you find yourself "
             "putting most of the batch here, your classification is too conservative."
         ),
         max_length=20,
@@ -428,7 +428,7 @@ TOOLS = [
     find_email,
     list_unread_emails,
     read_calendar,
-    send_reply,
+    save_reply_draft,
     read_draft_context,
     read_original_email_context,
     apply_draft_patch,

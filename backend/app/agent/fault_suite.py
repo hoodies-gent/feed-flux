@@ -67,7 +67,7 @@ FAULT_CASES = (
         id="idempotency-replay-creates-one-draft",
         category="idempotency",
         tests=(
-            "tests/test_draft_agent.py::DraftAgentTest::test_send_reply_replays_same_tool_call_without_duplicate_draft",
+            "tests/test_draft_agent.py::DraftAgentTest::test_save_reply_draft_replays_same_tool_call_without_duplicate_draft",
         ),
     ),
 )
