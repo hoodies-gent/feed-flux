@@ -706,7 +706,11 @@ export default function Home() {
         setFocusedDraftByEmailId((current) => ({ ...current, [event.email_id]: event.draft_id }));
         void handleOpenEmailDetail(event.email_id);
       },
-      onDone: () => {},
+      onDone: () => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, isLoading: false } : msg
+        ));
+      },
       onError: (msg) => {
         toast.error(msg);
         setChatMessages(prev => prev.map(m => {
