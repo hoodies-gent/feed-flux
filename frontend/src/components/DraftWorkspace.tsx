@@ -24,6 +24,7 @@ interface DraftWorkspaceProps {
   senderEmail?: string;
   autoDraft?: boolean;
   focusDraftId?: number | null;
+  refreshToken?: number;
   onDraftsChange?: (drafts: DraftReply[]) => void;
   onDraftFocus?: (draftId: number | null) => void;
 }
@@ -50,6 +51,7 @@ export function DraftWorkspace({
   senderEmail,
   autoDraft = false,
   focusDraftId = null,
+  refreshToken = 0,
   onDraftsChange,
   onDraftFocus,
 }: DraftWorkspaceProps) {
@@ -185,7 +187,7 @@ export function DraftWorkspace({
       Object.values(saveTimers.current).forEach(clearTimeout);
       saveTimers.current = {};
     };
-  }, [emailId]);
+  }, [emailId, refreshToken]);
 
   useEffect(() => {
     if (focusDraftId && drafts.some((draft) => draft.id === focusDraftId)) {

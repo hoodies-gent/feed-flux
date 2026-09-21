@@ -643,6 +643,7 @@ export default function Home() {
   const [mountedEmailIds, setMountedEmailIds] = useState<string[]>([]);
   const [draftsByEmailId, setDraftsByEmailId] = useState<Record<string, DraftReply[]>>({});
   const [focusedDraftByEmailId, setFocusedDraftByEmailId] = useState<Record<string, number | null>>({});
+  const [draftRefreshByEmailId, setDraftRefreshByEmailId] = useState<Record<string, number>>({});
   const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
   const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
@@ -698,6 +699,11 @@ export default function Home() {
         ));
       },
       onDraft: (event) => {
+        setDraftRefreshByEmailId((current) => ({
+          ...current,
+          [event.email_id]: (current[event.email_id] ?? 0) + 1,
+        }));
+        setFocusedDraftByEmailId((current) => ({ ...current, [event.email_id]: event.draft_id }));
         void handleOpenEmailDetail(event.email_id);
       },
       onDone: () => {},
@@ -1597,6 +1603,7 @@ export default function Home() {
                         senderEmail={detail.sender_email}
                         autoDraft={active && autoDraftOnOpen}
                         focusDraftId={focusedDraftByEmailId[id]}
+                        refreshToken={draftRefreshByEmailId[id] ?? 0}
                         onDraftsChange={(drafts) => handleDraftsChange(id, drafts)}
                         onDraftFocus={(draftId) => handleDraftFocus(id, draftId)}
                       />
