@@ -241,6 +241,8 @@ def build_agent(
                         tool_error = tool_error or {
                             "message": f"Tool {name} failed during execution.",
                             "error_category": category,
+                            "tool": name,
+                            "tool_call_id": call_id,
                         }
                         results.append(
                             ToolMessage(

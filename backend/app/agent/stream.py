@@ -200,6 +200,20 @@ async def stream_agent(
                 event["tool_call_id"] = tool_call_id
             yield event
 
+        elif kind == "on_chain_end" and name == "tools":
+            tool_error = (data.get("output") or {}).get("tool_error")
+            if not tool_error:
+                continue
+            event = {
+                "type": "trace",
+                "step": "tool_error",
+                "tool": tool_error["tool"],
+                "output": tool_error["message"],
+                "error_category": tool_error["error_category"],
+                "tool_call_id": tool_error["tool_call_id"],
+            }
+            yield event
+
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)

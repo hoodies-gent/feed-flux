@@ -129,6 +129,23 @@ class ToolFailureTest(unittest.TestCase):
                 "terminal",
                 store.list_events(run_id)[-1]["error_category"],
             )
+            tool_results = [
+                event
+                for event in store.list_events(run_id)
+                if event["event_type"] == "tool_result"
+            ]
+            self.assertEqual(1, len(tool_results))
+            self.assertEqual("permanent-tool-call", tool_results[0]["tool_call_id"])
+            self.assertEqual("read_calendar", tool_results[0]["tool_name"])
+            self.assertEqual("terminal", tool_results[0]["error_category"])
+            self.assertEqual(
+                {
+                    "schema_version": 1,
+                    "kind": "error",
+                    "result": "failed",
+                },
+                tool_results[0]["outcome"],
+            )
             db.engine.dispose()
 
     def test_failed_tool_keeps_same_thread_checkpoint_recoverable(self):

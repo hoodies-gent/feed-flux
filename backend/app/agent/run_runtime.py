@@ -122,6 +122,20 @@ class AgentRunRuntime:
                             tool_call_id=event.get("tool_call_id"),
                             outcome=event.get("outcome"),
                         )
+                    elif event.get("step") == "tool_error":
+                        self.store.append_event(
+                            run_id,
+                            event_type="tool_result",
+                            provider=self.provider,
+                            tool_name=event.get("tool"),
+                            tool_call_id=event.get("tool_call_id"),
+                            outcome={
+                                "schema_version": 1,
+                                "kind": "error",
+                                "result": "failed",
+                            },
+                            error_category=event.get("error_category"),
+                        )
 
                 if event.get("type") == "interrupt":
                     self.store.transition_run(
