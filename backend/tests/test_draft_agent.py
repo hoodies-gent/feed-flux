@@ -24,7 +24,7 @@ from app.agent.tools import (
     read_original_email_context,
     save_reply_draft,
 )
-from app.models.email import SentAction
+from app.models.email import DraftReply, SentAction
 from app.services.agent_run_store import AgentRunStore
 from app.services.database import DatabaseService
 
@@ -233,6 +233,39 @@ class DraftAgentTest(unittest.TestCase):
         self.assertEqual([draft_id], [draft["id"] for draft in drafts])
         self.assertEqual("Revised draft", drafts[0]["body"])
         self.assertIn(f"DRAFT UPDATED (id={draft_id})", output)
+
+    def test_save_reply_draft_creates_new_draft_when_requested_draft_was_discarded(self):
+        db = DatabaseService(str(self.data_dir / "emails.db"))
+        discarded_id = db.create_draft({
+            "thread_id": "original-thread",
+            "email_id": "email-a",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Discarded draft",
+        })
+        db.discard_draft(discarded_id)
+
+        with _tool_execution_context("revision-thread", "run-recreate", "call-recreate"):
+            output = save_reply_draft.invoke({
+                "draft_id": discarded_id,
+                "original_email_id": "email-a",
+                "recipient": "sarah@example.com",
+                "subject": "Re: Weekly sync",
+                "body": "Fresh draft after discard",
+            })
+
+        drafts = db.get_drafts_for_email("email-a")
+        self.assertEqual(1, len(drafts))
+        self.assertNotEqual(discarded_id, drafts[0]["id"])
+        self.assertEqual("Fresh draft after discard", drafts[0]["body"])
+        self.assertIn(f"DRAFT READY (id={drafts[0]['id']})", output)
+
+        session = db.Session()
+        try:
+            discarded = session.get(DraftReply, discarded_id)
+        finally:
+            session.close()
+        self.assertEqual("discarded", discarded.status)
 
     def test_save_reply_draft_reuses_latest_active_draft_by_default(self):
         db = DatabaseService(str(self.data_dir / "emails.db"))

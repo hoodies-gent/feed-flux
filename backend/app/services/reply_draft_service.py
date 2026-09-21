@@ -99,7 +99,9 @@ class ReplyDraftService:
             draft = session.get(DraftReply, draft_id)
             if draft is None:
                 raise ValueError(f"draft not found: {draft_id!r}")
-            if draft.status != "draft":
+            if draft.status == "discarded":
+                draft = None
+            elif draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
         else:
             draft = (
