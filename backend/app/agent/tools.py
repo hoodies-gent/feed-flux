@@ -21,11 +21,14 @@ class SendTestEmailInput(BaseModel):
 
 @tool("send_test_email", args_schema=SendTestEmailInput)
 def send_test_email(recipient: str, subject: str, body: str) -> str:
-    """Send an email on the user's behalf.
-    Use when the user asks to send, forward, or reply to an email.
-    This is a high-risk action requiring explicit user approval before it runs.
+    """Record a local dry-run test email after explicit user approval.
+
+    This never calls an external email provider.
     """
-    return f"[dry-run] Email queued to {recipient} — subject: {subject!r}, body length: {len(body)}."
+    return (
+        f"TEST EMAIL RECORDED (dry-run) to {recipient} — subject: {subject!r}, "
+        "no external email was sent."
+    )
 
 
 class FindEmailInput(BaseModel):

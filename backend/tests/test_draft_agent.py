@@ -23,6 +23,7 @@ from app.agent.tools import (
     read_draft_context,
     read_original_email_context,
     save_reply_draft,
+    send_test_email,
 )
 from app.models.email import DraftReply, SentAction
 from app.services.agent_run_store import AgentRunStore
@@ -46,6 +47,31 @@ class _SaveReplyDraftLLM:
                         "body": "Create this draft with the runtime context.",
                     },
                     "id": "runtime-call-9",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _PromptAwareSendTestEmailLLM:
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        system_prompt = messages[0].content
+        if "send_test_email" not in system_prompt:
+            return AIMessage(content="I can't send that directly.")
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "send_test_email",
+                    "args": {
+                        "recipient": "test@example.com",
+                        "subject": "reliability-check",
+                        "body": "checkpoint test",
+                    },
+                    "id": "send-test-call-1",
                     "type": "tool_call",
                 }
             ],
@@ -423,6 +449,38 @@ class DraftAgentTest(unittest.TestCase):
     def test_agent_prompt_exposes_original_email_context_for_grounded_rewrites(self):
         self.assertIn("read_original_email_context", agent_graph.SYSTEM_PROMPT)
         self.assertIn("according to the original email", agent_graph.SYSTEM_PROMPT)
+
+    def test_agent_prompt_routes_explicit_test_email_to_approval_tool(self):
+        agent = agent_graph.build_agent(llm=_PromptAwareSendTestEmailLLM())
+
+        async def collect_events():
+            return [
+                event
+                async for event in agent_stream.stream_agent(
+                    agent_stream.new_turn_input(
+                        'Send a test email to test@example.com with subject "reliability-check" '
+                        'and body "checkpoint test".'
+                    ),
+                    "test-email-prompt-thread",
+                    agent=agent,
+                )
+            ]
+
+        events = asyncio.run(collect_events())
+        interrupts = [event for event in events if event["type"] == "interrupt"]
+        self.assertEqual(1, len(interrupts))
+        self.assertEqual("send_test_email", interrupts[0]["tool"])
+
+    def test_send_test_email_reports_completed_local_dry_run(self):
+        output = send_test_email.invoke({
+            "recipient": "test@example.com",
+            "subject": "reliability-check",
+            "body": "checkpoint test",
+        })
+
+        self.assertIn("TEST EMAIL RECORDED (dry-run)", output)
+        self.assertIn("no external email was sent", output)
+        self.assertNotIn("queued for approval", output)
 
     def test_draft_tool_result_builds_draft_stream_event(self):
         build_event = getattr(agent_stream, "_build_draft_event", None)
