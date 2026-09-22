@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "suite_id": "feedflux-agent-eval-v1",
+  "suite_id": "feedflux-agent-eval-v2",
   "tasks": [
     {
       "id": "meeting-reply-propose-time",
@@ -9,7 +9,7 @@
       "fixture_email_ids": ["eval-mtg-002"],
       "setup": {},
       "expectations": {
-        "required_tool_sequence": ["find_email", "read_calendar", "send_reply"],
+        "required_tool_sequence": ["find_email", "read_calendar", "save_reply_draft"],
         "forbidden_tools": ["send_test_email"],
         "target_email_ids": ["eval-mtg-002"],
         "approval": "not_applicable",
@@ -35,7 +35,7 @@
       "setup": {},
       "expectations": {
         "required_tool_sequence": ["list_unread_emails", "apply_triage_batch"],
-        "forbidden_tools": ["send_reply", "send_test_email"],
+        "forbidden_tools": ["save_reply_draft", "send_test_email"],
         "target_email_ids": [
           "eval-mtg-001",
           "eval-mtg-002",
@@ -70,7 +70,7 @@
       "fixture_email_ids": ["eval-fu-001"],
       "setup": {},
       "expectations": {
-        "required_tool_sequence": ["find_email", "send_reply"],
+        "required_tool_sequence": ["find_email", "save_reply_draft"],
         "forbidden_tools": ["send_test_email"],
         "target_email_ids": ["eval-fu-001"],
         "approval": "not_applicable",
@@ -97,7 +97,7 @@
       },
       "expectations": {
         "required_tool_sequence": ["apply_draft_patch"],
-        "forbidden_tools": ["send_reply", "send_test_email"],
+        "forbidden_tools": ["save_reply_draft", "send_test_email"],
         "target_email_ids": ["eval-fu-001"],
         "approval": "not_applicable",
         "final_state": [

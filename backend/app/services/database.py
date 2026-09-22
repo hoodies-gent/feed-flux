@@ -4,6 +4,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, desc, or_, text
 from sqlalchemy.orm import sessionmaker
 from app.models.email import Base, DraftReply, Email, SentAction, LabelAction
+from app.models.agent_run import AgentRun, AgentRunEvent
+from app.models.tool_execution import ToolExecution
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

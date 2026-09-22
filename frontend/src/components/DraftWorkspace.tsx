@@ -24,6 +24,7 @@ interface DraftWorkspaceProps {
   senderEmail?: string;
   autoDraft?: boolean;
   focusDraftId?: number | null;
+  refreshToken?: number;
   onDraftsChange?: (drafts: DraftReply[]) => void;
   onDraftFocus?: (draftId: number | null) => void;
 }
@@ -50,6 +51,7 @@ export function DraftWorkspace({
   senderEmail,
   autoDraft = false,
   focusDraftId = null,
+  refreshToken = 0,
   onDraftsChange,
   onDraftFocus,
 }: DraftWorkspaceProps) {
@@ -185,7 +187,7 @@ export function DraftWorkspace({
       Object.values(saveTimers.current).forEach(clearTimeout);
       saveTimers.current = {};
     };
-  }, [emailId]);
+  }, [emailId, refreshToken]);
 
   useEffect(() => {
     if (focusDraftId && drafts.some((draft) => draft.id === focusDraftId)) {
@@ -235,14 +237,14 @@ export function DraftWorkspace({
     const currentDraft = drafts.find((draft) => draft.id === editingDraftId) ?? drafts[0];
     const prompt = currentDraft ? [
       `Revise existing draft ${currentDraft.id} for the email with id "${emailId}".`,
-      `Find the email from ${target} with subject "${subject}" and use that exact email id when calling send_reply.`,
-      `Keep the same recipient and subject, improve the current draft below, and call send_reply with draft_id ${currentDraft.id}.`,
+      `Find the email from ${target} with subject "${subject}" and use that exact email id when calling save_reply_draft.`,
+      `Keep the same recipient and subject, improve the current draft below, and call save_reply_draft with draft_id ${currentDraft.id}.`,
       `Current draft body:\n${currentDraft.body}`,
       `Revision intent: ${intent}.`,
       customPrompt.trim() ? `Additional instructions: ${customPrompt.trim()}` : '',
     ].filter(Boolean).join(' ') : [
       `Draft a reply for the email with id "${emailId}".`,
-      `Find the email from ${target} with subject "${subject}" and use that exact email id when calling send_reply.`,
+      `Find the email from ${target} with subject "${subject}" and use that exact email id when calling save_reply_draft.`,
       `Reply intent: ${intent}.`,
       customPrompt.trim() ? `Additional instructions: ${customPrompt.trim()}` : '',
     ].filter(Boolean).join(' ');

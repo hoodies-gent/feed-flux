@@ -39,6 +39,7 @@ token.json
 data/state.json
 data/token_cache.bin
 data/*.db
+data/agent_checkpoints.sqlite*
 data/chroma/
 
 # Testing & Temporary

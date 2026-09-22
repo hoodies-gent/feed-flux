@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.agent.tools import current_thread_id, send_reply
+from app.agent.execution_context import current_thread_id, current_tool_call_id
+from app.agent.tools import save_reply_draft
 from app.evals.grader import load_golden_suite
 from app.evals.recorder import TrialRecorder
 from app.evals.runner import TokenPricing, _build_provider_agent, run_suite, run_trial
@@ -52,18 +53,20 @@ async def _meeting_events(graph_input, thread_id, callbacks, tool_output_limit):
     yield {
         "type": "trace",
         "step": "tool_start",
-        "tool": "send_reply",
+        "tool": "save_reply_draft",
         "args": reply_args,
     }
-    token = current_thread_id.set(thread_id)
+    thread_token = current_thread_id.set(thread_id)
+    call_token = current_tool_call_id.set("eval-send-reply")
     try:
-        output = send_reply.invoke(reply_args)
+        output = save_reply_draft.invoke(reply_args)
     finally:
-        current_thread_id.reset(token)
+        current_tool_call_id.reset(call_token)
+        current_thread_id.reset(thread_token)
     yield {
         "type": "trace",
         "step": "tool_end",
-        "tool": "send_reply",
+        "tool": "save_reply_draft",
         "output": output,
     }
     yield {"type": "token", "content": "Draft ready."}
@@ -167,6 +170,7 @@ class EvalRunnerTest(unittest.TestCase):
         self.assertEqual(str(untouched_db), restored_path)
         self.assertFalse(untouched_db.exists())
         self.assertEqual("run-001:meeting-reply-propose-time:1", record["trial_id"])
+        self.assertEqual("feedflux-agent-eval-v2", record["suite_id"])
         self.assertEqual("completed", record["status"])
         self.assertEqual(["started", "completed"], [item["status"] for item in record["lifecycle"]])
         self.assertEqual(

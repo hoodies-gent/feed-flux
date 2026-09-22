@@ -1,17 +1,16 @@
-import contextvars
 from datetime import datetime, timedelta
 from typing import Literal
 
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.services.database import DatabaseService
-
-# Set by the graph's tools_node before invoking any tool so that tools which
-# need to attribute their side effects to a conversation can read it.
-current_thread_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "current_thread_id", default="unknown"
+from app.agent.execution_context import (
+    current_run_id,
+    current_thread_id,
+    current_tool_call_id,
 )
+from app.services.database import DatabaseService
+from app.services.reply_draft_service import ReplyDraftService
 
 
 class SendTestEmailInput(BaseModel):
@@ -22,11 +21,14 @@ class SendTestEmailInput(BaseModel):
 
 @tool("send_test_email", args_schema=SendTestEmailInput)
 def send_test_email(recipient: str, subject: str, body: str) -> str:
-    """Send an email on the user's behalf.
-    Use when the user asks to send, forward, or reply to an email.
-    This is a high-risk action requiring explicit user approval before it runs.
+    """Record a local dry-run test email after explicit user approval.
+
+    This never calls an external email provider.
     """
-    return f"[dry-run] Email queued to {recipient} — subject: {subject!r}, body length: {len(body)}."
+    return (
+        f"TEST EMAIL RECORDED (dry-run) to {recipient} — subject: {subject!r}, "
+        "no external email was sent."
+    )
 
 
 class FindEmailInput(BaseModel):
@@ -166,7 +168,7 @@ def read_calendar(days_ahead: int = 7) -> dict:
     }
 
 
-class SendReplyInput(BaseModel):
+class SaveReplyDraftInput(BaseModel):
     draft_id: int | None = Field(
         default=None,
         description="Existing draft ID to revise; omit when creating a new draft.",
@@ -179,8 +181,8 @@ class SendReplyInput(BaseModel):
     body: str = Field(description="Full body text of the reply.")
 
 
-@tool("send_reply", args_schema=SendReplyInput)
-def send_reply(
+@tool("save_reply_draft", args_schema=SaveReplyDraftInput)
+def save_reply_draft(
     recipient: str,
     subject: str,
     body: str,
@@ -193,25 +195,24 @@ def send_reply(
     artifact; it does not send email or write to Microsoft Graph. The user
     edits, sends in dry-run mode, or discards it from the email detail panel.
     """
+    run_id = current_run_id.get()
+    tool_call_id = current_tool_call_id.get()
+    if run_id is None or tool_call_id is None:
+        raise RuntimeError("save_reply_draft requires an agent run and tool call context")
+
     db = DatabaseService()
-    if draft_id is None:
-        active_drafts = db.get_drafts_for_email(original_email_id)
-        if active_drafts:
-            draft_id = active_drafts[0]["id"]
-    if draft_id is not None:
-        row_id = db.update_draft(draft_id, body)["id"]
-        marker = "DRAFT UPDATED"
-    else:
-        row_id = db.create_draft({
-            "thread_id": current_thread_id.get(),
-            "email_id": original_email_id,
-            "recipient": recipient,
-            "subject": subject,
-            "body": body,
-        })
-        marker = "DRAFT READY"
+    result = ReplyDraftService(db).save_once(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        thread_id=current_thread_id.get(),
+        recipient=recipient,
+        subject=subject,
+        body=body,
+        original_email_id=original_email_id,
+        draft_id=draft_id,
+    )
     return (
-        f"{marker} (id={row_id}). "
+        f"{result['marker']} (id={result['draft_id']}). "
         f"The reply draft for email {original_email_id} is saved in its email panel. "
         f"Tell the user it is ready for review, then stop. Do not claim it was sent."
     )
@@ -234,16 +235,25 @@ def apply_draft_patch(
     replacement: str,
 ) -> str:
     """Replace only a selected range in an active draft body."""
+    run_id = current_run_id.get()
+    tool_call_id = current_tool_call_id.get()
+    if run_id is None or tool_call_id is None:
+        raise RuntimeError(
+            "apply_draft_patch requires an agent run and tool call context"
+        )
+
     db = DatabaseService()
-    draft = db.apply_draft_patch(
-        draft_id,
-        selection_start,
-        selection_end,
-        replacement,
-        email_id=original_email_id,
+    result = ReplyDraftService(db).apply_patch_once(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        draft_id=draft_id,
+        original_email_id=original_email_id,
+        selection_start=selection_start,
+        selection_end=selection_end,
+        replacement=replacement,
     )
     return (
-        f"DRAFT UPDATED (id={draft['id']}). "
+        f"DRAFT UPDATED (id={result['draft_id']}). "
         "Only the selected text was replaced; the rest of the draft is unchanged. "
         "Tell the user the revised draft is ready for review, then stop."
     )
@@ -379,7 +389,7 @@ class ApplyTriageBatchInput(BaseModel):
             "Emails that genuinely need a human-authored reply — do NOT draft them here. "
             "One item per email with a short reason so the user knows why. They surface "
             "as a follow-up list; the user picks one at a time and drafts through the "
-            "standard send_reply flow. Keep this short (0-5); if you find yourself "
+            "standard save_reply_draft flow. Keep this short (0-5); if you find yourself "
             "putting most of the batch here, your classification is too conservative."
         ),
         max_length=20,
@@ -421,7 +431,7 @@ TOOLS = [
     find_email,
     list_unread_emails,
     read_calendar,
-    send_reply,
+    save_reply_draft,
     read_draft_context,
     read_original_email_context,
     apply_draft_patch,

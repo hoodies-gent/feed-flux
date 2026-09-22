@@ -4,25 +4,47 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import interrupt
+from langgraph.types import RetryPolicy, interrupt
 
+from app.agent.execution_context import current_thread_id, current_tool_call_id
 from app.agent.llm import get_llm
+from app.agent.provider_retry import PROVIDER_RETRY_POLICY
+from app.agent.runtime_errors import classify_runtime_error
 from app.agent.state import AgentState
-from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME, current_thread_id
+from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
+from app.agent.usage import usage_event_from_message
+
+DEFAULT_MAX_TOOL_CALLS = 8
+DEFAULT_MAX_TOTAL_TOKENS = 64_000
+
+
+class ToolCallBudgetExceeded(RuntimeError):
+    pass
+
+
+class RunTokenBudgetExceeded(RuntimeError):
+    pass
+
+
+class ToolExecutionFailure(RuntimeError):
+    def __init__(self, message: str, error_category: str):
+        super().__init__(message)
+        self.error_category = error_category
+
 
 SYSTEM_PROMPT = (
     "You are FeedFlux, a helpful email assistant. Answer concisely and remember prior turns.\n"
     "\n"
     "LANGUAGE — critical: every word of your response to the user MUST match the language "
     "of the user's latest message. If they wrote Chinese, ALL your chat text is in Chinese, "
-    "starting from the first token. The draft body inside send_reply should match the "
+    "starting from the first token. The draft body inside save_reply_draft should match the "
     "original email's language (usually English for work emails). But everything you say "
     "in the chat outside the tool call is in the user's language.\n"
     "\n"
     "Tools:\n"
     "- find_email(sender_contains?, subject_contains?): locate an email the user references.\n"
     "- read_calendar(days_ahead?): list free 30-min slots this week.\n"
-    "- send_reply(recipient, subject, body, original_email_id, draft_id?): save a reply draft "
+    "- save_reply_draft(recipient, subject, body, original_email_id, draft_id?): save a reply draft "
     "in the original email's detail panel. Pass draft_id to revise an existing draft; it "
     "does NOT send.\n"
     "- apply_draft_patch(draft_id, original_email_id, selection_start, selection_end, replacement): "
@@ -32,6 +54,14 @@ SYSTEM_PROMPT = (
     "- read_original_email_context(original_email_id, scope, selection_start?, selection_end?): "
     "read nearby or full incoming email text for a grounded reply or rewrite.\n"
     "\n"
+    "Test-email workflow — EXPLICIT APPROVAL REQUIRED:\n"
+    "When the user explicitly asks to send a test email, call send_test_email with the "
+    "requested recipient, subject, and body. The tool pauses for the user's approval "
+    "before running and only records a local dry-run; it does not send through an external "
+    "email provider. Do not refuse the request in chat or claim the email was sent. After "
+    "the user approves and the tool returns, say it was recorded locally; do not say it is "
+    "still waiting for approval or ask the user to approve it again.\n"
+    "\n"
     "Meeting-reply workflow — DRAFT FIRST, ONE SEARCH:\n"
     "  (1) find_email with a SINGLE filter — prefer sender_contains alone when the user "
     "names the sender. Do NOT combine sender_contains + subject_contains with topic words "
@@ -39,10 +69,10 @@ SYSTEM_PROMPT = (
     "One search, then commit. If the sender has multiple emails, pick the most recent one "
     "that plausibly matches the user's intent — you do NOT need to ask them which one.\n"
     "  (2) read_calendar if the reply might propose or reference times.\n"
-    "  (3) send_reply with your best draft. Pick 2–3 concrete slots from free_slots when "
+    "  (3) save_reply_draft with your best draft. Pick 2–3 concrete slots from free_slots when "
     "scheduling; do not invent times outside that list.\n"
     "When the user asks to revise a selected passage, use apply_draft_patch instead of "
-    "send_reply. Use the supplied selection for local changes; if the instruction refers "
+    "save_reply_draft. Use the supplied selection for local changes; if the instruction refers "
     "to surrounding paragraphs or the whole draft, call read_draft_context first with the "
     "smallest scope that answers it. If the user asks to change text according to the original email, "
     "or the instruction depends on what the sender asked "
@@ -56,7 +86,7 @@ SYSTEM_PROMPT = (
     "dry-run mode, or discard it in the email panel. Only ask in chat if the sender or target email cannot be "
     "identified after a good-faith search.\n"
     "\n"
-    "After calling send_reply:\n"
+    "After calling save_reply_draft:\n"
     "- The DRAFT READY or DRAFT UPDATED tool result is the final agent step. The UI opens the email panel and "
     "shows the saved draft; do not make another tool call or claim it was sent.\n"
     "- Never send a draft from chat. Only the user's native Send action in the email panel "
@@ -93,7 +123,7 @@ SYSTEM_PROMPT = (
     "audit ('recurring standup', 'newsletter', 'CI passed', 'reschedule ack needed', "
     "'2nd follow-up'). Match the reason LANGUAGE to the user's chat language "
     "(English for English requests, Chinese for Chinese requests). Do NOT call this "
-    "tool twice. Do NOT loop send_reply per email.\n"
+    "tool twice. Do NOT loop save_reply_draft per email.\n"
     "\n"
     "Across the entire triage flow, chat text before apply_triage_batch fires must "
     "be AT MOST one short sentence total, IN THE USER'S LANGUAGE — a brief 'analysing "
@@ -123,6 +153,8 @@ SYSTEM_PROMPT = (
 
 def _route_after_tools(state: AgentState) -> str:
     """End a turn after draft creation; continue after read-only tools."""
+    if state.get("tool_error"):
+        return "tool_error"
     for message in reversed(state["messages"]):
         if not isinstance(message, ToolMessage):
             break
@@ -132,10 +164,21 @@ def _route_after_tools(state: AgentState) -> str:
     return "agent"
 
 
+def _raise_tool_error(state: AgentState) -> None:
+    error = state.get("tool_error") or {}
+    raise ToolExecutionFailure(
+        error.get("message", "Agent tool execution failed."),
+        error.get("error_category", "terminal"),
+    )
+
+
 def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
     llm: BaseChatModel | None = None,
+    provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
+    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+    max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
 ):
     bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
@@ -143,37 +186,85 @@ def build_agent(
         messages = state["messages"]
         if not messages or not isinstance(messages[0], SystemMessage):
             messages = [SystemMessage(content=SYSTEM_PROMPT), *messages]
-        return {"messages": [await bound_llm.ainvoke(messages)]}
+        response = await bound_llm.ainvoke(messages)
+        usage_event = usage_event_from_message(response)
+        if usage_event is None:
+            return {"messages": [response]}
+        total_tokens_used = (
+            state.get("total_tokens_used", 0) + usage_event["usage"]["total_tokens"]
+        )
+        if total_tokens_used > max_total_tokens:
+            raise RunTokenBudgetExceeded(
+                f"Agent run exceeded its limit of {max_total_tokens} tokens."
+            )
+        return {
+            "messages": [response],
+            "total_tokens_used": total_tokens_used,
+        }
 
     def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         token = current_thread_id.set(thread_id)
         try:
             last = state["messages"][-1]
+            tool_calls_used = state.get("tool_calls_used", 0)
+            requested_tool_calls = len(last.tool_calls)
+            if tool_calls_used + requested_tool_calls > max_tool_calls:
+                raise ToolCallBudgetExceeded(
+                    f"Agent run exceeded its limit of {max_tool_calls} tool calls."
+                )
             results = []
+            tool_error = None
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
+                call_token = current_tool_call_id.set(call_id)
+                try:
+                    if name in HIGH_RISK_TOOLS:
+                        decision = interrupt(
+                            {"tool": name, "args": args, "tool_call_id": call_id}
+                        )
+                        edited_body = decision.get("edited_body")
+                        if not decision.get("approve"):
+                            note = decision.get("note") or "User declined the action."
+                            if edited_body:
+                                msg = (
+                                    f"[rejected by user] User edited the draft to:\n\n"
+                                    f"{edited_body}\n\nFeedback: {note}"
+                                )
+                            else:
+                                msg = f"[rejected by user] {note}"
+                            results.append(ToolMessage(msg, tool_call_id=call_id))
+                            continue
+                        if edited_body and "body" in args:
+                            args = {**args, "body": edited_body}
 
-                if name in HIGH_RISK_TOOLS:
-                    decision = interrupt({"tool": name, "args": args, "tool_call_id": call_id})
-                    edited_body = decision.get("edited_body")
-                    if not decision.get("approve"):
-                        note = decision.get("note") or "User declined the action."
-                        if edited_body:
-                            msg = (
-                                f"[rejected by user] User edited the draft to:\n\n"
-                                f"{edited_body}\n\nFeedback: {note}"
+                    try:
+                        output = TOOLS_BY_NAME[name].invoke(
+                            args,
+                            config={"metadata": {"tool_call_id": call_id}},
+                        )
+                        results.append(ToolMessage(str(output), tool_call_id=call_id))
+                    except Exception as error:
+                        category = classify_runtime_error(error).value
+                        tool_error = tool_error or {
+                            "message": f"Tool {name} failed during execution.",
+                            "error_category": category,
+                            "tool": name,
+                            "tool_call_id": call_id,
+                        }
+                        results.append(
+                            ToolMessage(
+                                f"[tool error] Tool {name} failed. No result was produced.",
+                                tool_call_id=call_id,
                             )
-                        else:
-                            msg = f"[rejected by user] {note}"
-                        results.append(ToolMessage(msg, tool_call_id=call_id))
-                        continue
-                    if edited_body and "body" in args:
-                        args = {**args, "body": edited_body}
-
-                output = TOOLS_BY_NAME[name].invoke(args)
-                results.append(ToolMessage(str(output), tool_call_id=call_id))
-            return {"messages": results}
+                        )
+                finally:
+                    current_tool_call_id.reset(call_token)
+            return {
+                "messages": results,
+                "tool_calls_used": tool_calls_used + requested_tool_calls,
+                "tool_error": tool_error,
+            }
         finally:
             current_thread_id.reset(token)
 
@@ -184,9 +275,15 @@ def build_agent(
         return END
 
     graph = StateGraph(AgentState)
-    graph.add_node("agent", agent_node)
+    graph.add_node("agent", agent_node, retry_policy=provider_retry_policy)
     graph.add_node("tools", tools_node)
+    graph.add_node("tool_error", _raise_tool_error)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
-    graph.add_conditional_edges("tools", _route_after_tools, {"agent": "agent", END: END})
+    graph.add_conditional_edges(
+        "tools",
+        _route_after_tools,
+        {"agent": "agent", "tool_error": "tool_error", END: END},
+    )
+    graph.add_edge("tool_error", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())

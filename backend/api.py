@@ -15,7 +15,17 @@ from app.services.memory import MemoryService
 from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
-from app.agent.stream import stream_agent, new_turn_input, resume_input
+from app.agent.runtime import open_agent_checkpointer
+from app.agent.graph import RunTokenBudgetExceeded
+from app.agent.run_runtime import AgentRunRuntime
+from app.agent.runtime_errors import classify_runtime_error
+from app.agent.usage import TokenPricing
+from app.agent.stream import (
+    new_turn_input,
+    resume_input,
+    set_agent_checkpointer,
+)
+from app.services.agent_run_store import AgentRunStore
 
 # Initialize Database Service
 db = DatabaseService()
@@ -110,15 +120,18 @@ async def periodic_sync_task():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Start the background sync task
-    sync_task = asyncio.create_task(periodic_sync_task())
-    yield
-    # Shutdown: Clean up the task
-    sync_task.cancel()
-    try:
-        await sync_task
-    except asyncio.CancelledError:
-        logger.info("Background sync scheduler cancelled on shutdown.")
+    async with open_agent_checkpointer(Config.AGENT_CHECKPOINT_DB) as checkpointer:
+        set_agent_checkpointer(checkpointer)
+        sync_task = asyncio.create_task(periodic_sync_task())
+        try:
+            yield
+        finally:
+            sync_task.cancel()
+            try:
+                await sync_task
+            except asyncio.CancelledError:
+                logger.info("Background sync scheduler cancelled on shutdown.")
+            set_agent_checkpointer(None)
 
 # --- App Init ---
 app = FastAPI(
@@ -535,18 +548,66 @@ async def generate_draft_reply(request: DraftRequest):
         logger.error(f"Draft generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+_AGENT_ERROR_MESSAGES = {
+    "transient": "The agent service is temporarily busy or timed out. Please try again.",
+    "llm_tool_repairable": "The agent could not complete a model or tool step. Please try again.",
+    "user_repairable": "The agent needs updated authorization or corrected input before it can continue.",
+    "terminal": "The agent could not complete this request. The run has stopped without further actions.",
+}
+
+
+def _agent_error_event(error: Exception) -> dict:
+    category = classify_runtime_error(error).value
+    if isinstance(error, RunTokenBudgetExceeded):
+        return {
+            "type": "error",
+            "error_category": category,
+            "content": (
+                "This run reached its execution budget and stopped. "
+                "Completed local actions were kept; no further actions were taken."
+            ),
+        }
+    return {
+        "type": "error",
+        "error_category": category,
+        "content": _AGENT_ERROR_MESSAGES[category],
+    }
+
+
+def _configured_token_pricing() -> TokenPricing | None:
+    input_price = Config.LLM_INPUT_COST_USD_PER_MILLION
+    output_price = Config.LLM_OUTPUT_COST_USD_PER_MILLION
+    if input_price is None or output_price is None:
+        return None
+    return TokenPricing(
+        input_usd_per_million=input_price,
+        output_usd_per_million=output_price,
+        cached_input_usd_per_million=Config.LLM_CACHED_INPUT_COST_USD_PER_MILLION,
+    )
+
+
 # --- Agent endpoints ---
-async def _agent_ndjson(graph_input, thread_id: str):
+async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
+    runtime = AgentRunRuntime(
+        AgentRunStore(db),
+        provider=Config.LLM_PROVIDER,
+        pricing=_configured_token_pricing(),
+    )
     try:
-        async for event in stream_agent(graph_input, thread_id):
+        event_stream = (
+            runtime.stream_resumed_run(graph_input, thread_id)
+            if resume
+            else runtime.stream_new_run(graph_input, thread_id)
+        )
+        async for event in event_stream:
             yield json.dumps(event) + "\n"
     except Exception as e:
         logger.error(f"Agent stream failed: {e}", exc_info=True)
-        yield json.dumps({"type": "error", "content": str(e)}) + "\n"
+        yield json.dumps(_agent_error_event(e)) + "\n"
 
 @app.post("/api/agent/chat/stream")
 async def agent_chat_stream(request: AgentChatRequest):
-    """Start a new agent turn. Streams NDJSON events: trace | token | interrupt | done | error."""
+    """Start a new agent turn. Streams NDJSON events: run | trace | token | interrupt | done | error."""
     return StreamingResponse(
         _agent_ndjson(new_turn_input(request.message), request.thread_id),
         media_type="application/x-ndjson",
@@ -592,6 +653,7 @@ async def agent_resume(request: AgentResumeRequest):
         _agent_ndjson(
             resume_input(request.approve, request.note, request.edited_body, request.decisions),
             request.thread_id,
+            resume=True,
         ),
         media_type="application/x-ndjson",
     )

@@ -6,16 +6,17 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
+from app.agent.execution_context import current_run_id
 from app.agent.graph import build_agent
 from app.agent.llm import get_llm
 from app.agent.stream import new_turn_input, stream_agent
+from app.agent.usage import TokenPricing, estimate_cost, usage_totals
 from app.core.config import Config
 from app.evals.grader import (
     DEFAULT_EMAIL_FIXTURE_PATH,
@@ -31,13 +32,6 @@ from app.services.database import DatabaseService
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_RESULTS_DIR = BACKEND_DIR / "evals" / "results"
 EventSource = Callable[..., AsyncIterator[dict[str, Any]]]
-
-
-@dataclass(frozen=True)
-class TokenPricing:
-    input_usd_per_million: float
-    output_usd_per_million: float
-    cached_input_usd_per_million: float | None = None
 
 
 def _now() -> str:
@@ -175,53 +169,6 @@ async def _provider_events(
         yield event
 
 
-def _usage_totals(callback: UsageMetadataCallbackHandler) -> dict[str, int]:
-    input_tokens = sum(
-        int(item.get("input_tokens", 0))
-        for item in callback.usage_metadata.values()
-    )
-    output_tokens = sum(
-        int(item.get("output_tokens", 0))
-        for item in callback.usage_metadata.values()
-    )
-    cached_input_tokens = sum(
-        int((item.get("input_token_details") or {}).get("cache_read", 0))
-        for item in callback.usage_metadata.values()
-    )
-    total_tokens = sum(
-        int(item.get("total_tokens", 0))
-        for item in callback.usage_metadata.values()
-    )
-    if total_tokens == 0:
-        total_tokens = input_tokens + output_tokens
-    return {
-        "input_tokens": input_tokens,
-        "cached_input_tokens": cached_input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": total_tokens,
-    }
-
-
-def _estimate_cost(usage: dict[str, int], pricing: TokenPricing | None) -> float | None:
-    if pricing is None:
-        return None
-    cached_input_tokens = min(
-        usage["input_tokens"], usage.get("cached_input_tokens", 0)
-    )
-    uncached_input_tokens = usage["input_tokens"] - cached_input_tokens
-    cached_input_rate = (
-        pricing.cached_input_usd_per_million
-        if pricing.cached_input_usd_per_million is not None
-        else pricing.input_usd_per_million
-    )
-    cost = (
-        uncached_input_tokens * pricing.input_usd_per_million
-        + cached_input_tokens * cached_input_rate
-        + usage["output_tokens"] * pricing.output_usd_per_million
-    ) / 1_000_000
-    return round(cost, 10)
-
-
 def _ids_from_value(value: Any) -> set[str]:
     ids: set[str] = set()
     if isinstance(value, dict):
@@ -340,29 +287,33 @@ async def run_trial(
             try:
                 setup = _prepare_trial(db, task)
                 prompt = _task_prompt(task, setup)
-                if event_source is None:
-                    event_iterator = _provider_events(
-                        new_turn_input(prompt),
-                        thread_id,
-                        [usage_callback],
-                        None,
-                        provider,
-                        actual_model,
-                        request_timeout,
-                        max_retries,
-                    )
-                else:
-                    event_iterator = event_source(
-                        new_turn_input(prompt),
-                        thread_id,
-                        [usage_callback],
-                        None,
-                    )
-                async with asyncio.timeout(request_timeout):
-                    async for event in event_iterator:
-                        events.append(event)
-                        if event.get("type") == "token":
-                            output += str(event.get("content", ""))
+                run_token = current_run_id.set(trial_id)
+                try:
+                    if event_source is None:
+                        event_iterator = _provider_events(
+                            new_turn_input(prompt),
+                            thread_id,
+                            [usage_callback],
+                            None,
+                            provider,
+                            actual_model,
+                            request_timeout,
+                            max_retries,
+                        )
+                    else:
+                        event_iterator = event_source(
+                            new_turn_input(prompt),
+                            thread_id,
+                            [usage_callback],
+                            None,
+                        )
+                    async with asyncio.timeout(request_timeout):
+                        async for event in event_iterator:
+                            events.append(event)
+                            if event.get("type") == "token":
+                                output += str(event.get("content", ""))
+                finally:
+                    current_run_id.reset(run_token)
                 if any(event.get("type") == "interrupt" for event in events):
                     status = "interrupted"
             except Exception as exc:
@@ -410,11 +361,11 @@ async def run_trial(
     }
     grade = grade_task(task, observation).as_dict()
     grade["failures"] = [dict(failure) for failure in grade["failures"]]
-    usage = _usage_totals(usage_callback)
+    usage = usage_totals(usage_callback.usage_metadata)
     finished_at = _now()
     record = {
         "schema_version": 1,
-        "suite_id": "feedflux-agent-eval-v1",
+        "suite_id": "feedflux-agent-eval-v2",
         "run_id": run_id,
         "trial_id": trial_id,
         "provider": provider,
@@ -442,7 +393,7 @@ async def run_trial(
             if pricing
             else None
         ),
-        "estimated_cost_usd": _estimate_cost(usage, pricing),
+        "estimated_cost_usd": estimate_cost(usage, pricing),
         "tool_calls": tool_calls,
         "target_email_ids": sorted(target_email_ids),
         "approval": approval,

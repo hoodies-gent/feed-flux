@@ -5,15 +5,26 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from app.agent.graph import build_agent
+from app.agent.usage import usage_event_from_message
 from app.services.database import DatabaseService
 
 _agent = None
+_checkpointer = None
+DEFAULT_MAX_GRAPH_STEPS = 25
+
+
+def set_agent_checkpointer(checkpointer) -> None:
+    global _agent, _checkpointer
+    _agent = None
+    _checkpointer = checkpointer
 
 
 def get_agent():
     global _agent
     if _agent is None:
-        _agent = build_agent()
+        if _checkpointer is None:
+            raise RuntimeError("Agent runtime is not initialized.")
+        _agent = build_agent(checkpointer=_checkpointer)
     return _agent
 
 
@@ -21,7 +32,7 @@ def _enrich_interrupt(payload: dict, recent_tool_results: list[dict]) -> dict:
     """Extract fields the frontend needs for the review card."""
     event = {"type": "interrupt", **payload}
     tool = payload.get("tool")
-    if tool == "send_reply":
+    if tool == "save_reply_draft":
         args = payload.get("args") or {}
         event["draft_preview"] = {
             "recipient": args.get("recipient"),
@@ -120,7 +131,10 @@ def _load_email_meta(email_ids: set[str]) -> dict[str, dict]:
 
 
 async def _emit_interrupts(agent, config, recent_tool_results) -> AsyncIterator[dict]:
-    state = agent.get_state(config)
+    if hasattr(agent, "aget_state"):
+        state = await agent.aget_state(config)
+    else:
+        state = agent.get_state(config)
     for task in state.tasks:
         for iv in task.interrupts:
             payload = iv.value if isinstance(iv.value, dict) else {"value": iv.value}
@@ -134,13 +148,17 @@ async def stream_agent(
     callbacks: list[Any] | None = None,
     tool_output_limit: int | None = 2000,
     agent: Any | None = None,
+    max_graph_steps: int = DEFAULT_MAX_GRAPH_STEPS,
 ) -> AsyncIterator[dict]:
     """Yield NDJSON-friendly events for a single agent invocation.
 
     graph_input is either {"messages": [...]} for a new turn or a Command(resume=...) for post-interrupt.
     """
     runtime_agent = agent if agent is not None else get_agent()
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": max_graph_steps,
+    }
     if callbacks:
         config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []
@@ -165,12 +183,43 @@ async def stream_agent(
             if text:
                 yield {"type": "token", "content": text}
 
+        elif kind == "on_chat_model_end":
+            usage_event = usage_event_from_message(data.get("output"))
+            if usage_event is not None:
+                yield usage_event
+
         elif kind == "on_tool_start":
-            yield {"type": "trace", "step": "tool_start", "tool": name, "args": data.get("input")}
+            tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
+            event = {
+                "type": "trace",
+                "step": "tool_start",
+                "tool": name,
+                "args": data.get("input"),
+            }
+            if tool_call_id is not None:
+                event["tool_call_id"] = tool_call_id
+            yield event
+
+        elif kind == "on_chain_end" and name == "tools":
+            tool_error = (data.get("output") or {}).get("tool_error")
+            if not tool_error:
+                continue
+            event = {
+                "type": "trace",
+                "step": "tool_error",
+                "tool": tool_error["tool"],
+                "output": tool_error["message"],
+                "error_category": tool_error["error_category"],
+                "tool_call_id": tool_error["tool_call_id"],
+            }
+            yield event
 
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)
+            tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
+            if tool_call_id is None:
+                tool_call_id = getattr(output, "tool_call_id", None)
             truncated = (
                 output_text
                 if tool_output_limit is None
@@ -178,18 +227,35 @@ async def stream_agent(
             )
             recent_tool_results.append({"tool": name, "output": truncated})
             event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
+            if tool_call_id is not None:
+                event["tool_call_id"] = tool_call_id
             count = _count_list_result(output, output_text)
             if count is not None:
                 event["result_count"] = count
+
+            draft_event = None
+            if name == "apply_triage_batch":
+                tool_input = data.get("input") or {}
+            elif name in {"save_reply_draft", "apply_draft_patch"}:
+                draft_event = _build_draft_event(data.get("input") or {}, output_text)
+                if draft_event is not None:
+                    event["outcome"] = {
+                        "schema_version": 1,
+                        "kind": "draft",
+                        "draft_id": draft_event["draft_id"],
+                        "email_id": draft_event["email_id"],
+                        "result": (
+                            "created"
+                            if output_text.startswith("DRAFT READY")
+                            else "updated"
+                        ),
+                    }
             yield event
 
             if name == "apply_triage_batch":
-                tool_input = data.get("input") or {}
                 yield _build_plan_event(tool_input)
-            elif name in {"send_reply", "apply_draft_patch"}:
-                draft_event = _build_draft_event(data.get("input") or {}, output_text)
-                if draft_event:
-                    yield draft_event
+            elif draft_event is not None:
+                yield draft_event
 
     async for ev in _emit_interrupts(runtime_agent, config, recent_tool_results):
         yield ev
@@ -198,7 +264,12 @@ async def stream_agent(
 
 
 def new_turn_input(message: str) -> dict:
-    return {"messages": [HumanMessage(content=message)]}
+    return {
+        "messages": [HumanMessage(content=message)],
+        "tool_calls_used": 0,
+        "total_tokens_used": 0,
+        "tool_error": None,
+    }
 
 
 def resume_input(
