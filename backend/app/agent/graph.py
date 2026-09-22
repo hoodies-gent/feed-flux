@@ -15,7 +15,7 @@ from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
 from app.agent.usage import usage_event_from_message
 
 DEFAULT_MAX_TOOL_CALLS = 8
-DEFAULT_MAX_TOTAL_TOKENS = 32_000
+DEFAULT_MAX_TOTAL_TOKENS = 64_000
 
 
 class ToolCallBudgetExceeded(RuntimeError):

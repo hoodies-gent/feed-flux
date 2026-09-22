@@ -24,7 +24,14 @@ class _ApprovalLLM(BaseChatModel):
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
         if isinstance(messages[-1], ToolMessage):
-            message = AIMessage(content="completed after restart")
+            message = AIMessage(
+                content="completed after restart",
+                usage_metadata={
+                    "input_tokens": 21_000,
+                    "output_tokens": 138,
+                    "total_tokens": 21_138,
+                },
+            )
         else:
             message = AIMessage(
                 content="",
@@ -40,6 +47,11 @@ class _ApprovalLLM(BaseChatModel):
                         "type": "tool_call",
                     }
                 ],
+                usage_metadata={
+                    "input_tokens": 21_000,
+                    "output_tokens": 74,
+                    "total_tokens": 21_074,
+                },
             )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
