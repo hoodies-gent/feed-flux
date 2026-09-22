@@ -185,6 +185,12 @@ class AgentRunRuntime:
             self.store.transition_run(
                 run_id,
                 RunStatus.FAILED,
+                outcome={
+                    "schema_version": 1,
+                    "kind": "failed",
+                    "result": "stopped",
+                    "error_category": error_category.value,
+                },
                 error_category=error_category,
             )
             yield self._run_event(

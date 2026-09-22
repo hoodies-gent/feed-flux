@@ -366,6 +366,42 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual(expected, interrupted_event["outcome"])
         self.assertNotIn("private", json.dumps(persisted["outcome"]))
 
+    def test_failed_resume_replaces_approval_outcome(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture-provider",
+            stream=_ScriptedStream(
+                [
+                    {"type": "interrupt", "tool": "send_test_email"},
+                    {"type": "done"},
+                ],
+                [RunTokenBudgetExceeded("private budget details")],
+            ),
+        )
+
+        first_events = asyncio.run(
+            _collect(runtime.stream_new_run({}, "failed-resume-thread"))
+        )
+        run_id = next(event["run_id"] for event in first_events if event["type"] == "run")
+
+        async def resume():
+            with self.assertRaisesRegex(RunTokenBudgetExceeded, "private budget details"):
+                async for _ in runtime.stream_resumed_run({}, "failed-resume-thread"):
+                    pass
+
+        asyncio.run(resume())
+
+        persisted = self.store.get_run(run_id)
+        expected = {
+            "schema_version": 1,
+            "kind": "failed",
+            "result": "stopped",
+            "error_category": "terminal",
+        }
+        self.assertEqual("failed", persisted["status"])
+        self.assertEqual(expected, persisted["outcome"])
+        self.assertNotIn("private", json.dumps(persisted["outcome"]))
+
     def test_transient_stream_failure_persists_category_before_reraising(self):
         runtime = _runtime_type()(
             self.store,
