@@ -16,6 +16,7 @@ from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
+from app.agent.graph import RunTokenBudgetExceeded
 from app.agent.run_runtime import AgentRunRuntime
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.usage import TokenPricing
@@ -557,6 +558,15 @@ _AGENT_ERROR_MESSAGES = {
 
 def _agent_error_event(error: Exception) -> dict:
     category = classify_runtime_error(error).value
+    if isinstance(error, RunTokenBudgetExceeded):
+        return {
+            "type": "error",
+            "error_category": category,
+            "content": (
+                "This run reached its execution budget and stopped. "
+                "Completed local actions were kept; no further actions were taken."
+            ),
+        }
     return {
         "type": "error",
         "error_category": category,

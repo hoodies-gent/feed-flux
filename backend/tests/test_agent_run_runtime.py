@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, ValidationError
 
-from app.agent.graph import build_agent
+from app.agent.graph import RunTokenBudgetExceeded, build_agent
 from app.agent.stream import stream_agent
 from app.agent.usage import TokenPricing
 from app.core.config import Config
@@ -611,6 +611,11 @@ class AgentRunRuntimeTest(unittest.TestCase):
                 ValueError("private terminal details"),
                 "terminal",
                 "The agent could not complete this request. The run has stopped without further actions.",
+            ),
+            (
+                RunTokenBudgetExceeded("private token budget details"),
+                "terminal",
+                "This run reached its execution budget and stopped. Completed local actions were kept; no further actions were taken.",
             ),
         )
 
