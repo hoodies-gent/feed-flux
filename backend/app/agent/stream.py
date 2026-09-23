@@ -263,9 +263,13 @@ async def stream_agent(
     yield {"type": "done"}
 
 
-def new_turn_input(message: str) -> dict:
+def new_turn_input(
+    message: str,
+    context_email_ids: list[str] | None = None,
+) -> dict:
     return {
         "messages": [HumanMessage(content=message)],
+        "context_email_ids": list(context_email_ids or []),
         "tool_calls_used": 0,
         "total_tokens_used": 0,
         "tool_error": None,

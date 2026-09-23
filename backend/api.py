@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import json
 import logging
@@ -16,6 +16,7 @@ from app.services.database import DatabaseService
 from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
+from app.agent.context import EmailContextError
 from app.agent.graph import RunTokenBudgetExceeded
 from app.agent.run_runtime import AgentRunRuntime
 from app.agent.runtime_errors import classify_runtime_error
@@ -78,6 +79,7 @@ class ConfigSetupRequest(BaseModel):
 class AgentChatRequest(BaseModel):
     thread_id: str
     message: str
+    context_email_ids: List[str] = Field(default_factory=list)
 
 class AgentResumeRequest(BaseModel):
     thread_id: str
@@ -558,6 +560,12 @@ _AGENT_ERROR_MESSAGES = {
 
 def _agent_error_event(error: Exception) -> dict:
     category = classify_runtime_error(error).value
+    if isinstance(error, EmailContextError):
+        return {
+            "type": "error",
+            "error_category": category,
+            "content": error.user_message,
+        }
     if isinstance(error, RunTokenBudgetExceeded):
         return {
             "type": "error",
@@ -609,7 +617,10 @@ async def _agent_ndjson(graph_input, thread_id: str, *, resume: bool = False):
 async def agent_chat_stream(request: AgentChatRequest):
     """Start a new agent turn. Streams NDJSON events: run | trace | token | interrupt | done | error."""
     return StreamingResponse(
-        _agent_ndjson(new_turn_input(request.message), request.thread_id),
+        _agent_ndjson(
+            new_turn_input(request.message, request.context_email_ids),
+            request.thread_id,
+        ),
         media_type="application/x-ndjson",
     )
 
