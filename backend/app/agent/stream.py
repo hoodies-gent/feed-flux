@@ -188,6 +188,26 @@ async def stream_agent(
             if usage_event is not None:
                 yield usage_event
 
+        elif kind == "on_custom_event" and name == "email_context_loaded":
+            context_email_ids = list(data.get("context_email_ids") or [])
+            references = [
+                {
+                    "email_id": reference.get("email_id"),
+                    "subject": reference.get("subject") or "",
+                    "sender": reference.get("sender") or "",
+                }
+                for reference in data.get("references") or []
+            ]
+            yield {
+                "type": "trace",
+                "step": "context_loaded",
+                "context_email_ids": context_email_ids,
+                "context_email_count": len(context_email_ids),
+                "context_chars": data.get("context_chars", 0),
+                "context_char_limit": data.get("context_char_limit"),
+            }
+            yield {"type": "references", "references": references}
+
         elif kind == "on_tool_start":
             tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
             event = {

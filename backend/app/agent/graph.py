@@ -1,3 +1,4 @@
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
@@ -6,7 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, interrupt
 
-from app.agent.context import resolve_email_context
+from app.agent.context import MAX_CONTEXT_CHARS, resolve_email_context
 from app.agent.execution_context import current_thread_id, current_tool_call_id
 from app.agent.llm import get_llm
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
@@ -192,13 +193,24 @@ def build_agent(
 ):
     bound_llm = (llm or get_llm()).bind_tools(TOOLS)
 
-    async def agent_node(state: AgentState) -> dict:
+    async def agent_node(state: AgentState, config: RunnableConfig) -> dict:
         messages = state["messages"]
         if not messages or not isinstance(messages[0], SystemMessage):
             system_prompt = SYSTEM_PROMPT
             context_email_ids = state.get("context_email_ids", [])
             if context_email_ids:
                 resolved_context = resolve_email_context(context_email_ids)
+                await adispatch_custom_event(
+                    "email_context_loaded",
+                    {
+                        "context_email_ids": resolved_context["email_ids"],
+                        "context_email_count": len(resolved_context["email_ids"]),
+                        "context_chars": resolved_context["context_chars"],
+                        "context_char_limit": MAX_CONTEXT_CHARS,
+                        "references": resolved_context["references"],
+                    },
+                    config=config,
+                )
                 system_prompt = (
                     f"{SYSTEM_PROMPT}\n\n"
                     f"{EMAIL_CONTEXT_INSTRUCTIONS}{resolved_context['prompt']}"

@@ -1,13 +1,18 @@
 import asyncio
+import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import api
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.agent.context import EmailContextError
+from app.agent.context import EmailContextError, MAX_CONTEXT_CHARS
 from app.agent.graph import SYSTEM_PROMPT, build_agent
-from app.agent.stream import new_turn_input
+from app.agent.stream import new_turn_input, stream_agent
+from app.services.database import DatabaseService
 
 
 class _CapturingLLM:
@@ -152,6 +157,93 @@ class AgentContextBridgeTest(unittest.TestCase):
                 ),
             },
             api._agent_error_event(error),
+        )
+
+    def test_stream_emits_sanitized_context_trace_and_references(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            database.insert_email({
+                "id": "email-1",
+                "subject": "Project update",
+                "sender_name": "Marcus Patel",
+                "sender_email": "marcus@example.com",
+                "received_datetime": 1,
+                "body_content": "private fixture body",
+            })
+            agent = build_agent(llm=_CapturingLLM())
+
+            async def exercise():
+                return [
+                    event
+                    async for event in stream_agent(
+                        new_turn_input("What changed?", ["email-1"]),
+                        "stream-context-thread",
+                        agent=agent,
+                    )
+                ]
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                events = asyncio.run(exercise())
+            database.engine.dispose()
+
+        trace = next(
+            event
+            for event in events
+            if event.get("type") == "trace"
+            and event.get("step") == "context_loaded"
+        )
+        references = next(event for event in events if event.get("type") == "references")
+
+        self.assertEqual(
+            {
+                "type": "trace",
+                "step": "context_loaded",
+                "context_email_ids": ["email-1"],
+                "context_email_count": 1,
+                "context_chars": trace["context_chars"],
+                "context_char_limit": MAX_CONTEXT_CHARS,
+            },
+            trace,
+        )
+        self.assertGreater(trace["context_chars"], 0)
+        self.assertEqual(
+            {
+                "type": "references",
+                "references": [
+                    {
+                        "email_id": "email-1",
+                        "subject": "Project update",
+                        "sender": "Marcus Patel",
+                    }
+                ],
+            },
+            references,
+        )
+        self.assertNotIn("private fixture body", json.dumps([trace, references]))
+
+    def test_stream_without_context_emits_no_context_events(self):
+        agent = build_agent(llm=_CapturingLLM())
+
+        async def exercise():
+            return [
+                event
+                async for event in stream_agent(
+                    new_turn_input("Hello"),
+                    "stream-no-context-thread",
+                    agent=agent,
+                )
+            ]
+
+        events = asyncio.run(exercise())
+
+        self.assertNotIn("references", [event.get("type") for event in events])
+        self.assertFalse(
+            any(
+                event.get("type") == "trace"
+                and event.get("step") == "context_loaded"
+                for event in events
+            )
         )
 
 
