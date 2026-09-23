@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
@@ -28,6 +28,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   sources?: SourceItem[];
+  references?: AgentReference[];
   isLoading?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
@@ -618,6 +619,7 @@ export default function Home() {
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [threadId, setThreadId] = useState<string>('');
+  const [pinnedEmailContext, setPinnedEmailContext] = useState<AgentReference | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load chat history + thread id from LocalStorage strictly on client-side mount
@@ -700,6 +702,11 @@ export default function Home() {
           return { ...msg, content: (msg.content ?? '') + text, segments, isLoading: false };
         }));
       },
+      onReferences: (references) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, references } : msg
+        ));
+      },
       onInterrupt: (i) => {
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, pendingInterrupt: i, isLoading: false } : msg
@@ -740,6 +747,7 @@ export default function Home() {
     if (!chatInput.trim() || isSendingChat) return;
 
     const query = chatInput.trim();
+    const contextEmailIds = pinnedEmailContext ? [pinnedEmailContext.email_id] : [];
     setChatInput('');
     setIsSendingChat(true);
 
@@ -752,7 +760,12 @@ export default function Home() {
     ]);
 
     try {
-      await askAgentStream(threadId, query, buildStreamCallbacks(aiMsgId));
+      await askAgentStream(
+        threadId,
+        query,
+        buildStreamCallbacks(aiMsgId),
+        contextEmailIds,
+      );
     } catch (err) {
       toast.error('Failed to reach agent');
       setChatMessages(prev => prev.map(msg =>
@@ -809,6 +822,16 @@ export default function Home() {
   const handleNewChat = () => {
     setChatMessages([]);
     setThreadId(crypto.randomUUID());
+    setPinnedEmailContext(null);
+  };
+
+  const handleAskAgentAboutEmail = (detail: EmailDetail) => {
+    setPinnedEmailContext({
+      email_id: detail.id,
+      subject: detail.subject,
+      sender: detail.sender || detail.sender_email,
+    });
+    setIsChatOpen(true);
   };
 
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
@@ -1232,6 +1255,23 @@ export default function Home() {
                       ))}
                     </div>
                   )}
+
+                  {msg.role === 'assistant' && msg.references && msg.references.length > 0 && (
+                    <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
+                      {msg.references.map((reference) => (
+                        <button
+                          key={reference.email_id}
+                          type="button"
+                          onClick={() => handleOpenEmailDetail(reference.email_id)}
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          title={`${reference.sender} · ${reference.subject}`}
+                        >
+                          <Mail className="h-3 w-3 shrink-0 text-primary" />
+                          <span className="max-w-[180px] truncate">{reference.subject}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -1240,12 +1280,32 @@ export default function Home() {
         </div>
 
         <div className="shrink-0 border-t border-border bg-card p-4">
+          {pinnedEmailContext && (
+            <div className="mb-3 flex max-w-full items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+              <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-foreground">Pinned email</div>
+                <div className="truncate text-muted-foreground" title={pinnedEmailContext.subject}>
+                  {pinnedEmailContext.subject}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPinnedEmailContext(null)}
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Remove pinned email context"
+                title="Remove context"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <form onSubmit={handleSendChatMessage} className="relative flex items-center">
             <Input
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               disabled={isSendingChat}
-              placeholder="Ask a follow-up question..."
+              placeholder={pinnedEmailContext ? "Ask about this email..." : "Ask a follow-up question..."}
               className="w-full rounded-full pr-12 shadow-sm"
             />
             <Button
@@ -1519,15 +1579,28 @@ export default function Home() {
                     <h2 className="text-xl font-semibold text-foreground">
                       {emailDetailData?.subject || "Loading..."}
                     </h2>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="-mr-2 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={handleCloseEmailDetail}
-                      title="Close"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {emailDetailData && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => handleAskAgentAboutEmail(emailDetailData)}
+                        >
+                          <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                          Ask Agent
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={handleCloseEmailDetail}
+                        title="Close"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                   {emailDetailData && (
                     <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
