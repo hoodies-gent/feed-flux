@@ -228,6 +228,59 @@ class AgentRunRuntimeTest(unittest.TestCase):
         self.assertEqual("fixture-provider", usage_events[0]["provider"])
         self.assertEqual(0.00007, usage_events[1]["outcome"]["estimated_cost_usd"])
 
+    def test_context_trace_is_persisted_without_email_content(self):
+        runtime = _runtime_type()(
+            self.store,
+            provider="fixture-provider",
+            stream=_ScriptedStream(
+                [
+                    {
+                        "type": "trace",
+                        "step": "context_loaded",
+                        "context_email_ids": ["email-1"],
+                        "context_email_count": 1,
+                        "context_chars": 321,
+                        "context_char_limit": 6_000,
+                    },
+                    {
+                        "type": "references",
+                        "references": [
+                            {
+                                "email_id": "email-1",
+                                "subject": "Project update",
+                                "sender": "Marcus Patel",
+                            }
+                        ],
+                    },
+                    {"type": "done"},
+                ]
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(runtime.stream_new_run({}, "context-ledger-thread"))
+        )
+        run_id = next(event["run_id"] for event in events if event["type"] == "run")
+        persisted = [
+            event
+            for event in self.store.list_events(run_id)
+            if event["event_type"] == "context_loaded"
+        ]
+
+        self.assertEqual(1, len(persisted))
+        self.assertEqual(
+            {
+                "schema_version": 1,
+                "context_email_ids": ["email-1"],
+                "context_email_count": 1,
+                "context_chars": 321,
+                "context_char_limit": 6_000,
+            },
+            persisted[0]["outcome"],
+        )
+        self.assertNotIn("Project update", json.dumps(persisted[0]))
+        self.assertIn("references", [event["type"] for event in events])
+
     def test_completed_run_persists_sanitized_artifact_outcome(self):
         runtime = _runtime_type()(
             self.store,

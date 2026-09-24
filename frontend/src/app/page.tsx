@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
@@ -23,11 +23,17 @@ type MessageSegment =
   | { kind: 'tool_start'; tool: string; args?: unknown }
   | { kind: 'tool_end'; tool: string; output?: string; resultCount?: number };
 
+type ChatContextEvent =
+  | { scope: 'email'; email: AgentReference }
+  | { scope: 'inbox' };
+
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'context';
   content: string;
   sources?: SourceItem[];
+  references?: AgentReference[];
+  contextEvent?: ChatContextEvent;
   isLoading?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
@@ -595,6 +601,44 @@ function DraftSavedChip({ updated }: { updated: boolean }) {
   );
 }
 
+function ChatContextEventLine({
+  event,
+  onOpenEmail,
+}: {
+  event?: ChatContextEvent;
+  onOpenEmail: (emailId: string) => void;
+}) {
+  if (!event) return null;
+
+  if (event.scope === 'inbox') {
+    return (
+      <div className="flex items-center gap-2 py-1 text-[10px] text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        <span>Email focus cleared</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  const { email } = event;
+  return (
+    <div className="flex items-center gap-2 py-1 text-[10px] text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      <button
+        type="button"
+        onClick={() => onOpenEmail(email.email_id)}
+        className="flex min-w-0 max-w-[75%] items-center gap-1.5 transition-colors hover:text-foreground"
+        title={`${email.sender} · ${email.subject}`}
+      >
+        <Mail className="h-3 w-3 shrink-0" />
+        <span className="shrink-0">Focused</span>
+        <span className="truncate font-medium">{email.subject}</span>
+      </button>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery] = useDebounce(searchQuery, 500);
@@ -618,6 +662,7 @@ export default function Home() {
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [threadId, setThreadId] = useState<string>('');
+  const [focusedEmailContext, setFocusedEmailContext] = useState<AgentReference | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load chat history + thread id from LocalStorage strictly on client-side mount
@@ -625,7 +670,14 @@ export default function Home() {
     const saved = localStorage.getItem('feedflux_chat_history');
     if (saved) {
       try {
-        setChatMessages(JSON.parse(saved));
+        const savedMessages = JSON.parse(saved) as ChatMessage[];
+        setChatMessages(savedMessages);
+        const latestContextMessage = [...savedMessages]
+          .reverse()
+          .find((message) => message.role === 'context' && message.contextEvent);
+        if (latestContextMessage?.contextEvent?.scope === 'email') {
+          setFocusedEmailContext(latestContextMessage.contextEvent.email);
+        }
       } catch (e) {
         console.error('Failed to parse persistent chat history', e);
       }
@@ -700,6 +752,11 @@ export default function Home() {
           return { ...msg, content: (msg.content ?? '') + text, segments, isLoading: false };
         }));
       },
+      onReferences: (references) => {
+        setChatMessages(prev => prev.map(msg =>
+          msg.id === targetMsgId ? { ...msg, references } : msg
+        ));
+      },
       onInterrupt: (i) => {
         setChatMessages(prev => prev.map(msg =>
           msg.id === targetMsgId ? { ...msg, pendingInterrupt: i, isLoading: false } : msg
@@ -740,6 +797,7 @@ export default function Home() {
     if (!chatInput.trim() || isSendingChat) return;
 
     const query = chatInput.trim();
+    const contextEmailIds = focusedEmailContext ? [focusedEmailContext.email_id] : [];
     setChatInput('');
     setIsSendingChat(true);
 
@@ -747,12 +805,21 @@ export default function Home() {
     const aiMsgId = crypto.randomUUID();
     setChatMessages(prev => [
       ...prev,
-      { id: userMsgId, role: 'user', content: query },
+      {
+        id: userMsgId,
+        role: 'user',
+        content: query,
+      },
       { id: aiMsgId, role: 'assistant', content: '', isLoading: true, segments: [] },
     ]);
 
     try {
-      await askAgentStream(threadId, query, buildStreamCallbacks(aiMsgId));
+      await askAgentStream(
+        threadId,
+        query,
+        buildStreamCallbacks(aiMsgId),
+        contextEmailIds,
+      );
     } catch (err) {
       toast.error('Failed to reach agent');
       setChatMessages(prev => prev.map(msg =>
@@ -809,6 +876,42 @@ export default function Home() {
   const handleNewChat = () => {
     setChatMessages([]);
     setThreadId(crypto.randomUUID());
+    setFocusedEmailContext(null);
+  };
+
+  const handleAskAgentAboutEmail = (detail: EmailDetail) => {
+    const nextContext = {
+      email_id: detail.id,
+      subject: detail.subject,
+      sender: detail.sender || detail.sender_email,
+    };
+    if (focusedEmailContext?.email_id !== nextContext.email_id) {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'context',
+          content: '',
+          contextEvent: { scope: 'email', email: nextContext },
+        },
+      ]);
+    }
+    setFocusedEmailContext(nextContext);
+    setIsChatOpen(true);
+  };
+
+  const handleClearEmailFocus = () => {
+    if (!focusedEmailContext) return;
+    setFocusedEmailContext(null);
+    setChatMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: 'context',
+        content: '',
+        contextEvent: { scope: 'inbox' },
+      },
+    ]);
   };
 
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
@@ -1136,6 +1239,39 @@ export default function Home() {
           </div>
         </div>
 
+        {focusedEmailContext && (
+          <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => handleOpenEmailDetail(focusedEmailContext.email_id)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
+            >
+              <Mail className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Focused email
+                </span>
+                <span className="block truncate text-xs font-medium text-foreground">
+                  {focusedEmailContext.subject}
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {focusedEmailContext.sender}
+                </span>
+              </span>
+            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleClearEmailFocus}
+              title="Stop treating this email as the conversational focus"
+            >
+              Clear focus
+            </Button>
+          </div>
+        )}
+
         <div className="relative flex-1 overflow-y-auto p-5">
           <div className="space-y-6 pb-2">
             {chatMessages.length === 0 ? (
@@ -1150,6 +1286,13 @@ export default function Home() {
               </div>
             ) : (
               chatMessages.map(msg => (
+                msg.role === 'context' ? (
+                  <ChatContextEventLine
+                    key={msg.id}
+                    event={msg.contextEvent}
+                    onOpenEmail={(emailId) => void handleOpenEmailDetail(emailId)}
+                  />
+                ) : (
                 <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                   <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
 
@@ -1232,7 +1375,26 @@ export default function Home() {
                       ))}
                     </div>
                   )}
+
+                  {msg.role === 'assistant' && msg.references && msg.references.length > 0 && (
+                    <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
+                      {msg.references.map((reference) => (
+                        <button
+                          key={reference.email_id}
+                          type="button"
+                          onClick={() => handleOpenEmailDetail(reference.email_id)}
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          title={`${reference.sender} · ${reference.subject}`}
+                        >
+                          <Mail className="h-3 w-3 shrink-0 text-primary" />
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Source</span>
+                          <span className="max-w-[180px] truncate">{reference.subject}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                )
               ))
             )}
             <div ref={messagesEndRef} />
@@ -1245,7 +1407,7 @@ export default function Home() {
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               disabled={isSendingChat}
-              placeholder="Ask a follow-up question..."
+              placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
               className="w-full rounded-full pr-12 shadow-sm"
             />
             <Button
@@ -1519,15 +1681,28 @@ export default function Home() {
                     <h2 className="text-xl font-semibold text-foreground">
                       {emailDetailData?.subject || "Loading..."}
                     </h2>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="-mr-2 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={handleCloseEmailDetail}
-                      title="Close"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {emailDetailData && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => handleAskAgentAboutEmail(emailDetailData)}
+                        >
+                          <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+                          Ask Agent
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={handleCloseEmailDetail}
+                        title="Close"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                   {emailDetailData && (
                     <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">

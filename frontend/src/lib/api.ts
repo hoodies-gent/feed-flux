@@ -363,7 +363,7 @@ export async function mockLogin(): Promise<{ success: boolean; token: string }> 
 /**
  * Agent streaming API
  */
-export type TraceStep = 'tool_start' | 'tool_end';
+export type TraceStep = 'tool_start' | 'tool_end' | 'context_loaded';
 
 export interface TraceEvent {
     step: TraceStep;
@@ -371,6 +371,16 @@ export interface TraceEvent {
     args?: unknown;
     output?: string;
     result_count?: number;
+    context_email_ids?: string[];
+    context_email_count?: number;
+    context_chars?: number;
+    context_char_limit?: number;
+}
+
+export interface AgentReference {
+    email_id: string;
+    subject: string;
+    sender: string;
 }
 
 export interface DraftPreview {
@@ -428,6 +438,7 @@ export interface DraftEvent {
 export interface AgentStreamCallbacks {
     onTrace: (t: TraceEvent) => void;
     onToken: (text: string) => void;
+    onReferences?: (references: AgentReference[]) => void;
     onInterrupt: (i: InterruptEvent) => void;
     onDraft?: (d: DraftEvent) => void;
     onPlan?: (p: TriagePlan) => void;
@@ -459,10 +470,23 @@ async function streamAgentNdjson(
         const ev = JSON.parse(trimmed);
         switch (ev.type) {
             case 'trace':
-                cb.onTrace({ step: ev.step, tool: ev.tool, args: ev.args, output: ev.output, result_count: ev.result_count });
+                cb.onTrace({
+                    step: ev.step,
+                    tool: ev.tool,
+                    args: ev.args,
+                    output: ev.output,
+                    result_count: ev.result_count,
+                    context_email_ids: ev.context_email_ids,
+                    context_email_count: ev.context_email_count,
+                    context_chars: ev.context_chars,
+                    context_char_limit: ev.context_char_limit,
+                });
                 break;
             case 'token':
                 cb.onToken(ev.content);
+                break;
+            case 'references':
+                cb.onReferences?.(ev.references ?? []);
                 break;
             case 'interrupt':
                 cb.onInterrupt({
@@ -505,9 +529,14 @@ async function streamAgentNdjson(
 export function askAgentStream(
     threadId: string,
     message: string,
-    cb: AgentStreamCallbacks
+    cb: AgentStreamCallbacks,
+    contextEmailIds: string[] = [],
 ): Promise<void> {
-    return streamAgentNdjson('/api/agent/chat/stream', { thread_id: threadId, message }, cb);
+    return streamAgentNdjson(
+        '/api/agent/chat/stream',
+        { thread_id: threadId, message, context_email_ids: contextEmailIds },
+        cb,
+    );
 }
 
 export function resumeAgent(

@@ -136,6 +136,23 @@ class AgentRunRuntime:
                             },
                             error_category=event.get("error_category"),
                         )
+                    elif event.get("step") == "context_loaded":
+                        self.store.append_event(
+                            run_id,
+                            event_type="context_loaded",
+                            provider=self.provider,
+                            outcome={
+                                "schema_version": 1,
+                                "context_email_ids": event.get("context_email_ids", []),
+                                "context_email_count": event.get(
+                                    "context_email_count", 0
+                                ),
+                                "context_chars": event.get("context_chars", 0),
+                                "context_char_limit": event.get(
+                                    "context_char_limit"
+                                ),
+                            },
+                        )
 
                 if event.get("type") == "interrupt":
                     self.store.transition_run(

@@ -11,6 +11,57 @@ from app.services.database import DatabaseService
 _agent = None
 _checkpointer = None
 DEFAULT_MAX_GRAPH_STEPS = 25
+REFERENCE_FOOTER_PREFIX = "<!--feedflux_refs:"
+REFERENCE_FOOTER_SUFFIX = "-->"
+
+
+class _ReferenceFooterTokenFilter:
+    def __init__(self) -> None:
+        self.buffer = ""
+        self.in_footer = False
+
+    def feed(self, text: str) -> str:
+        self.buffer += text
+        output = []
+        while self.buffer:
+            if self.in_footer:
+                end = self.buffer.find(REFERENCE_FOOTER_SUFFIX)
+                if end < 0:
+                    break
+                self.buffer = self.buffer[end + len(REFERENCE_FOOTER_SUFFIX):]
+                self.in_footer = False
+                continue
+
+            start = self.buffer.find(REFERENCE_FOOTER_PREFIX)
+            if start >= 0:
+                output.append(self.buffer[:start])
+                self.buffer = self.buffer[start + len(REFERENCE_FOOTER_PREFIX):]
+                self.in_footer = True
+                continue
+
+            retained = 0
+            max_prefix = min(len(self.buffer), len(REFERENCE_FOOTER_PREFIX) - 1)
+            for length in range(max_prefix, 0, -1):
+                if self.buffer.endswith(REFERENCE_FOOTER_PREFIX[:length]):
+                    retained = length
+                    break
+            if retained:
+                output.append(self.buffer[:-retained])
+                self.buffer = self.buffer[-retained:]
+            else:
+                output.append(self.buffer)
+                self.buffer = ""
+            break
+        return "".join(output)
+
+    def finish(self) -> str:
+        if self.in_footer:
+            trailing = ""
+        else:
+            trailing = self.buffer
+        self.buffer = ""
+        self.in_footer = False
+        return trailing
 
 
 def set_agent_checkpointer(checkpointer) -> None:
@@ -162,6 +213,7 @@ async def stream_agent(
     if callbacks:
         config["callbacks"] = callbacks
     recent_tool_results: list[dict] = []
+    reference_footer_filter = _ReferenceFooterTokenFilter()
 
     async for ev in runtime_agent.astream_events(graph_input, config, version="v2"):
         kind = ev["event"]
@@ -181,12 +233,41 @@ async def stream_agent(
                         for part in content
                     )
             if text:
-                yield {"type": "token", "content": text}
+                visible_text = reference_footer_filter.feed(text)
+                if visible_text:
+                    yield {"type": "token", "content": visible_text}
 
         elif kind == "on_chat_model_end":
+            trailing_text = reference_footer_filter.finish()
+            if trailing_text:
+                yield {"type": "token", "content": trailing_text}
             usage_event = usage_event_from_message(data.get("output"))
             if usage_event is not None:
                 yield usage_event
+
+        elif kind == "on_custom_event" and name == "email_context_loaded":
+            context_email_ids = list(data.get("context_email_ids") or [])
+            yield {
+                "type": "trace",
+                "step": "context_loaded",
+                "context_email_ids": context_email_ids,
+                "context_email_count": len(context_email_ids),
+                "context_chars": data.get("context_chars", 0),
+                "context_char_limit": data.get("context_char_limit"),
+            }
+
+        elif kind == "on_custom_event" and name == "email_context_references":
+            references = [
+                {
+                    "email_id": reference.get("email_id"),
+                    "subject": reference.get("subject") or "",
+                    "sender": reference.get("sender") or "",
+                }
+                for reference in data.get("references") or []
+                if reference.get("email_id")
+            ]
+            if references:
+                yield {"type": "references", "references": references}
 
         elif kind == "on_tool_start":
             tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
@@ -263,9 +344,13 @@ async def stream_agent(
     yield {"type": "done"}
 
 
-def new_turn_input(message: str) -> dict:
+def new_turn_input(
+    message: str,
+    context_email_ids: list[str] | None = None,
+) -> dict:
     return {
         "messages": [HumanMessage(content=message)],
+        "context_email_ids": list(context_email_ids or []),
         "tool_calls_used": 0,
         "total_tokens_used": 0,
         "tool_error": None,
