@@ -670,7 +670,14 @@ export default function Home() {
     const saved = localStorage.getItem('feedflux_chat_history');
     if (saved) {
       try {
-        setChatMessages(JSON.parse(saved));
+        const savedMessages = JSON.parse(saved) as ChatMessage[];
+        setChatMessages(savedMessages);
+        const latestContextMessage = [...savedMessages]
+          .reverse()
+          .find((message) => message.role === 'context' && message.contextEvent);
+        if (latestContextMessage?.contextEvent?.scope === 'email') {
+          setFocusedEmailContext(latestContextMessage.contextEvent.email);
+        }
       } catch (e) {
         console.error('Failed to parse persistent chat history', e);
       }
