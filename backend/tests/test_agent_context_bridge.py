@@ -337,6 +337,43 @@ class AgentContextBridgeTest(unittest.TestCase):
         self.assertNotIn("feedflux_refs", json.dumps(events))
         self.assertEqual("No citation.", state.values["messages"][-1].content)
 
+    def test_truncated_reference_footer_is_removed_and_not_cited(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            database.insert_email({
+                "id": "email-1",
+                "subject": "Project update",
+                "sender_name": "Marcus Patel",
+                "sender_email": "marcus@example.com",
+                "received_datetime": 1,
+                "body_content": "private fixture body",
+            })
+            agent = build_agent(
+                llm=_CapturingLLM("Answer<!--feedflux_refs:context-1")
+            )
+            thread_id = "stream-truncated-context-reference-thread"
+
+            async def exercise():
+                events = [
+                    event
+                    async for event in stream_agent(
+                        new_turn_input("What changed?", ["email-1"]),
+                        thread_id,
+                        agent=agent,
+                    )
+                ]
+                state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+                return events, state
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                events, state = asyncio.run(exercise())
+            database.engine.dispose()
+
+        self.assertNotIn("references", [event.get("type") for event in events])
+        self.assertNotIn("feedflux_refs", json.dumps(events))
+        self.assertEqual("Answer", state.values["messages"][-1].content)
+
     def test_reference_footer_is_hidden_across_stream_chunks(self):
         reference = {
             "email_id": "email-1",
@@ -394,6 +431,36 @@ class AgentContextBridgeTest(unittest.TestCase):
             index for index, event in enumerate(events) if event.get("type") == "token"
         ]
         self.assertGreater(reference_index, max(token_indices))
+
+    def test_truncated_reference_footer_is_hidden_across_stream_chunks(self):
+        agent = _ScriptedEventAgent([
+            {
+                "event": "on_chat_model_stream",
+                "name": "fixture-model",
+                "data": {"chunk": SimpleNamespace(content="Answer<!--feed")},
+            },
+            {
+                "event": "on_chat_model_stream",
+                "name": "fixture-model",
+                "data": {"chunk": SimpleNamespace(content="flux_refs:context-1")},
+            },
+            {
+                "event": "on_chat_model_end",
+                "name": "fixture-model",
+                "data": {"output": AIMessage(content="Answer")},
+            },
+        ])
+
+        events = asyncio.run(self._collect_stream(agent))
+
+        self.assertEqual(
+            "Answer",
+            "".join(
+                event["content"] for event in events if event.get("type") == "token"
+            ),
+        )
+        self.assertNotIn("feedflux_refs", json.dumps(events))
+        self.assertNotIn("references", [event.get("type") for event in events])
 
     @staticmethod
     async def _collect_stream(agent):

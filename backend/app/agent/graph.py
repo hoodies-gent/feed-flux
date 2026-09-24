@@ -22,6 +22,7 @@ from app.agent.usage import usage_event_from_message
 DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
 REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
+TRUNCATED_REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:[^<>]*$")
 
 
 class ToolCallBudgetExceeded(RuntimeError):
@@ -180,10 +181,13 @@ def _strip_reference_footer(
 ) -> tuple[Any, list[dict]]:
     def strip_text(text: str) -> tuple[str, list[str]]:
         match = REFERENCE_FOOTER_PATTERN.search(text)
-        if match is None:
-            return text, []
-        keys = [key.strip() for key in match.group(1).split(",") if key.strip()]
-        return text[:match.start()].rstrip(), keys
+        if match is not None:
+            keys = [key.strip() for key in match.group(1).split(",") if key.strip()]
+            return text[:match.start()].rstrip(), keys
+        truncated_match = TRUNCATED_REFERENCE_FOOTER_PATTERN.search(text)
+        if truncated_match is not None:
+            return text[:truncated_match.start()].rstrip(), []
+        return text, []
 
     citation_keys: list[str] = []
     cleaned_content = content

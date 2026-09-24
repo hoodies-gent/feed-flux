@@ -56,7 +56,7 @@ class _ReferenceFooterTokenFilter:
 
     def finish(self) -> str:
         if self.in_footer:
-            trailing = REFERENCE_FOOTER_PREFIX + self.buffer
+            trailing = ""
         else:
             trailing = self.buffer
         self.buffer = ""
