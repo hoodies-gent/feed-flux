@@ -1,3 +1,6 @@
+import re
+from typing import Any
+
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -18,6 +21,7 @@ from app.agent.usage import usage_event_from_message
 
 DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
+REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
 
 
 class ToolCallBudgetExceeded(RuntimeError):
@@ -162,8 +166,58 @@ EMAIL_CONTEXT_INSTRUCTIONS = (
     "If it is unrelated, ignore it completely: do not mention it, cite it, or force a "
     "connection; continue with the appropriate inbox tools. If it is relevant, treat "
     "it as the exact email selected by the user. When the user refers to that focused "
-    "email, do not search the mailbox to replace, expand, or infer missing context.\n\n"
+    "email, do not search the mailbox to replace, expand, or infer missing context. "
+    "If the final answer actually uses one or more focused emails, append exactly one "
+    "hidden footer immediately after the answer using their citation_key values: "
+    "<!--feedflux_refs:context-1,context-2-->. Include only keys you actually used, "
+    "omit the footer when none were used, and never discuss this footer.\n\n"
 )
+
+
+def _strip_reference_footer(
+    content: Any,
+    available_references: list[dict],
+) -> tuple[Any, list[dict]]:
+    def strip_text(text: str) -> tuple[str, list[str]]:
+        match = REFERENCE_FOOTER_PATTERN.search(text)
+        if match is None:
+            return text, []
+        keys = [key.strip() for key in match.group(1).split(",") if key.strip()]
+        return text[:match.start()].rstrip(), keys
+
+    citation_keys: list[str] = []
+    cleaned_content = content
+    if isinstance(content, str):
+        cleaned_content, citation_keys = strip_text(content)
+    elif isinstance(content, list):
+        cleaned_blocks = list(content)
+        for index in range(len(cleaned_blocks) - 1, -1, -1):
+            block = cleaned_blocks[index]
+            if isinstance(block, str):
+                cleaned_text, citation_keys = strip_text(block)
+                if citation_keys or cleaned_text != block:
+                    cleaned_blocks[index] = cleaned_text
+                    cleaned_content = cleaned_blocks
+                    break
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                cleaned_text, citation_keys = strip_text(block["text"])
+                if citation_keys or cleaned_text != block["text"]:
+                    cleaned_blocks[index] = {**block, "text": cleaned_text}
+                    cleaned_content = cleaned_blocks
+                    break
+
+    allowed = {
+        reference.get("citation_key"): reference
+        for reference in available_references
+        if reference.get("citation_key")
+    }
+    used_references = []
+    seen = set()
+    for citation_key in citation_keys:
+        if citation_key in allowed and citation_key not in seen:
+            used_references.append(allowed[citation_key])
+            seen.add(citation_key)
+    return cleaned_content, used_references
 
 
 def _route_after_tools(state: AgentState) -> str:
@@ -199,6 +253,7 @@ def build_agent(
 
     async def agent_node(state: AgentState, config: RunnableConfig) -> dict:
         messages = state["messages"]
+        resolved_context = None
         if not messages or not isinstance(messages[0], SystemMessage):
             system_prompt = SYSTEM_PROMPT
             context_email_ids = state.get("context_email_ids", [])
@@ -221,6 +276,19 @@ def build_agent(
                 )
             messages = [SystemMessage(content=system_prompt), *messages]
         response = await bound_llm.ainvoke(messages)
+        if resolved_context is not None:
+            cleaned_content, used_references = _strip_reference_footer(
+                response.content,
+                resolved_context["references"],
+            )
+            if cleaned_content != response.content:
+                response = response.model_copy(update={"content": cleaned_content})
+            if used_references and not response.tool_calls:
+                await adispatch_custom_event(
+                    "email_context_references",
+                    {"references": used_references},
+                    config=config,
+                )
         usage_event = usage_event_from_message(response)
         if usage_event is None:
             return {"messages": [response]}

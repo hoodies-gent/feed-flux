@@ -64,6 +64,15 @@ class AgentContextTest(unittest.TestCase):
                     email_ids,
                     [reference["email_id"] for reference in resolved["references"]],
                 )
+                self.assertEqual(
+                    [f"context-{index}" for index in range(1, count + 1)],
+                    [reference["citation_key"] for reference in resolved["references"]],
+                )
+                for index in range(1, count + 1):
+                    self.assertIn(
+                        f'citation_key="context-{index}"',
+                        resolved["prompt"],
+                    )
 
     def test_selects_one_controlled_content_source_per_email(self):
         self._insert_email(
@@ -97,16 +106,19 @@ class AgentContextTest(unittest.TestCase):
         self.assertEqual(
             [
                 {
+                    "citation_key": "context-1",
                     "email_id": "email-summary",
                     "subject": "Summary email",
                     "sender": "Marcus Patel",
                 },
                 {
+                    "citation_key": "context-2",
                     "email_id": "email-body",
                     "subject": "Body email",
                     "sender": "Marcus Patel",
                 },
                 {
+                    "citation_key": "context-3",
                     "email_id": "email-preview",
                     "subject": "Preview email",
                     "sender": "Marcus Patel",

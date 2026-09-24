@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import api
@@ -16,15 +17,28 @@ from app.services.database import DatabaseService
 
 
 class _CapturingLLM:
-    def __init__(self):
+    def __init__(self, content="completed"):
         self.calls = []
+        self.content = content
 
     def bind_tools(self, tools):
         return self
 
     async def ainvoke(self, messages):
         self.calls.append(list(messages))
-        return AIMessage(content="completed")
+        return AIMessage(content=self.content)
+
+
+class _ScriptedEventAgent:
+    def __init__(self, events):
+        self.events = events
+
+    async def astream_events(self, graph_input, config, version):
+        for event in self.events:
+            yield event
+
+    def get_state(self, config):
+        return SimpleNamespace(tasks=[])
 
 
 class AgentContextBridgeTest(unittest.TestCase):
@@ -186,7 +200,7 @@ class AgentContextBridgeTest(unittest.TestCase):
             api._agent_error_event(error),
         )
 
-    def test_stream_emits_sanitized_context_trace_and_references(self):
+    def test_loaded_context_without_a_citation_emits_trace_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "emails.db")
             database = DatabaseService(db_path)
@@ -220,8 +234,6 @@ class AgentContextBridgeTest(unittest.TestCase):
             if event.get("type") == "trace"
             and event.get("step") == "context_loaded"
         )
-        references = next(event for event in events if event.get("type") == "references")
-
         self.assertEqual(
             {
                 "type": "trace",
@@ -234,20 +246,165 @@ class AgentContextBridgeTest(unittest.TestCase):
             trace,
         )
         self.assertGreater(trace["context_chars"], 0)
+        self.assertNotIn("references", [event.get("type") for event in events])
+        self.assertNotIn("private fixture body", json.dumps(trace))
+
+    def test_final_answer_emits_only_claimed_context_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            for index in (1, 2):
+                database.insert_email({
+                    "id": f"email-{index}",
+                    "subject": f"Project update {index}",
+                    "sender_name": "Marcus Patel",
+                    "sender_email": "marcus@example.com",
+                    "received_datetime": index,
+                    "body_content": f"private fixture body {index}",
+                })
+            agent = build_agent(
+                llm=_CapturingLLM(
+                    "The second update changed.<!--feedflux_refs:context-2-->"
+                )
+            )
+            thread_id = "stream-cited-context-thread"
+
+            async def exercise():
+                events = [
+                    event
+                    async for event in stream_agent(
+                        new_turn_input("What changed?", ["email-1", "email-2"]),
+                        thread_id,
+                        agent=agent,
+                    )
+                ]
+                state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+                return events, state
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                events, state = asyncio.run(exercise())
+            database.engine.dispose()
+
+        references = [event for event in events if event.get("type") == "references"]
         self.assertEqual(
-            {
+            [{
                 "type": "references",
-                "references": [
-                    {
-                        "email_id": "email-1",
-                        "subject": "Project update",
-                        "sender": "Marcus Patel",
-                    }
-                ],
-            },
+                "references": [{
+                    "email_id": "email-2",
+                    "subject": "Project update 2",
+                    "sender": "Marcus Patel",
+                }],
+            }],
             references,
         )
-        self.assertNotIn("private fixture body", json.dumps([trace, references]))
+        self.assertNotIn("feedflux_refs", json.dumps(events))
+        self.assertEqual("The second update changed.", state.values["messages"][-1].content)
+
+    def test_unknown_context_reference_key_is_removed_and_ignored(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            database.insert_email({
+                "id": "email-1",
+                "subject": "Project update",
+                "sender_name": "Marcus Patel",
+                "sender_email": "marcus@example.com",
+                "received_datetime": 1,
+                "body_content": "private fixture body",
+            })
+            agent = build_agent(
+                llm=_CapturingLLM("No citation.<!--feedflux_refs:context-99-->")
+            )
+            thread_id = "stream-invalid-context-reference-thread"
+
+            async def exercise():
+                events = [
+                    event
+                    async for event in stream_agent(
+                        new_turn_input("Show unread mail", ["email-1"]),
+                        thread_id,
+                        agent=agent,
+                    )
+                ]
+                state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+                return events, state
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                events, state = asyncio.run(exercise())
+            database.engine.dispose()
+
+        self.assertNotIn("references", [event.get("type") for event in events])
+        self.assertNotIn("feedflux_refs", json.dumps(events))
+        self.assertEqual("No citation.", state.values["messages"][-1].content)
+
+    def test_reference_footer_is_hidden_across_stream_chunks(self):
+        reference = {
+            "email_id": "email-1",
+            "subject": "Project update",
+            "sender": "Marcus Patel",
+        }
+        agent = _ScriptedEventAgent([
+            {
+                "event": "on_custom_event",
+                "name": "email_context_loaded",
+                "data": {
+                    "context_email_ids": ["email-1"],
+                    "context_chars": 100,
+                    "context_char_limit": MAX_CONTEXT_CHARS,
+                    "references": [reference],
+                },
+            },
+            {
+                "event": "on_chat_model_stream",
+                "name": "fixture-model",
+                "data": {"chunk": SimpleNamespace(content="Answer<!--feed")},
+            },
+            {
+                "event": "on_chat_model_stream",
+                "name": "fixture-model",
+                "data": {"chunk": SimpleNamespace(
+                    content="flux_refs:context-1-->"
+                )},
+            },
+            {
+                "event": "on_chat_model_end",
+                "name": "fixture-model",
+                "data": {"output": AIMessage(content="Answer")},
+            },
+            {
+                "event": "on_custom_event",
+                "name": "email_context_references",
+                "data": {"references": [reference]},
+            },
+        ])
+
+        events = asyncio.run(self._collect_stream(agent))
+
+        self.assertEqual(
+            "Answer",
+            "".join(
+                event["content"] for event in events if event.get("type") == "token"
+            ),
+        )
+        self.assertNotIn("feedflux_refs", json.dumps(events))
+        reference_index = next(
+            index for index, event in enumerate(events) if event.get("type") == "references"
+        )
+        token_indices = [
+            index for index, event in enumerate(events) if event.get("type") == "token"
+        ]
+        self.assertGreater(reference_index, max(token_indices))
+
+    @staticmethod
+    async def _collect_stream(agent):
+        return [
+            event
+            async for event in stream_agent(
+                new_turn_input("Question", ["email-1"]),
+                "scripted-reference-thread",
+                agent=agent,
+            )
+        ]
 
     def test_stream_without_context_emits_no_context_events(self):
         agent = build_agent(llm=_CapturingLLM())

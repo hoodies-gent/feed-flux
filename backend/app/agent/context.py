@@ -19,7 +19,7 @@ def _one_line(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
-def _format_email_context(email: dict, char_limit: int) -> str:
+def _format_email_context(email: dict, char_limit: int, citation_key: str) -> str:
     email_id = _one_line(email["id"], 200).replace('"', "'")
     subject = _one_line(email.get("subject"), 300)
     sender = _one_line(email.get("sender") or email.get("sender_email"), 200)
@@ -30,7 +30,7 @@ def _format_email_context(email: dict, char_limit: int) -> str:
         or ""
     )
     header = (
-        f'<email_context id="{email_id}">\n'
+        f'<email_context citation_key="{citation_key}" id="{email_id}">\n'
         f"Subject: {subject}\n"
         f"From: {sender}\n"
         "Content:\n"
@@ -71,15 +71,20 @@ def resolve_email_context(
     per_email_limit = (
         MAX_CONTEXT_CHARS - len(separator) * (len(emails) - 1)
     ) // len(emails)
-    blocks = [_format_email_context(email, per_email_limit) for email in emails]
+    citation_keys = [f"context-{index}" for index in range(1, len(emails) + 1)]
+    blocks = [
+        _format_email_context(email, per_email_limit, citation_key)
+        for email, citation_key in zip(emails, citation_keys)
+    ]
     prompt = separator.join(blocks)
     references = [
         {
+            "citation_key": citation_key,
             "email_id": email["id"],
             "subject": email.get("subject") or "",
             "sender": email.get("sender") or email.get("sender_email") or "",
         }
-        for email in emails
+        for email, citation_key in zip(emails, citation_keys)
     ]
     return {
         "email_ids": unique_ids,
