@@ -23,12 +23,17 @@ type MessageSegment =
   | { kind: 'tool_start'; tool: string; args?: unknown }
   | { kind: 'tool_end'; tool: string; output?: string; resultCount?: number };
 
+type ChatContextEvent =
+  | { scope: 'email'; email: AgentReference }
+  | { scope: 'inbox' };
+
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'context';
   content: string;
   sources?: SourceItem[];
   references?: AgentReference[];
+  contextEvent?: ChatContextEvent;
   isLoading?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
@@ -596,6 +601,44 @@ function DraftSavedChip({ updated }: { updated: boolean }) {
   );
 }
 
+function ChatContextEventLine({
+  event,
+  onOpenEmail,
+}: {
+  event?: ChatContextEvent;
+  onOpenEmail: (emailId: string) => void;
+}) {
+  if (!event) return null;
+
+  if (event.scope === 'inbox') {
+    return (
+      <div className="flex items-center gap-2 py-1 text-[10px] text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        <span>Email focus cleared</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  const { email } = event;
+  return (
+    <div className="flex items-center gap-2 py-1 text-[10px] text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      <button
+        type="button"
+        onClick={() => onOpenEmail(email.email_id)}
+        className="flex min-w-0 max-w-[75%] items-center gap-1.5 transition-colors hover:text-foreground"
+        title={`${email.sender} · ${email.subject}`}
+      >
+        <Mail className="h-3 w-3 shrink-0" />
+        <span className="shrink-0">Focused</span>
+        <span className="truncate font-medium">{email.subject}</span>
+      </button>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery] = useDebounce(searchQuery, 500);
@@ -619,7 +662,7 @@ export default function Home() {
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [threadId, setThreadId] = useState<string>('');
-  const [pinnedEmailContext, setPinnedEmailContext] = useState<AgentReference | null>(null);
+  const [focusedEmailContext, setFocusedEmailContext] = useState<AgentReference | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load chat history + thread id from LocalStorage strictly on client-side mount
@@ -747,7 +790,7 @@ export default function Home() {
     if (!chatInput.trim() || isSendingChat) return;
 
     const query = chatInput.trim();
-    const contextEmailIds = pinnedEmailContext ? [pinnedEmailContext.email_id] : [];
+    const contextEmailIds = focusedEmailContext ? [focusedEmailContext.email_id] : [];
     setChatInput('');
     setIsSendingChat(true);
 
@@ -755,7 +798,11 @@ export default function Home() {
     const aiMsgId = crypto.randomUUID();
     setChatMessages(prev => [
       ...prev,
-      { id: userMsgId, role: 'user', content: query },
+      {
+        id: userMsgId,
+        role: 'user',
+        content: query,
+      },
       { id: aiMsgId, role: 'assistant', content: '', isLoading: true, segments: [] },
     ]);
 
@@ -822,16 +869,42 @@ export default function Home() {
   const handleNewChat = () => {
     setChatMessages([]);
     setThreadId(crypto.randomUUID());
-    setPinnedEmailContext(null);
+    setFocusedEmailContext(null);
   };
 
   const handleAskAgentAboutEmail = (detail: EmailDetail) => {
-    setPinnedEmailContext({
+    const nextContext = {
       email_id: detail.id,
       subject: detail.subject,
       sender: detail.sender || detail.sender_email,
-    });
+    };
+    if (focusedEmailContext?.email_id !== nextContext.email_id) {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'context',
+          content: '',
+          contextEvent: { scope: 'email', email: nextContext },
+        },
+      ]);
+    }
+    setFocusedEmailContext(nextContext);
     setIsChatOpen(true);
+  };
+
+  const handleClearEmailFocus = () => {
+    if (!focusedEmailContext) return;
+    setFocusedEmailContext(null);
+    setChatMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        role: 'context',
+        content: '',
+        contextEvent: { scope: 'inbox' },
+      },
+    ]);
   };
 
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
@@ -1159,6 +1232,39 @@ export default function Home() {
           </div>
         </div>
 
+        {focusedEmailContext && (
+          <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => handleOpenEmailDetail(focusedEmailContext.email_id)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
+            >
+              <Mail className="h-4 w-4 shrink-0 text-primary" />
+              <span className="min-w-0">
+                <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Focused email
+                </span>
+                <span className="block truncate text-xs font-medium text-foreground">
+                  {focusedEmailContext.subject}
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {focusedEmailContext.sender}
+                </span>
+              </span>
+            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleClearEmailFocus}
+              title="Stop treating this email as the conversational focus"
+            >
+              Clear focus
+            </Button>
+          </div>
+        )}
+
         <div className="relative flex-1 overflow-y-auto p-5">
           <div className="space-y-6 pb-2">
             {chatMessages.length === 0 ? (
@@ -1173,6 +1279,13 @@ export default function Home() {
               </div>
             ) : (
               chatMessages.map(msg => (
+                msg.role === 'context' ? (
+                  <ChatContextEventLine
+                    key={msg.id}
+                    event={msg.contextEvent}
+                    onOpenEmail={(emailId) => void handleOpenEmailDetail(emailId)}
+                  />
+                ) : (
                 <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
                   <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
 
@@ -1267,12 +1380,14 @@ export default function Home() {
                           title={`${reference.sender} · ${reference.subject}`}
                         >
                           <Mail className="h-3 w-3 shrink-0 text-primary" />
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Source</span>
                           <span className="max-w-[180px] truncate">{reference.subject}</span>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
+                )
               ))
             )}
             <div ref={messagesEndRef} />
@@ -1280,32 +1395,12 @@ export default function Home() {
         </div>
 
         <div className="shrink-0 border-t border-border bg-card p-4">
-          {pinnedEmailContext && (
-            <div className="mb-3 flex max-w-full items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
-              <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium text-foreground">Pinned email</div>
-                <div className="truncate text-muted-foreground" title={pinnedEmailContext.subject}>
-                  {pinnedEmailContext.subject}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPinnedEmailContext(null)}
-                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Remove pinned email context"
-                title="Remove context"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
           <form onSubmit={handleSendChatMessage} className="relative flex items-center">
             <Input
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               disabled={isSendingChat}
-              placeholder={pinnedEmailContext ? "Ask about this email..." : "Ask a follow-up question..."}
+              placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
               className="w-full rounded-full pr-12 shadow-sm"
             />
             <Button
