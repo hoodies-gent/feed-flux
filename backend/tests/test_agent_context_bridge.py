@@ -89,12 +89,39 @@ class AgentContextBridgeTest(unittest.TestCase):
         model_messages = model.calls[0]
         self.assertIsInstance(model_messages[0], SystemMessage)
         self.assertIn("User question", model_messages[0].content)
-        self.assertIn("Pinned email context", model_messages[0].content)
+        self.assertIn("Focused email context", model_messages[0].content)
         self.assertIn("private fixture body", model_messages[0].content)
         self.assertEqual("What changed?", model_messages[1].content)
         self.assertEqual(["email-1"], state.values["context_email_ids"])
         self.assertNotIn("private fixture body", repr(result))
         self.assertNotIn("private fixture body", repr(state.values))
+
+    def test_focused_context_keeps_unrelated_inbox_tools_available(self):
+        model = _CapturingLLM()
+        agent = build_agent(llm=model)
+        resolved = {
+            "email_ids": ["email-1"],
+            "prompt": '<email_context id="email-1">fixture context</email_context>',
+            "references": [],
+            "context_chars": 62,
+        }
+
+        async def exercise():
+            with patch(
+                "app.agent.graph.resolve_email_context",
+                return_value=resolved,
+            ):
+                await agent.ainvoke(
+                    new_turn_input("Show my latest unread emails", ["email-1"]),
+                    {"configurable": {"thread_id": "unrelated-context-thread"}},
+                )
+
+        asyncio.run(exercise())
+
+        system_prompt = model.calls[0][0].content
+        self.assertIn("optional supporting evidence", system_prompt)
+        self.assertIn("If it is unrelated, ignore it completely", system_prompt)
+        self.assertIn("continue with the appropriate inbox tools", system_prompt)
 
     def test_empty_context_on_new_turn_clears_prior_pinned_context(self):
         model = _CapturingLLM()
