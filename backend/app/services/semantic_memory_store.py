@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.models.semantic_memory import SemanticMemory
 from app.services.database import DatabaseService
@@ -39,54 +40,38 @@ class SemanticMemoryStore:
         session = self.database.Session()
         try:
             session.execute(text("BEGIN IMMEDIATE"))
-            current = (
-                session.query(SemanticMemory)
-                .filter_by(
-                    profile_id=fields["profile_id"],
-                    memory_type=fields["memory_type"],
-                    workflow_scope=fields["workflow_scope"],
-                    contact_scope=fields["contact_scope"],
-                    normalized_key=fields["normalized_key"],
-                )
-                .filter(SemanticMemory.status.in_(CURRENT_STATUSES))
-                .one_or_none()
-            )
-
-            if (
-                current is not None
-                and current.status == "active"
-                and current.value == fields["value"]
-            ):
-                return _memory_to_dict(current)
-
-            if current is None:
-                lineage_id = str(uuid4())
-                version = 1
-                supersedes_id = None
-            else:
-                current.status = "superseded"
-                session.flush()
-                lineage_id = current.lineage_id
-                version = current.version + 1
-                supersedes_id = current.id
-
-            memory = SemanticMemory(
-                **fields,
-                source_ref=source_ref,
-                lineage_id=lineage_id,
-                version=version,
-                supersedes_id=supersedes_id,
-                status="active",
-            )
-            session.add(memory)
+            result = _remember(session, fields=fields, source_ref=source_ref)
             session.commit()
-            session.refresh(memory)
-            return _memory_to_dict(memory)
+            return result
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def remember_in_session(
+        self,
+        session: Session,
+        *,
+        profile_id: str,
+        memory_type: str,
+        workflow_scope: str,
+        contact_scope: str | None,
+        key: str,
+        value: str,
+        source: str,
+        source_ref: str | None = None,
+    ) -> dict:
+        fields = _normalize_fields(
+            profile_id=profile_id,
+            memory_type=memory_type,
+            workflow_scope=workflow_scope,
+            contact_scope=contact_scope,
+            key=key,
+            value=value,
+            source=source,
+        )
+        return _remember(session, fields=fields, source_ref=source_ref)
 
     def update(
         self,
@@ -102,40 +87,40 @@ class SemanticMemoryStore:
         session = self.database.Session()
         try:
             session.execute(text("BEGIN IMMEDIATE"))
-            current = _get_owned_memory(session, profile_id, memory_id)
-            if current.status not in CURRENT_STATUSES:
-                raise ValueError("only a current memory can be updated")
-            if current.value == normalized_value:
-                return _memory_to_dict(current)
-
-            successor_status = current.status
-            current.status = "superseded"
-            session.flush()
-            successor = SemanticMemory(
-                lineage_id=current.lineage_id,
-                version=current.version + 1,
-                supersedes_id=current.id,
-                profile_id=current.profile_id,
-                memory_type=current.memory_type,
-                workflow_scope=current.workflow_scope,
-                contact_scope=current.contact_scope,
-                key=current.key,
-                normalized_key=current.normalized_key,
+            result = _update(
+                session,
+                profile_id=profile_id,
+                memory_id=memory_id,
                 value=normalized_value,
                 source=normalized_source,
                 source_ref=source_ref,
-                status=successor_status,
-                disabled_at=_utc_timestamp() if successor_status == "disabled" else None,
             )
-            session.add(successor)
             session.commit()
-            session.refresh(successor)
-            return _memory_to_dict(successor)
+            return result
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def update_in_session(
+        self,
+        session: Session,
+        *,
+        profile_id: str,
+        memory_id: int,
+        value: str,
+        source: str,
+        source_ref: str | None = None,
+    ) -> dict:
+        return _update(
+            session,
+            profile_id=profile_id,
+            memory_id=memory_id,
+            value=_required(value, "value"),
+            source=_required(source, "source"),
+            source_ref=source_ref,
+        )
 
     def disable(self, *, profile_id: str, memory_id: int) -> dict:
         session = self.database.Session()
@@ -177,18 +162,23 @@ class SemanticMemoryStore:
         session = self.database.Session()
         try:
             session.execute(text("BEGIN IMMEDIATE"))
-            memory = _get_owned_memory(session, profile_id, memory_id)
-            forgotten_count = _scrub_lineages(session, [memory.lineage_id])
+            result = _forget(session, profile_id=profile_id, memory_id=memory_id)
             session.commit()
-            return {
-                "lineage_id": memory.lineage_id,
-                "forgotten_count": forgotten_count,
-            }
+            return result
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def forget_in_session(
+        self,
+        session: Session,
+        *,
+        profile_id: str,
+        memory_id: int,
+    ) -> dict:
+        return _forget(session, profile_id=profile_id, memory_id=memory_id)
 
     def reset(
         self,
@@ -202,38 +192,37 @@ class SemanticMemoryStore:
         session = self.database.Session()
         try:
             session.execute(text("BEGIN IMMEDIATE"))
-            query = session.query(SemanticMemory.lineage_id).filter(
-                SemanticMemory.profile_id == normalized_profile,
-                SemanticMemory.status.in_(CURRENT_STATUSES),
+            result = _reset(
+                session,
+                profile_id=normalized_profile,
+                memory_type=memory_type,
+                workflow_scope=workflow_scope,
+                contact_scope=contact_scope,
             )
-            if memory_type is not None:
-                query = query.filter(
-                    SemanticMemory.memory_type
-                    == _required(memory_type, "memory_type").casefold()
-                )
-            if workflow_scope is not None:
-                query = query.filter(
-                    SemanticMemory.workflow_scope
-                    == _required(workflow_scope, "workflow_scope").casefold()
-                )
-            if contact_scope is not _ALL_CONTACT_SCOPES:
-                query = query.filter(
-                    SemanticMemory.contact_scope
-                    == (contact_scope or "").strip().casefold()
-                )
-
-            lineage_ids = [row[0] for row in query.distinct().all()]
-            forgotten_count = _scrub_lineages(session, lineage_ids)
             session.commit()
-            return {
-                "lineage_count": len(lineage_ids),
-                "forgotten_count": forgotten_count,
-            }
+            return result
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def reset_in_session(
+        self,
+        session: Session,
+        *,
+        profile_id: str,
+        memory_type: str | None = None,
+        workflow_scope: str | None = None,
+        contact_scope: str | None | object = _ALL_CONTACT_SCOPES,
+    ) -> dict:
+        return _reset(
+            session,
+            profile_id=_required(profile_id, "profile_id"),
+            memory_type=memory_type,
+            workflow_scope=workflow_scope,
+            contact_scope=contact_scope,
+        )
 
     def list_memories(
         self,
@@ -279,6 +268,135 @@ def _normalize_fields(
         "normalized_key": display_key.casefold(),
         "value": _required(value, "value"),
         "source": _required(source, "source"),
+    }
+
+
+def _remember(
+    session: Session,
+    *,
+    fields: dict,
+    source_ref: str | None,
+) -> dict:
+    current = (
+        session.query(SemanticMemory)
+        .filter_by(
+            profile_id=fields["profile_id"],
+            memory_type=fields["memory_type"],
+            workflow_scope=fields["workflow_scope"],
+            contact_scope=fields["contact_scope"],
+            normalized_key=fields["normalized_key"],
+        )
+        .filter(SemanticMemory.status.in_(CURRENT_STATUSES))
+        .one_or_none()
+    )
+    if (
+        current is not None
+        and current.status == "active"
+        and current.value == fields["value"]
+    ):
+        return _memory_to_dict(current)
+
+    if current is None:
+        lineage_id = str(uuid4())
+        version = 1
+        supersedes_id = None
+    else:
+        current.status = "superseded"
+        session.flush()
+        lineage_id = current.lineage_id
+        version = current.version + 1
+        supersedes_id = current.id
+
+    memory = SemanticMemory(
+        **fields,
+        source_ref=source_ref,
+        lineage_id=lineage_id,
+        version=version,
+        supersedes_id=supersedes_id,
+        status="active",
+    )
+    session.add(memory)
+    session.flush()
+    return _memory_to_dict(memory)
+
+
+def _update(
+    session: Session,
+    *,
+    profile_id: str,
+    memory_id: int,
+    value: str,
+    source: str,
+    source_ref: str | None,
+) -> dict:
+    current = _get_owned_memory(session, profile_id, memory_id)
+    if current.status not in CURRENT_STATUSES:
+        raise ValueError("only a current memory can be updated")
+    if current.value == value:
+        return _memory_to_dict(current)
+
+    successor_status = current.status
+    current.status = "superseded"
+    session.flush()
+    successor = SemanticMemory(
+        lineage_id=current.lineage_id,
+        version=current.version + 1,
+        supersedes_id=current.id,
+        profile_id=current.profile_id,
+        memory_type=current.memory_type,
+        workflow_scope=current.workflow_scope,
+        contact_scope=current.contact_scope,
+        key=current.key,
+        normalized_key=current.normalized_key,
+        value=value,
+        source=source,
+        source_ref=source_ref,
+        status=successor_status,
+        disabled_at=_utc_timestamp() if successor_status == "disabled" else None,
+    )
+    session.add(successor)
+    session.flush()
+    return _memory_to_dict(successor)
+
+
+def _forget(session: Session, *, profile_id: str, memory_id: int) -> dict:
+    memory = _get_owned_memory(session, profile_id, memory_id)
+    lineage_id = memory.lineage_id
+    forgotten_count = _scrub_lineages(session, [lineage_id])
+    return {"lineage_id": lineage_id, "forgotten_count": forgotten_count}
+
+
+def _reset(
+    session: Session,
+    *,
+    profile_id: str,
+    memory_type: str | None,
+    workflow_scope: str | None,
+    contact_scope: str | None | object,
+) -> dict:
+    query = session.query(SemanticMemory.lineage_id).filter(
+        SemanticMemory.profile_id == profile_id,
+        SemanticMemory.status.in_(CURRENT_STATUSES),
+    )
+    if memory_type is not None:
+        query = query.filter(
+            SemanticMemory.memory_type == _required(memory_type, "memory_type").casefold()
+        )
+    if workflow_scope is not None:
+        query = query.filter(
+            SemanticMemory.workflow_scope
+            == _required(workflow_scope, "workflow_scope").casefold()
+        )
+    if contact_scope is not _ALL_CONTACT_SCOPES:
+        query = query.filter(
+            SemanticMemory.contact_scope == (contact_scope or "").strip().casefold()
+        )
+
+    lineage_ids = [row[0] for row in query.distinct().all()]
+    forgotten_count = _scrub_lineages(session, lineage_ids)
+    return {
+        "lineage_count": len(lineage_ids),
+        "forgotten_count": forgotten_count,
     }
 
 
