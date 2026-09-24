@@ -11,8 +11,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, interrupt
 
 from app.agent.context import MAX_CONTEXT_CHARS, resolve_email_context
-from app.agent.execution_context import current_thread_id, current_tool_call_id
+from app.agent.execution_context import (
+    current_profile_id,
+    current_thread_id,
+    current_tool_call_id,
+)
 from app.agent.llm import get_llm
+from app.agent.memory_context import resolve_memory_context
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.state import AgentState
@@ -271,6 +276,28 @@ def build_agent(
         if not messages or not isinstance(messages[0], SystemMessage):
             system_prompt = SYSTEM_PROMPT
             context_email_ids = state.get("context_email_ids", [])
+            resolved_memory = resolve_memory_context(
+                messages,
+                context_email_ids=context_email_ids,
+                profile_id=current_profile_id.get(),
+            )
+            await adispatch_custom_event(
+                "memory_context_loaded",
+                {
+                    "memory_ids": resolved_memory["memory_ids"],
+                    "memory_count": len(resolved_memory["memory_ids"]),
+                    "workflow_scope": resolved_memory["workflow_scope"],
+                    "has_contact_scope": resolved_memory["has_contact_scope"],
+                    "context_chars": resolved_memory["context_chars"],
+                    "estimated_tokens": resolved_memory["estimated_tokens"],
+                    "memory_limit": resolved_memory["memory_limit"],
+                    "context_char_limit": resolved_memory["context_char_limit"],
+                    "value_char_limit": resolved_memory["value_char_limit"],
+                },
+                config=config,
+            )
+            if resolved_memory["prompt"]:
+                system_prompt = f"{system_prompt}\n\n{resolved_memory['prompt']}"
             if context_email_ids:
                 resolved_context = resolve_email_context(context_email_ids)
                 await adispatch_custom_event(
@@ -285,7 +312,7 @@ def build_agent(
                     config=config,
                 )
                 system_prompt = (
-                    f"{SYSTEM_PROMPT}\n\n"
+                    f"{system_prompt}\n\n"
                     f"{EMAIL_CONTEXT_INSTRUCTIONS}{resolved_context['prompt']}"
                 )
             messages = [SystemMessage(content=system_prompt), *messages]

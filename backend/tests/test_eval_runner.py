@@ -127,6 +127,21 @@ async def _sanitized_memory_list_events(
     yield {"type": "done"}
 
 
+async def _memory_context_events(graph_input, thread_id, callbacks, tool_output_limit):
+    yield {
+        "type": "trace",
+        "step": "memory_context_loaded",
+        "memory_ids": [7],
+        "memory_count": 1,
+        "workflow_scope": "drafting",
+        "has_contact_scope": False,
+        "context_chars": 321,
+        "estimated_tokens": 81,
+    }
+    yield {"type": "token", "content": "Secret injected preference"}
+    yield {"type": "done"}
+
+
 async def _failing_events(graph_input, thread_id, callbacks, tool_output_limit):
     if False:
         yield {}
@@ -300,6 +315,22 @@ class EvalRunnerTest(unittest.TestCase):
 
         self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
         self.assertNotIn("Secret recalled preference", json.dumps(record))
+
+    def test_injected_memory_output_is_hidden_from_public_eval_record(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["draft_creation"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-injected-memory-redaction",
+                recorder=self.recorder,
+                event_source=_memory_context_events,
+            )
+        )
+
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertNotIn("Secret injected preference", json.dumps(record))
 
     def test_provider_failure_is_recorded_instead_of_losing_the_trial(self):
         record = asyncio.run(

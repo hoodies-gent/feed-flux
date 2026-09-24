@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import text
+from sqlalchemy import and_, case, literal, text
 from sqlalchemy.orm import Session
 
 from app.models.semantic_memory import SemanticMemory
@@ -243,6 +243,83 @@ class SemanticMemoryStore:
                     SemanticMemory.updated_at.desc(), SemanticMemory.id.desc()
                 )
             memories = query.all()
+            return [_memory_to_dict(memory) for memory in memories]
+        finally:
+            session.close()
+
+    def retrieve_active(
+        self,
+        *,
+        profile_id: str,
+        workflow_scope: str | None,
+        contact_scope: str | None,
+        limit: int = 5,
+    ) -> list[dict]:
+        if limit <= 0:
+            return []
+        normalized_profile = _required(profile_id, "profile_id")
+        normalized_workflow = (
+            workflow_scope.strip().casefold() if workflow_scope else None
+        )
+        normalized_contact = (contact_scope or "").strip().casefold()
+        workflow_candidates = ["global"]
+        if normalized_workflow and normalized_workflow != "global":
+            workflow_candidates.append(normalized_workflow)
+        contact_candidates = [""]
+        if normalized_contact:
+            contact_candidates.append(normalized_contact)
+
+        rank_cases = []
+        if normalized_workflow and normalized_workflow != "global":
+            if normalized_contact:
+                rank_cases.append(
+                    (
+                        and_(
+                            SemanticMemory.workflow_scope == normalized_workflow,
+                            SemanticMemory.contact_scope == normalized_contact,
+                        ),
+                        0,
+                    )
+                )
+            rank_cases.append(
+                (
+                    and_(
+                        SemanticMemory.workflow_scope == normalized_workflow,
+                        SemanticMemory.contact_scope == "",
+                    ),
+                    1,
+                )
+            )
+        if normalized_contact:
+            rank_cases.append(
+                (
+                    and_(
+                        SemanticMemory.workflow_scope == "global",
+                        SemanticMemory.contact_scope == normalized_contact,
+                    ),
+                    2,
+                )
+            )
+        relevance_rank = case(*rank_cases, else_=3) if rank_cases else literal(3)
+
+        session = self.database.Session()
+        try:
+            memories = (
+                session.query(SemanticMemory)
+                .filter(
+                    SemanticMemory.profile_id == normalized_profile,
+                    SemanticMemory.status == "active",
+                    SemanticMemory.workflow_scope.in_(workflow_candidates),
+                    SemanticMemory.contact_scope.in_(contact_candidates),
+                )
+                .order_by(
+                    relevance_rank,
+                    SemanticMemory.updated_at.desc(),
+                    SemanticMemory.id.desc(),
+                )
+                .limit(min(limit, 50))
+                .all()
+            )
             return [_memory_to_dict(memory) for memory in memories]
         finally:
             session.close()

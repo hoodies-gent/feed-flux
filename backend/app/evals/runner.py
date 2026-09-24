@@ -332,7 +332,13 @@ async def run_trial(
     redactions = memory_redactions(events)
     public_events = [sanitize_public_memory_event(event) for event in events]
     has_memory_activity = any(
-        is_memory_tool(str(event.get("tool") or "")) for event in events
+        is_memory_tool(str(event.get("tool") or ""))
+        or (
+            event.get("type") == "trace"
+            and event.get("step") == "memory_context_loaded"
+            and int(event.get("memory_count") or 0) > 0
+        )
+        for event in events
     )
     public_output = (
         "[REDACTED_MEMORY_OUTPUT]"

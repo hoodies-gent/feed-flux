@@ -153,6 +153,30 @@ class AgentRunRuntime:
                                 ),
                             },
                         )
+                    elif event.get("step") == "memory_context_loaded":
+                        self.store.append_event(
+                            run_id,
+                            event_type="memory_context_loaded",
+                            provider=self.provider,
+                            outcome={
+                                "schema_version": 1,
+                                "memory_ids": event.get("memory_ids", []),
+                                "memory_count": event.get("memory_count", 0),
+                                "workflow_scope": event.get("workflow_scope"),
+                                "has_contact_scope": event.get(
+                                    "has_contact_scope", False
+                                ),
+                                "context_chars": event.get("context_chars", 0),
+                                "estimated_tokens": event.get(
+                                    "estimated_tokens", 0
+                                ),
+                                "memory_limit": event.get("memory_limit"),
+                                "context_char_limit": event.get(
+                                    "context_char_limit"
+                                ),
+                                "value_char_limit": event.get("value_char_limit"),
+                            },
+                        )
 
                 if event.get("type") == "interrupt":
                     self.store.transition_run(

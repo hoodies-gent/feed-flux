@@ -263,6 +263,22 @@ async def stream_agent(
                 "context_char_limit": data.get("context_char_limit"),
             }
 
+        elif kind == "on_custom_event" and name == "memory_context_loaded":
+            memory_ids = list(data.get("memory_ids") or [])
+            yield {
+                "type": "trace",
+                "step": "memory_context_loaded",
+                "memory_ids": memory_ids,
+                "memory_count": len(memory_ids),
+                "workflow_scope": data.get("workflow_scope"),
+                "has_contact_scope": bool(data.get("has_contact_scope")),
+                "context_chars": data.get("context_chars", 0),
+                "estimated_tokens": data.get("estimated_tokens", 0),
+                "memory_limit": data.get("memory_limit"),
+                "context_char_limit": data.get("context_char_limit"),
+                "value_char_limit": data.get("value_char_limit"),
+            }
+
         elif kind == "on_custom_event" and name == "email_context_references":
             references = [
                 {
