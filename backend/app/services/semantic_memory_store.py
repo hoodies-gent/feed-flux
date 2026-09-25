@@ -251,6 +251,55 @@ class SemanticMemoryStore:
         finally:
             session.close()
 
+    def list_memories_page(
+        self,
+        *,
+        profile_id: str,
+        memory_type: str | None = None,
+        workflow_scope: str | None = None,
+        contact_scope: str | None = None,
+        limit: int = 10,
+        cursor: int | None = None,
+    ) -> dict:
+        if limit < 1 or limit > 50:
+            raise ValueError("limit must be between 1 and 50")
+        if cursor is not None and cursor < 1:
+            raise ValueError("cursor must be a positive memory ID")
+
+        normalized_profile = _required(profile_id, "profile_id")
+        session = self.database.Session()
+        try:
+            query = session.query(SemanticMemory).filter(
+                SemanticMemory.profile_id == normalized_profile,
+                SemanticMemory.status.in_(CURRENT_STATUSES),
+            )
+            if memory_type is not None:
+                query = query.filter(
+                    SemanticMemory.memory_type
+                    == _required(memory_type, "memory_type").casefold()
+                )
+            if workflow_scope is not None:
+                query = query.filter(
+                    SemanticMemory.workflow_scope
+                    == _required(workflow_scope, "workflow_scope").casefold()
+                )
+            if contact_scope is not None:
+                query = query.filter(
+                    SemanticMemory.contact_scope == contact_scope.strip().casefold()
+                )
+            if cursor is not None:
+                query = query.filter(SemanticMemory.id < cursor)
+
+            rows = query.order_by(SemanticMemory.id.desc()).limit(limit + 1).all()
+            page = rows[:limit]
+            return {
+                "memories": [_memory_to_dict(memory) for memory in page],
+                "count": len(page),
+                "next_cursor": page[-1].id if len(rows) > limit else None,
+            }
+        finally:
+            session.close()
+
     def retrieve_active(
         self,
         *,

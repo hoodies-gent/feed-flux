@@ -256,6 +256,71 @@ class SemanticMemoryStoreTest(unittest.TestCase):
         history = store.list_memories(profile_id="profile-a", include_history=True)
         self.assertEqual(["superseded", "active"], [item["status"] for item in history])
 
+    def test_list_page_filters_in_database_and_uses_bounded_cursor(self):
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        store = SemanticMemoryStore(self.database)
+        matching = []
+        for index in range(5):
+            matching.append(
+                store.remember(
+                    profile_id="profile-a",
+                    memory_type="preference",
+                    workflow_scope="drafting",
+                    contact_scope="pat@example.com",
+                    key=f"Preference {index}",
+                    value=f"Value {index}",
+                    source="explicit_user",
+                )
+            )
+        store.remember(
+            profile_id="profile-a",
+            memory_type="fact",
+            workflow_scope="drafting",
+            contact_scope="pat@example.com",
+            key="Role",
+            value="Pat is my manager.",
+            source="explicit_user",
+        )
+        store.remember(
+            profile_id="profile-b",
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope="pat@example.com",
+            key="Other profile",
+            value="Must stay isolated.",
+            source="explicit_user",
+        )
+
+        first = store.list_memories_page(
+            profile_id="profile-a",
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope="pat@example.com",
+            limit=3,
+        )
+        second = store.list_memories_page(
+            profile_id="profile-a",
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope="pat@example.com",
+            limit=3,
+            cursor=first["next_cursor"],
+        )
+
+        self.assertEqual(
+            [item["id"] for item in reversed(matching[-3:])],
+            [item["id"] for item in first["memories"]],
+        )
+        self.assertEqual(3, first["count"])
+        self.assertIsNotNone(first["next_cursor"])
+        self.assertEqual(
+            [item["id"] for item in reversed(matching[:2])],
+            [item["id"] for item in second["memories"]],
+        )
+        self.assertEqual(2, second["count"])
+        self.assertIsNone(second["next_cursor"])
+
 
 if __name__ == "__main__":
     unittest.main()

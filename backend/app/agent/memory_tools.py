@@ -84,6 +84,8 @@ class ListMemoriesInput(BaseModel):
     memory_type: MemoryType | None = Field(default=None)
     workflow_scope: str | None = Field(default=None)
     contact_scope: str | None = Field(default=None)
+    limit: int = Field(default=10, ge=1, le=10)
+    cursor: int | None = Field(default=None, ge=1)
 
 
 @tool("list_memories", args_schema=ListMemoriesInput)
@@ -91,28 +93,20 @@ def list_memories(
     memory_type: MemoryType | None = None,
     workflow_scope: str | None = None,
     contact_scope: str | None = None,
+    limit: int = 10,
+    cursor: int | None = None,
 ) -> dict:
-    """List the user's current confirmed memories, optionally filtered by scope."""
+    """List one approved, filtered page of the user's current confirmed memories."""
     database = DatabaseService()
     try:
-        memories = SemanticMemoryStore(database).list_memories(
-            profile_id=current_profile_id.get()
+        return SemanticMemoryStore(database).list_memories_page(
+            profile_id=current_profile_id.get(),
+            memory_type=memory_type,
+            workflow_scope=workflow_scope,
+            contact_scope=contact_scope,
+            limit=limit,
+            cursor=cursor,
         )
-        if memory_type is not None:
-            memories = [item for item in memories if item["memory_type"] == memory_type]
-        if workflow_scope is not None:
-            normalized_workflow = workflow_scope.strip().casefold()
-            memories = [
-                item for item in memories
-                if item["workflow_scope"] == normalized_workflow
-            ]
-        if contact_scope is not None:
-            normalized_contact = contact_scope.strip().casefold()
-            memories = [
-                item for item in memories
-                if item["contact_scope"] == normalized_contact
-            ]
-        return {"memories": memories, "count": len(memories)}
     finally:
         database.engine.dispose()
 

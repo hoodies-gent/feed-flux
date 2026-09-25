@@ -261,6 +261,44 @@ class AgentMemoryToolsTest(unittest.TestCase):
             self.assertNotIn("profile_id", tool.args_schema.model_fields)
             self.assertNotIn("source", tool.args_schema.model_fields)
 
+    def test_list_tool_has_a_hard_page_limit_and_cursor(self):
+        from app.agent.memory_tools import list_memories
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        for index in range(12):
+            store.remember(
+                profile_id=LOCAL_PROFILE_ID,
+                memory_type="preference",
+                workflow_scope="drafting",
+                contact_scope=None,
+                key=f"Preference {index}",
+                value=f"Value {index}",
+                source="explicit_user",
+            )
+
+        first = list_memories.invoke(
+            {"memory_type": "preference", "workflow_scope": "drafting"}
+        )
+        second = list_memories.invoke(
+            {
+                "memory_type": "preference",
+                "workflow_scope": "drafting",
+                "cursor": first["next_cursor"],
+            }
+        )
+        database.engine.dispose()
+
+        self.assertEqual(10, first["count"])
+        self.assertIsNotNone(first["next_cursor"])
+        self.assertEqual(2, second["count"])
+        self.assertIsNone(second["next_cursor"])
+        self.assertEqual(
+            {"memory_type", "workflow_scope", "contact_scope", "limit", "cursor"},
+            set(list_memories.args_schema.model_fields),
+        )
+
     def test_memory_writes_interrupt_before_execution_and_resume_after_approval(self):
         from app.agent.graph import build_agent
         from app.agent.tools import HIGH_RISK_TOOLS, TOOLS_BY_NAME
@@ -273,7 +311,7 @@ class AgentMemoryToolsTest(unittest.TestCase):
             "reset_memories",
         }
         self.assertTrue(write_tools.issubset(HIGH_RISK_TOOLS))
-        self.assertNotIn("list_memories", HIGH_RISK_TOOLS)
+        self.assertIn("list_memories", HIGH_RISK_TOOLS)
         self.assertTrue({*write_tools, "list_memories"}.issubset(TOOLS_BY_NAME))
 
         database = DatabaseService(str(self.data_dir / "emails.db"))

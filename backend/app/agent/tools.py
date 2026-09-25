@@ -455,6 +455,7 @@ TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 HIGH_RISK_TOOLS = {
     "send_test_email",
     "remember_memory",
+    "list_memories",
     "update_memory",
     "forget_memory",
     "reset_memories",
