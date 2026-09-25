@@ -603,6 +603,32 @@ export interface SemanticMemory {
     disabled_at: number | null;
 }
 
+export type SemanticMemoryCandidateStatus =
+    | 'pending'
+    | 'suggested'
+    | 'confirmed'
+    | 'rejected'
+    | 'expired';
+
+export interface SemanticMemoryCandidate {
+    id: number;
+    profile_id: string;
+    memory_type: 'preference' | 'rule' | 'constraint';
+    workflow_scope: string;
+    contact_scope: string | null;
+    key: string;
+    normalized_key: string;
+    value: string;
+    status: SemanticMemoryCandidateStatus;
+    evidence_count: number;
+    created_at: number;
+    updated_at: number;
+    suggested_at: number | null;
+    confirmed_at: number | null;
+    rejected_at: number | null;
+    expired_at: number | null;
+}
+
 async function memoryApiError(response: Response, fallback: string): Promise<Error> {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null;
     if (typeof body?.detail === 'string') return new Error(body.detail);
@@ -614,6 +640,29 @@ export async function listSemanticMemories(): Promise<SemanticMemory[]> {
     if (!response.ok) throw await memoryApiError(response, 'Failed to load memories');
     const body = await response.json() as { memories: SemanticMemory[] };
     return body.memories;
+}
+
+export async function listMemoryCandidates(): Promise<SemanticMemoryCandidate[]> {
+    const response = await fetch('/api/memories/candidates');
+    if (!response.ok) throw await memoryApiError(response, 'Failed to load memory suggestions');
+    const body = await response.json() as { candidates: SemanticMemoryCandidate[] };
+    return body.candidates;
+}
+
+export async function acceptMemoryCandidate(candidateId: number): Promise<SemanticMemoryCandidate> {
+    const response = await fetch(`/api/memories/candidates/${candidateId}/accept`, {
+        method: 'POST',
+    });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to accept memory suggestion');
+    return response.json();
+}
+
+export async function dismissMemoryCandidate(candidateId: number): Promise<SemanticMemoryCandidate> {
+    const response = await fetch(`/api/memories/candidates/${candidateId}/dismiss`, {
+        method: 'POST',
+    });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to dismiss memory suggestion');
+    return response.json();
 }
 
 export async function updateSemanticMemory(memoryId: number, value: string): Promise<SemanticMemory> {
