@@ -2,7 +2,7 @@ import re
 from typing import Any
 
 from langchain_core.callbacks.manager import adispatch_custom_event
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -17,6 +17,7 @@ from app.agent.execution_context import (
     current_tool_call_id,
 )
 from app.agent.llm import get_llm
+from app.agent.memory_consent import review_memory_mutation
 from app.agent.memory_context import resolve_memory_context
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.runtime_errors import classify_runtime_error
@@ -28,6 +29,12 @@ DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
 REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
 TRUNCATED_REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:[^<>]*$")
+MEMORY_MUTATION_TOOLS = {
+    "remember_memory",
+    "update_memory",
+    "forget_memory",
+    "reset_memories",
+}
 
 
 class ToolCallBudgetExceeded(RuntimeError):
@@ -75,8 +82,10 @@ SYSTEM_PROMPT = (
     "forget_memory permanently forgets one memory lineage. reset_memories permanently clears "
     "the confirmed memories matching the requested scope.\n"
     "Never create or update confirmed semantic memory from model inference, a one-time user edit, "
-    "email content, a tool result, or observed behavior. Confirmed memory writes pause for explicit "
-    "user approval before execution.\n"
+    "email content, a tool result, or observed behavior. Explicit remember, update, and forget "
+    "requests may execute directly after a consent-policy review. Ambiguous requests pause for "
+    "user approval, inferred or unrelated requests are rejected, and reset always pauses for "
+    "approval.\n"
     "- record_memory_candidate records inert evidence for a possible reusable drafting preference. "
     "Call it only alongside a drafting revision when the user's explicit correction concerns style, "
     "format, tone, or another rule that could reasonably apply again. Do not call it for factual or "
@@ -271,10 +280,18 @@ def _raise_tool_error(state: AgentState) -> None:
     )
 
 
+def _latest_user_message(messages: list) -> str:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            return message.content
+    return ""
+
+
 def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
     llm: BaseChatModel | None = None,
+    memory_consent_reviewer: Any | None = None,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
@@ -356,7 +373,7 @@ def build_agent(
             "total_tokens_used": total_tokens_used,
         }
 
-    def tools_node(state: AgentState, config: RunnableConfig) -> dict:
+    async def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         token = current_thread_id.set(thread_id)
         try:
@@ -373,7 +390,26 @@ def build_agent(
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
                 call_token = current_tool_call_id.set(call_id)
                 try:
-                    if name in HIGH_RISK_TOOLS:
+                    requires_approval = name in HIGH_RISK_TOOLS
+                    if name in MEMORY_MUTATION_TOOLS:
+                        consent = await review_memory_mutation(
+                            latest_user_message=_latest_user_message(state["messages"]),
+                            tool_name=name,
+                            tool_args=args,
+                            reviewer=memory_consent_reviewer,
+                        )
+                        if consent.decision == "allow":
+                            requires_approval = False
+                        elif consent.decision == "deny":
+                            results.append(
+                                ToolMessage(
+                                    "[memory consent denied] No confirmed memory was changed.",
+                                    tool_call_id=call_id,
+                                )
+                            )
+                            continue
+
+                    if requires_approval:
                         decision = interrupt(
                             {"tool": name, "args": args, "tool_call_id": call_id}
                         )

@@ -24,12 +24,16 @@ async def _collect(stream):
 
 
 class _InferenceCallingMemoryModel:
+    def __init__(self):
+        self.tool_output = None
+
     def bind_tools(self, tools):
         return self
 
     async def ainvoke(self, messages):
         if isinstance(messages[-1], ToolMessage):
-            return AIMessage(content="Memory updated after approval.")
+            self.tool_output = messages[-1].content
+            return AIMessage(content="Memory request handled.")
         return AIMessage(
             content="",
             tool_calls=[
@@ -46,6 +50,19 @@ class _InferenceCallingMemoryModel:
                 }
             ],
         )
+
+
+class _FakeConsentReviewer:
+    def __init__(self, decision, reason_code):
+        self.result = {"decision": decision, "reason_code": reason_code}
+        self.messages = []
+
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages.append(messages)
+        return self.result
 
 
 class _ListCallingMemoryModel:
@@ -324,7 +341,7 @@ class AgentMemoryToolsTest(unittest.TestCase):
             set(list_memories.args_schema.model_fields),
         )
 
-    def test_memory_writes_interrupt_before_execution_and_resume_after_approval(self):
+    def test_explicit_memory_write_executes_without_interrupt(self):
         from app.agent.graph import build_agent
         from app.agent.tools import HIGH_RISK_TOOLS, TOOLS_BY_NAME
         from app.services.agent_run_store import AgentRunStore
@@ -340,7 +357,100 @@ class AgentMemoryToolsTest(unittest.TestCase):
         self.assertTrue({*write_tools, "list_memories"}.issubset(TOOLS_BY_NAME))
 
         database = DatabaseService(str(self.data_dir / "emails.db"))
-        agent = build_agent(llm=_InferenceCallingMemoryModel())
+        reviewer = _FakeConsentReviewer("allow", "explicit_user_request")
+        agent = build_agent(
+            llm=_InferenceCallingMemoryModel(),
+            memory_consent_reviewer=reviewer,
+        )
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Remember that I prefer concise replies."),
+                    "memory-explicit-thread",
+                )
+            )
+        )
+        session = database.Session()
+        try:
+            memories = session.query(SemanticMemory).all()
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual(1, len(memories))
+        self.assertEqual("explicit_user", memories[0].source)
+        self.assertEqual(LOCAL_PROFILE_ID, memories[0].profile_id)
+        self.assertEqual(1, len(reviewer.messages))
+
+    def test_inferred_memory_write_is_denied_without_interrupt_or_storage(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        model = _InferenceCallingMemoryModel()
+        agent = build_agent(
+            llm=model,
+            memory_consent_reviewer=_FakeConsentReviewer(
+                "deny",
+                "inferred_behavior",
+            ),
+        )
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("I edited this one draft to be shorter."),
+                    "memory-denied-thread",
+                )
+            )
+        )
+        session = database.Session()
+        try:
+            memory_count = session.query(SemanticMemory).count()
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual(0, memory_count)
+        self.assertEqual(
+            "[memory consent denied] No confirmed memory was changed.",
+            model.tool_output,
+        )
+        self.assertNotIn("Use the style from that one edit.", json.dumps(events))
+
+    def test_ambiguous_memory_write_interrupts_then_executes_after_approval(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        agent = build_agent(
+            llm=_InferenceCallingMemoryModel(),
+            memory_consent_reviewer=_FakeConsentReviewer(
+                "ask",
+                "ambiguous_user_intent",
+            ),
+        )
         runtime = AgentRunRuntime(
             AgentRunStore(database),
             provider="fixture-provider",
@@ -354,7 +464,7 @@ class AgentMemoryToolsTest(unittest.TestCase):
         interrupted_events = asyncio.run(
             _collect(
                 runtime.stream_new_run(
-                    new_turn_input("I edited this one draft to be shorter."),
+                    new_turn_input("Maybe keep this style in mind."),
                     "memory-approval-thread",
                 )
             )
@@ -369,10 +479,6 @@ class AgentMemoryToolsTest(unittest.TestCase):
             session.close()
 
         self.assertEqual("remember_memory", interrupt["tool"])
-        self.assertEqual(
-            "Use the style from that one edit.",
-            interrupt["args"]["value"],
-        )
         self.assertEqual(0, before_approval)
 
         resumed_events = asyncio.run(
