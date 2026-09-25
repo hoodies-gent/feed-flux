@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.models.semantic_memory import (
     SemanticMemoryCandidate,
@@ -37,58 +38,49 @@ class MemoryCandidateStore:
             key=key,
             value=value,
         )
-        normalized_source = _required(source, "source")
-        normalized_source_ref = _required(source_ref, "source_ref")
         session = self.database.Session()
         try:
             session.execute(text("BEGIN IMMEDIATE"))
-            candidate = (
-                session.query(SemanticMemoryCandidate)
-                .filter_by(**fields["identity"])
-                .one_or_none()
+            result = _record_candidate(
+                session,
+                fields=fields,
+                source=_required(source, "source"),
+                source_ref=_required(source_ref, "source_ref"),
             )
-            if candidate is None:
-                candidate = SemanticMemoryCandidate(
-                    **fields["record"],
-                    status="pending",
-                    evidence_count=0,
-                )
-                session.add(candidate)
-                session.flush()
-
-            if candidate.status not in {"pending", "suggested"}:
-                session.commit()
-                return _candidate_to_dict(candidate)
-
-            evidence = (
-                session.query(SemanticMemoryCandidateEvidence)
-                .filter_by(
-                    candidate_id=candidate.id,
-                    source_ref=normalized_source_ref,
-                )
-                .one_or_none()
-            )
-            if evidence is None:
-                session.add(
-                    SemanticMemoryCandidateEvidence(
-                        candidate_id=candidate.id,
-                        source=normalized_source,
-                        source_ref=normalized_source_ref,
-                    )
-                )
-                candidate.evidence_count += 1
-                if candidate.evidence_count >= SUGGESTION_EVIDENCE_THRESHOLD:
-                    candidate.status = "suggested"
-                    candidate.suggested_at = _utc_timestamp()
-
             session.commit()
-            session.refresh(candidate)
-            return _candidate_to_dict(candidate)
+            return result
         except Exception:
             session.rollback()
             raise
         finally:
             session.close()
+
+    def record_candidate_in_session(
+        self,
+        session: Session,
+        *,
+        profile_id: str,
+        memory_type: str,
+        workflow_scope: str,
+        contact_scope: str | None,
+        key: str,
+        value: str,
+        source: str,
+        source_ref: str,
+    ) -> dict:
+        return _record_candidate(
+            session,
+            fields=_normalize_fields(
+                profile_id=profile_id,
+                memory_type=memory_type,
+                workflow_scope=workflow_scope,
+                contact_scope=contact_scope,
+                key=key,
+                value=value,
+            ),
+            source=_required(source, "source"),
+            source_ref=_required(source_ref, "source_ref"),
+        )
 
     def reject(self, *, profile_id: str, candidate_id: int) -> dict:
         session = self.database.Session()
@@ -209,6 +201,52 @@ def _normalize_fields(
             "value": display_value,
         },
     }
+
+
+def _record_candidate(
+    session: Session,
+    *,
+    fields: dict,
+    source: str,
+    source_ref: str,
+) -> dict:
+    candidate = (
+        session.query(SemanticMemoryCandidate)
+        .filter_by(**fields["identity"])
+        .one_or_none()
+    )
+    if candidate is None:
+        candidate = SemanticMemoryCandidate(
+            **fields["record"],
+            status="pending",
+            evidence_count=0,
+        )
+        session.add(candidate)
+        session.flush()
+
+    if candidate.status not in {"pending", "suggested"}:
+        return _candidate_to_dict(candidate)
+
+    evidence = (
+        session.query(SemanticMemoryCandidateEvidence)
+        .filter_by(candidate_id=candidate.id, source_ref=source_ref)
+        .one_or_none()
+    )
+    if evidence is None:
+        session.add(
+            SemanticMemoryCandidateEvidence(
+                candidate_id=candidate.id,
+                source=source,
+                source_ref=source_ref,
+            )
+        )
+        candidate.evidence_count += 1
+        if candidate.evidence_count >= SUGGESTION_EVIDENCE_THRESHOLD:
+            candidate.status = "suggested"
+            candidate.suggested_at = _utc_timestamp()
+        session.flush()
+
+    return _candidate_to_dict(candidate)
 
 
 def _required(value: str, field_name: str) -> str:

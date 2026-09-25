@@ -16,6 +16,7 @@ from app.agent.memory_tools import (
     reset_memories,
     update_memory,
 )
+from app.agent.memory_candidate_tools import record_memory_candidate
 from app.services.database import DatabaseService
 from app.services.reply_draft_service import ReplyDraftService
 
@@ -448,6 +449,7 @@ TOOLS = [
     update_memory,
     forget_memory,
     reset_memories,
+    record_memory_candidate,
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 HIGH_RISK_TOOLS = {

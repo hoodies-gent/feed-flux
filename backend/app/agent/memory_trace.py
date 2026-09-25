@@ -5,6 +5,7 @@ from typing import Any
 
 
 MEMORY_TOOL_NAMES = {
+    "record_memory_candidate",
     "remember_memory",
     "list_memories",
     "update_memory",
@@ -35,6 +36,16 @@ def sanitize_memory_args(tool_name: str, args: Any) -> dict:
 
 def sanitize_memory_result(tool_name: str, output: Any) -> dict:
     payload = _coerce_mapping(output)
+    if tool_name == "record_memory_candidate":
+        candidate = payload.get("candidate") or {}
+        return {
+            "candidate_id": candidate.get("id"),
+            "memory_type": candidate.get("memory_type"),
+            "workflow_scope": candidate.get("workflow_scope"),
+            "has_contact_scope": bool(candidate.get("has_contact_scope")),
+            "status": candidate.get("status"),
+            "evidence_count": int(candidate.get("evidence_count", 0)),
+        }
     if tool_name in {"remember_memory", "update_memory"}:
         memory = payload.get("memory") or {}
         return _memory_metadata(memory)
@@ -61,7 +72,11 @@ def sanitize_memory_result(tool_name: str, output: Any) -> dict:
 def memory_trace_outcome(tool_name: str, output: Any) -> dict:
     return {
         "schema_version": 1,
-        "kind": "semantic_memory",
+        "kind": (
+            "semantic_memory_candidate"
+            if tool_name == "record_memory_candidate"
+            else "semantic_memory"
+        ),
         "operation": tool_name,
         "result": "completed",
         **sanitize_memory_result(tool_name, output),
