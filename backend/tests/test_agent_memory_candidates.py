@@ -16,6 +16,8 @@ from app.agent.execution_context import (
     current_tool_call_id,
 )
 from app.agent.run_runtime import AgentRunRuntime
+from app.agent.tools import apply_draft_patch, save_reply_draft
+from app.models.email import DraftReply
 from app.models.semantic_memory import (
     SemanticMemoryCandidate,
     SemanticMemoryCandidateEvidence,
@@ -43,6 +45,9 @@ def _tool_context(thread_id: str, run_id: str, tool_call_id: str):
 
 
 class _CandidateCallingModel:
+    def __init__(self, draft_id):
+        self.draft_id = draft_id
+
     def bind_tools(self, tools):
         self.tool_names = {item.name for item in tools}
         return self
@@ -56,8 +61,21 @@ class _CandidateCallingModel:
             content="",
             tool_calls=[
                 {
+                    "name": "save_reply_draft",
+                    "args": {
+                        "draft_id": self.draft_id,
+                        "original_email_id": "dev-email-1",
+                        "recipient": "pat@example.com",
+                        "subject": "Re: Project update",
+                        "body": "Here is the shorter revised draft.",
+                    },
+                    "id": "revision-call",
+                    "type": "tool_call",
+                },
+                {
                     "name": "record_memory_candidate",
                     "args": {
+                        "draft_id": self.draft_id,
                         "memory_type": "preference",
                         "contact_scope": "private-contact@example.com",
                         "key": "Private reply length",
@@ -81,21 +99,55 @@ class AgentMemoryCandidateTest(unittest.TestCase):
         self.data_dir_patch.stop()
         self.temp_dir.cleanup()
 
+    def _seed_draft(self):
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        session = database.Session()
+        try:
+            draft = DraftReply(
+                thread_id="seed-thread",
+                email_id="dev-email-1",
+                recipient="pat@example.com",
+                subject="Re: Project update",
+                body="Here is the original draft.",
+            )
+            session.add(draft)
+            session.commit()
+            return draft.id
+        finally:
+            session.close()
+            database.engine.dispose()
+
+    def _revise_draft(self, *, draft_id, thread_id, run_id):
+        with _tool_context(thread_id, run_id, f"{run_id}-revision"):
+            return save_reply_draft.invoke(
+                {
+                    "draft_id": draft_id,
+                    "original_email_id": "dev-email-1",
+                    "recipient": "pat@example.com",
+                    "subject": "Re: Project update",
+                    "body": f"Revised draft for {run_id}.",
+                }
+            )
+
     def test_candidate_tool_aggregates_threads_and_replays_safely(self):
         try:
             from app.agent.memory_candidate_tools import record_memory_candidate
         except ModuleNotFoundError:
             self.fail("agent memory candidate tool is not implemented")
 
+        draft_id = self._seed_draft()
         args = {
+            "draft_id": draft_id,
             "memory_type": "preference",
             "contact_scope": "pat@example.com",
             "key": "Reply length",
             "value": "Keep replies concise.",
         }
+        self._revise_draft(draft_id=draft_id, thread_id="thread-1", run_id="run-1")
         with _tool_context("thread-1", "run-1", "call-1"):
             first = record_memory_candidate.invoke(args)
             replay = record_memory_candidate.invoke(args)
+        self._revise_draft(draft_id=draft_id, thread_id="thread-2", run_id="run-2")
         with _tool_context("thread-2", "run-2", "call-2"):
             suggested = record_memory_candidate.invoke(args)
 
@@ -115,12 +167,16 @@ class AgentMemoryCandidateTest(unittest.TestCase):
         self.assertEqual(2, suggested["candidate"]["evidence_count"])
         self.assertEqual(1, len(candidates))
         self.assertEqual(2, len(evidence))
-        self.assertEqual(2, len(executions))
+        candidate_executions = [
+            item for item in executions
+            if item.operation == "record_memory_candidate"
+        ]
+        self.assertEqual(2, len(candidate_executions))
         self.assertEqual(
-            {"memory_type", "contact_scope", "key", "value"},
+            {"draft_id", "memory_type", "contact_scope", "key", "value"},
             set(record_memory_candidate.args_schema.model_fields),
         )
-        serialized_results = json.dumps([item.result for item in executions])
+        serialized_results = json.dumps([item.result for item in candidate_executions])
         self.assertNotIn("Keep replies concise.", serialized_results)
         self.assertNotIn("Reply length", serialized_results)
         self.assertNotIn("pat@example.com", serialized_results)
@@ -131,9 +187,123 @@ class AgentMemoryCandidateTest(unittest.TestCase):
         self.assertIn("record_memory_candidate", TOOLS_BY_NAME)
         self.assertNotIn("record_memory_candidate", HIGH_RISK_TOOLS)
 
+    def test_candidate_tool_rejects_without_same_run_draft_revision(self):
+        from app.agent.memory_candidate_tools import record_memory_candidate
+
+        with _tool_context("thread-1", "run-without-revision", "candidate-call"):
+            with self.assertRaisesRegex(RuntimeError, "successful draft revision"):
+                record_memory_candidate.invoke(
+                    {
+                        "draft_id": 42,
+                        "memory_type": "preference",
+                        "contact_scope": "pat@example.com",
+                        "key": "Reply length",
+                        "value": "Keep replies concise.",
+                    }
+                )
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        session = database.Session()
+        try:
+            self.assertEqual(0, session.query(SemanticMemoryCandidate).count())
+            self.assertEqual(0, session.query(SemanticMemoryCandidateEvidence).count())
+        finally:
+            session.close()
+            database.engine.dispose()
+
+    def test_candidate_tool_rejects_new_draft_as_revision_evidence(self):
+        from app.agent.memory_candidate_tools import record_memory_candidate
+
+        with _tool_context("thread-1", "run-new-draft", "create-draft-call"):
+            save_reply_draft.invoke(
+                {
+                    "original_email_id": "dev-email-1",
+                    "recipient": "pat@example.com",
+                    "subject": "Re: Project update",
+                    "body": "Initial draft.",
+                }
+            )
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        session = database.Session()
+        try:
+            draft_id = session.query(DraftReply.id).one()[0]
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        with _tool_context("thread-1", "run-new-draft", "candidate-call"):
+            with self.assertRaisesRegex(RuntimeError, "successful draft revision"):
+                record_memory_candidate.invoke(
+                    {
+                        "draft_id": draft_id,
+                        "memory_type": "preference",
+                        "contact_scope": None,
+                        "key": "Reply tone",
+                        "value": "Use a warmer tone.",
+                    }
+                )
+
+    def test_candidate_tool_requires_matching_run_and_draft(self):
+        from app.agent.memory_candidate_tools import record_memory_candidate
+
+        revised_draft_id = self._seed_draft()
+        other_draft_id = self._seed_draft()
+        self._revise_draft(
+            draft_id=revised_draft_id,
+            thread_id="thread-1",
+            run_id="revision-run",
+        )
+        candidate_args = {
+            "memory_type": "preference",
+            "contact_scope": None,
+            "key": "Reply tone",
+            "value": "Use a warmer tone.",
+        }
+
+        with _tool_context("thread-1", "different-run", "candidate-other-run"):
+            with self.assertRaisesRegex(RuntimeError, "successful draft revision"):
+                record_memory_candidate.invoke(
+                    {**candidate_args, "draft_id": revised_draft_id}
+                )
+        with _tool_context("thread-1", "revision-run", "candidate-other-draft"):
+            with self.assertRaisesRegex(RuntimeError, "successful draft revision"):
+                record_memory_candidate.invoke(
+                    {**candidate_args, "draft_id": other_draft_id}
+                )
+
+    def test_candidate_tool_accepts_same_run_patch_evidence(self):
+        from app.agent.memory_candidate_tools import record_memory_candidate
+
+        draft_id = self._seed_draft()
+        with _tool_context("thread-1", "patch-run", "patch-call"):
+            apply_draft_patch.invoke(
+                {
+                    "draft_id": draft_id,
+                    "original_email_id": "dev-email-1",
+                    "selection_start": 0,
+                    "selection_end": 4,
+                    "replacement": "This",
+                }
+            )
+        with _tool_context("thread-1", "patch-run", "candidate-call"):
+            result = record_memory_candidate.invoke(
+                {
+                    "draft_id": draft_id,
+                    "memory_type": "preference",
+                    "contact_scope": None,
+                    "key": "Reply opening",
+                    "value": "Start replies directly.",
+                }
+            )
+
+        self.assertEqual("pending", result["candidate"]["status"])
+        self.assertEqual(1, result["candidate"]["evidence_count"])
+
     def test_agent_candidate_trace_is_sanitized_and_never_interrupts(self):
         database = DatabaseService(str(self.data_dir / "emails.db"))
-        agent = agent_graph.build_agent(llm=_CandidateCallingModel())
+        draft_id = self._seed_draft()
+        agent = agent_graph.build_agent(llm=_CandidateCallingModel(draft_id))
         runtime = AgentRunRuntime(
             AgentRunStore(database),
             provider="fixture-provider",

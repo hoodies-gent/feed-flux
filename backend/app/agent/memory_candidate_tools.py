@@ -9,6 +9,7 @@ from app.agent.execution_context import (
     current_thread_id,
     current_tool_call_id,
 )
+from app.models.tool_execution import ToolExecution
 from app.services.database import DatabaseService
 from app.services.memory_candidate_store import MemoryCandidateStore
 from app.services.tool_execution_store import ToolExecutionStore
@@ -18,6 +19,9 @@ CandidateMemoryType = Literal["preference", "rule", "constraint"]
 
 
 class RecordMemoryCandidateInput(BaseModel):
+    draft_id: int = Field(
+        description="ID of the draft successfully revised earlier in this Agent run."
+    )
     memory_type: CandidateMemoryType = Field(
         description="Reusable drafting preference category inferred from a user correction."
     )
@@ -31,6 +35,7 @@ class RecordMemoryCandidateInput(BaseModel):
 
 @tool("record_memory_candidate", args_schema=RecordMemoryCandidateInput)
 def record_memory_candidate(
+    draft_id: int,
     memory_type: CandidateMemoryType,
     key: str,
     value: str,
@@ -54,6 +59,7 @@ def record_memory_candidate(
             operation="record_memory_candidate",
             request_payload={
                 "profile_id": profile_id,
+                "draft_id": draft_id,
                 "memory_type": memory_type,
                 "workflow_scope": "drafting",
                 "contact_scope": contact_scope,
@@ -61,27 +67,76 @@ def record_memory_candidate(
                 "value": value,
                 "source_ref": thread_id,
             },
-            execute=lambda session: {
-                "candidate": _safe_candidate_result(
-                    store.record_candidate_in_session(
-                        session,
-                        profile_id=profile_id,
-                        memory_type=memory_type,
-                        workflow_scope="drafting",
-                        contact_scope=contact_scope,
-                        key=key,
-                        value=value,
-                        source="agent_correction",
-                        source_ref=thread_id,
-                    )
-                )
-            },
+            execute=lambda session: _record_with_revision_evidence(
+                session,
+                store=store,
+                run_id=run_id,
+                draft_id=draft_id,
+                profile_id=profile_id,
+                memory_type=memory_type,
+                contact_scope=contact_scope,
+                key=key,
+                value=value,
+                thread_id=thread_id,
+            ),
             run_id=run_id,
             tool_call_id=tool_call_id,
         )
         return result
     finally:
         database.engine.dispose()
+
+
+def _record_with_revision_evidence(
+    session,
+    *,
+    store: MemoryCandidateStore,
+    run_id: str,
+    draft_id: int,
+    profile_id: str,
+    memory_type: CandidateMemoryType,
+    contact_scope: str | None,
+    key: str,
+    value: str,
+    thread_id: str,
+) -> dict:
+    revisions = (
+        session.query(ToolExecution)
+        .filter(
+            ToolExecution.run_id == run_id,
+            ToolExecution.operation.in_(("apply_draft_patch", "save_reply_draft")),
+        )
+        .all()
+    )
+    has_revision = any(
+        isinstance(execution.result, dict)
+        and execution.result.get("draft_id") == draft_id
+        and (
+            execution.operation == "apply_draft_patch"
+            or execution.result.get("marker") == "DRAFT UPDATED"
+        )
+        for execution in revisions
+    )
+    if not has_revision:
+        raise RuntimeError(
+            "record_memory_candidate requires a successful draft revision "
+            "for the same run and draft"
+        )
+    return {
+        "candidate": _safe_candidate_result(
+            store.record_candidate_in_session(
+                session,
+                profile_id=profile_id,
+                memory_type=memory_type,
+                workflow_scope="drafting",
+                contact_scope=contact_scope,
+                key=key,
+                value=value,
+                source="agent_correction",
+                source_ref=thread_id,
+            )
+        )
+    }
 
 
 def _safe_candidate_result(candidate: dict) -> dict:
