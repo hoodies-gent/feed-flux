@@ -11,6 +11,7 @@ from app.models.semantic_memory import (
     SemanticMemoryCandidateEvidence,
 )
 from app.services.database import DatabaseService
+from app.services.memory_precondition import memory_target_fingerprint
 
 
 CURRENT_STATUSES = ("active", "disabled")
@@ -117,6 +118,7 @@ class SemanticMemoryStore:
         value: str,
         source: str,
         source_ref: str | None = None,
+        expected_target_fingerprint: str | None = None,
     ) -> dict:
         return _update(
             session,
@@ -125,7 +127,15 @@ class SemanticMemoryStore:
             value=_required(value, "value"),
             source=_required(source, "source"),
             source_ref=source_ref,
+            expected_target_fingerprint=expected_target_fingerprint,
         )
+
+    def get_memory(self, *, profile_id: str, memory_id: int) -> dict:
+        session = self.database.Session()
+        try:
+            return _memory_to_dict(_get_owned_memory(session, profile_id, memory_id))
+        finally:
+            session.close()
 
     def disable(self, *, profile_id: str, memory_id: int) -> dict:
         session = self.database.Session()
@@ -182,8 +192,14 @@ class SemanticMemoryStore:
         *,
         profile_id: str,
         memory_id: int,
+        expected_target_fingerprint: str | None = None,
     ) -> dict:
-        return _forget(session, profile_id=profile_id, memory_id=memory_id)
+        return _forget(
+            session,
+            profile_id=profile_id,
+            memory_id=memory_id,
+            expected_target_fingerprint=expected_target_fingerprint,
+        )
 
     def reset(
         self,
@@ -459,8 +475,10 @@ def _update(
     value: str,
     source: str,
     source_ref: str | None,
+    expected_target_fingerprint: str | None = None,
 ) -> dict:
     current = _get_owned_memory(session, profile_id, memory_id)
+    _verify_target_precondition(current, expected_target_fingerprint)
     if current.status not in CURRENT_STATUSES:
         raise ValueError("only a current memory can be updated")
     if current.value == value:
@@ -490,8 +508,15 @@ def _update(
     return _memory_to_dict(successor)
 
 
-def _forget(session: Session, *, profile_id: str, memory_id: int) -> dict:
+def _forget(
+    session: Session,
+    *,
+    profile_id: str,
+    memory_id: int,
+    expected_target_fingerprint: str | None = None,
+) -> dict:
     memory = _get_owned_memory(session, profile_id, memory_id)
+    _verify_target_precondition(memory, expected_target_fingerprint)
     lineage_id = memory.lineage_id
     forgotten_count = _scrub_lineages(session, [lineage_id])
     return {"lineage_id": lineage_id, "forgotten_count": forgotten_count}
@@ -544,6 +569,16 @@ def _get_owned_memory(session, profile_id: str, memory_id: int) -> SemanticMemor
     if memory is None or memory.profile_id != normalized_profile:
         raise KeyError(f"semantic memory not found: {memory_id}")
     return memory
+
+
+def _verify_target_precondition(
+    memory: SemanticMemory,
+    expected_target_fingerprint: str | None,
+) -> None:
+    if expected_target_fingerprint is None:
+        return
+    if memory_target_fingerprint(_memory_to_dict(memory)) != expected_target_fingerprint:
+        raise ValueError("semantic memory changed after consent review")
 
 
 def _utc_timestamp() -> int:

@@ -1,6 +1,7 @@
 from typing import Literal
 
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
 from app.agent.execution_context import (
@@ -117,13 +118,17 @@ class UpdateMemoryInput(BaseModel):
 
 
 @tool("update_memory", args_schema=UpdateMemoryInput)
-def update_memory(memory_id: int, value: str) -> dict:
+def update_memory(memory_id: int, value: str, config: RunnableConfig) -> dict:
     """Update only the value of a current memory after explicit user confirmation."""
     run_id, tool_call_id = _write_context("update_memory")
     profile_id = current_profile_id.get()
     database = DatabaseService()
     try:
         store = SemanticMemoryStore(database)
+        expected_target_fingerprint = _target_precondition(
+            config,
+            "update_memory",
+        )
         result, _ = ToolExecutionStore(database).execute_once(
             idempotency_key=f"{run_id}:{tool_call_id}",
             operation="update_memory",
@@ -141,6 +146,7 @@ def update_memory(memory_id: int, value: str) -> dict:
                         value=value,
                         source="explicit_user",
                         source_ref=current_thread_id.get(),
+                        expected_target_fingerprint=expected_target_fingerprint,
                     )
                 )
             },
@@ -157,13 +163,17 @@ class ForgetMemoryInput(BaseModel):
 
 
 @tool("forget_memory", args_schema=ForgetMemoryInput)
-def forget_memory(memory_id: int) -> dict:
+def forget_memory(memory_id: int, config: RunnableConfig) -> dict:
     """Permanently scrub a memory's full lineage after explicit user confirmation."""
     run_id, tool_call_id = _write_context("forget_memory")
     profile_id = current_profile_id.get()
     database = DatabaseService()
     try:
         store = SemanticMemoryStore(database)
+        expected_target_fingerprint = _target_precondition(
+            config,
+            "forget_memory",
+        )
         result, _ = ToolExecutionStore(database).execute_once(
             idempotency_key=f"{run_id}:{tool_call_id}",
             operation="forget_memory",
@@ -172,6 +182,7 @@ def forget_memory(memory_id: int) -> dict:
                 session,
                 profile_id=profile_id,
                 memory_id=memory_id,
+                expected_target_fingerprint=expected_target_fingerprint,
             ),
             run_id=run_id,
             tool_call_id=tool_call_id,
@@ -231,6 +242,13 @@ def _write_context(tool_name: str) -> tuple[str, str]:
     if run_id is None or tool_call_id is None:
         raise RuntimeError(f"{tool_name} requires an agent run and tool call context")
     return run_id, tool_call_id
+
+
+def _target_precondition(config: RunnableConfig, tool_name: str) -> str:
+    fingerprint = (config.get("metadata") or {}).get("memory_target_fingerprint")
+    if not isinstance(fingerprint, str) or not fingerprint:
+        raise RuntimeError(f"{tool_name} requires a reviewed memory target")
+    return fingerprint
 
 
 def _safe_memory_result(memory: dict) -> dict:

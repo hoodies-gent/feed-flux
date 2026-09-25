@@ -23,6 +23,25 @@ async def _collect(stream):
     return [event async for event in stream]
 
 
+def _target_config(data_dir: Path, memory_id: int) -> dict:
+    from app.services.memory_precondition import memory_target_fingerprint
+    from app.services.semantic_memory_store import SemanticMemoryStore
+
+    database = DatabaseService(str(data_dir / "emails.db"))
+    try:
+        target = SemanticMemoryStore(database).get_memory(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_id=memory_id,
+        )
+        return {
+            "metadata": {
+                "memory_target_fingerprint": memory_target_fingerprint(target),
+            }
+        }
+    finally:
+        database.engine.dispose()
+
+
 class _InferenceCallingMemoryModel:
     def __init__(self):
         self.tool_output = None
@@ -76,6 +95,55 @@ class _ChangingConsentReviewer:
     async def ainvoke(self, messages):
         self.messages.append(messages)
         return self.results.pop(0)
+
+
+class _TargetAwareConsentReviewer:
+    def __init__(self, expected_key):
+        self.expected_key = expected_key
+        self.payloads = []
+
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        payload = json.loads(messages[-1].content)
+        self.payloads.append(payload)
+        target = payload.get("current_target") or {}
+        if target.get("key") == self.expected_key:
+            return {
+                "decision": "allow",
+                "reason_code": "explicit_user_request",
+            }
+        return {
+            "decision": "deny",
+            "reason_code": "argument_mismatch",
+        }
+
+
+class _MemoryMutationCallingModel:
+    def __init__(self, tool_name, args):
+        self.tool_name = tool_name
+        self.args = args
+        self.tool_output = None
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        if isinstance(messages[-1], ToolMessage):
+            self.tool_output = messages[-1].content
+            return AIMessage(content="Memory request handled.")
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": self.tool_name,
+                    "args": self.args,
+                    "id": f"{self.tool_name}-call",
+                    "type": "tool_call",
+                }
+            ],
+        )
 
 
 class _ListCallingMemoryModel:
@@ -221,9 +289,10 @@ class AgentMemoryToolsTest(unittest.TestCase):
             "memory_id": created["memory"]["id"],
             "value": "Be warm and concise.",
         }
+        update_config = _target_config(self.data_dir, created["memory"]["id"])
         with _tool_context("run-memory-2", "call-update"):
-            first = update_memory.invoke(update_args)
-            replay = update_memory.invoke(update_args)
+            first = update_memory.invoke(update_args, config=update_config)
+            replay = update_memory.invoke(update_args, config=update_config)
 
         listed = list_memories.invoke(
             {"memory_type": "preference", "workflow_scope": "drafting"}
@@ -279,12 +348,18 @@ class AgentMemoryToolsTest(unittest.TestCase):
                 }
             )
 
+        forget_config = _target_config(
+            self.data_dir,
+            preference["memory"]["id"],
+        )
         with _tool_context("run-memory-3", "call-forget"):
             first_forget = forget_memory.invoke(
-                {"memory_id": preference["memory"]["id"]}
+                {"memory_id": preference["memory"]["id"]},
+                config=forget_config,
             )
             replayed_forget = forget_memory.invoke(
-                {"memory_id": preference["memory"]["id"]}
+                {"memory_id": preference["memory"]["id"]},
+                config=forget_config,
             )
         self.assertEqual(first_forget, replayed_forget)
         self.assertEqual(1, first_forget["forgotten_count"])
@@ -576,6 +651,193 @@ class AgentMemoryToolsTest(unittest.TestCase):
         self.assertEqual(0, memory_count)
         self.assertEqual(1, len(reviewer.messages))
         self.assertIn("[rejected by user]", model.tool_output)
+
+    def test_update_consent_rejects_a_different_model_selected_target(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        intended = store.remember(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope=None,
+            key="Reply tone",
+            value="Be concise.",
+            source="explicit_user",
+        )
+        other = store.remember(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope=None,
+            key="Signature style",
+            value="Use initials.",
+            source="explicit_user",
+        )
+        reviewer = _TargetAwareConsentReviewer(expected_key=intended["key"])
+        model = _MemoryMutationCallingModel(
+            "update_memory",
+            {"memory_id": other["id"], "value": "Be warm."},
+        )
+        agent = build_agent(llm=model, memory_consent_reviewer=reviewer)
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Update my Reply tone memory to be warm."),
+                    "memory-target-mismatch-thread",
+                )
+            )
+        )
+        memories = store.list_memories(profile_id=LOCAL_PROFILE_ID)
+        database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual("Signature style", reviewer.payloads[0]["current_target"]["key"])
+        self.assertEqual(
+            "[memory consent denied] No confirmed memory was changed.",
+            model.tool_output,
+        )
+        self.assertEqual(
+            {"Reply tone": "Be concise.", "Signature style": "Use initials."},
+            {memory["key"]: memory["value"] for memory in memories},
+        )
+
+    def test_forget_approval_fails_if_target_changes_while_interrupted(self):
+        from app.agent.graph import ToolExecutionFailure, build_agent
+        from app.services.agent_run_store import AgentRunStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        target = store.remember(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope=None,
+            key="Reply tone",
+            value="Be concise.",
+            source="explicit_user",
+        )
+        agent = build_agent(
+            llm=_MemoryMutationCallingModel(
+                "forget_memory",
+                {"memory_id": target["id"]},
+            ),
+            memory_consent_reviewer=_FakeConsentReviewer(
+                "ask",
+                "ambiguous_user_intent",
+            ),
+        )
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        interrupted_events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Maybe forget my Reply tone memory."),
+                    "memory-target-changed-thread",
+                )
+            )
+        )
+        self.assertTrue(
+            any(event["type"] == "interrupt" for event in interrupted_events)
+        )
+        store.disable(profile_id=LOCAL_PROFILE_ID, memory_id=target["id"])
+
+        with self.assertRaises(ToolExecutionFailure):
+            asyncio.run(
+                _collect(
+                    runtime.stream_resumed_run(
+                        resume_input(approve=True),
+                        "memory-target-changed-thread",
+                    )
+                )
+            )
+        current = store.list_memories(profile_id=LOCAL_PROFILE_ID)
+        database.engine.dispose()
+
+        self.assertEqual(1, len(current))
+        self.assertEqual("disabled", current[0]["status"])
+        self.assertEqual("Reply tone", current[0]["key"])
+
+    def test_forget_consent_rejects_a_superseded_target_id(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        original = store.remember(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope=None,
+            key="Reply tone",
+            value="Be concise.",
+            source="explicit_user",
+        )
+        successor = store.update(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_id=original["id"],
+            value="Be warm.",
+            source="management_ui",
+        )
+        model = _MemoryMutationCallingModel(
+            "forget_memory",
+            {"memory_id": original["id"]},
+        )
+        reviewer = _FakeConsentReviewer("allow", "explicit_user_request")
+        agent = build_agent(llm=model, memory_consent_reviewer=reviewer)
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Forget my current Reply tone memory."),
+                    "memory-superseded-target-thread",
+                )
+            )
+        )
+        current = store.list_memories(profile_id=LOCAL_PROFILE_ID)
+        database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual(0, len(reviewer.messages))
+        self.assertEqual(
+            "[memory consent denied] No confirmed memory was changed.",
+            model.tool_output,
+        )
+        self.assertEqual(1, len(current))
+        self.assertEqual(successor["id"], current[0]["id"])
+        self.assertEqual("Be warm.", current[0]["value"])
 
     def test_memory_list_executes_without_interrupt_and_stays_bounded(self):
         from app.agent.graph import build_agent

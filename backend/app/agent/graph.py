@@ -19,13 +19,17 @@ from app.agent.execution_context import (
     current_tool_call_id,
 )
 from app.agent.llm import get_llm
-from app.agent.memory_consent import review_memory_mutation
+from app.agent.memory_consent import (
+    load_memory_mutation_target,
+    review_memory_mutation,
+)
 from app.agent.memory_context import resolve_memory_context
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
 from app.agent.usage import usage_event_from_message
+from app.services.memory_precondition import memory_target_fingerprint
 
 DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
@@ -393,16 +397,26 @@ def build_agent(
             name, args, call_id = tc["name"], tc["args"], tc["id"]
             if name not in MEMORY_MUTATION_TOOLS:
                 continue
+            target_memory = load_memory_mutation_target(
+                profile_id=current_profile_id.get(),
+                tool_name=name,
+                tool_args=args,
+            )
             consent = await review_memory_mutation(
                 latest_user_message=latest_user_message,
                 tool_name=name,
                 tool_args=args,
+                target_memory=target_memory,
                 reviewer=memory_consent_reviewer,
             )
             decisions[call_id] = {
                 **consent.model_dump(),
                 "fingerprint": _memory_mutation_fingerprint(name, args),
             }
+            if target_memory is not None:
+                decisions[call_id]["target_fingerprint"] = (
+                    memory_target_fingerprint(target_memory)
+                )
         return {"memory_consent": decisions}
 
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict:
@@ -462,9 +476,14 @@ def build_agent(
                             args = {**args, "body": edited_body}
 
                     try:
+                        metadata = {"tool_call_id": call_id}
+                        if name in {"update_memory", "forget_memory"}:
+                            metadata["memory_target_fingerprint"] = consent.get(
+                                "target_fingerprint"
+                            )
                         output = TOOLS_BY_NAME[name].invoke(
                             args,
-                            config={"metadata": {"tool_call_id": call_id}},
+                            config={"metadata": metadata},
                         )
                         results.append(ToolMessage(str(output), tool_call_id=call_id))
                     except Exception as error:

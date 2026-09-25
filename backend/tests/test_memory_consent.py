@@ -21,6 +21,19 @@ class _FakeStructuredReviewer:
         return self.result
 
 
+def _target_memory():
+    return {
+        "id": 7,
+        "version": 2,
+        "memory_type": "preference",
+        "workflow_scope": "drafting",
+        "contact_scope": None,
+        "key": "Reply tone",
+        "value": "Be concise.",
+        "status": "active",
+    }
+
+
 class MemoryConsentReviewTest(unittest.TestCase):
     def test_reviewer_receives_arbitrary_language_without_language_detection(self):
         from app.agent.memory_consent import review_memory_mutation
@@ -66,6 +79,7 @@ class MemoryConsentReviewTest(unittest.TestCase):
             ("ask", "ambiguous_user_intent"),
             ("deny", "inferred_behavior"),
             ("deny", "unrelated_request"),
+            ("deny", "argument_mismatch"),
         )
 
         for decision, reason_code in cases:
@@ -78,12 +92,71 @@ class MemoryConsentReviewTest(unittest.TestCase):
                         latest_user_message="A user-authored message.",
                         tool_name="update_memory",
                         tool_args={"memory_id": 7, "value": "New value"},
+                        target_memory=_target_memory(),
                         reviewer=reviewer,
                     )
                 )
 
                 self.assertEqual(decision, result.decision)
                 self.assertEqual(reason_code, result.reason_code)
+
+    def test_update_review_includes_owned_target_and_missing_target_is_denied(self):
+        from app.agent.memory_consent import review_memory_mutation
+
+        reviewer = _FakeStructuredReviewer(
+            {"decision": "allow", "reason_code": "explicit_user_request"}
+        )
+        allowed = asyncio.run(
+            review_memory_mutation(
+                latest_user_message="Update my Reply tone memory to be warmer.",
+                tool_name="update_memory",
+                tool_args={"memory_id": 7, "value": "Be warm."},
+                target_memory=_target_memory(),
+                reviewer=reviewer,
+            )
+        )
+        unavailable_reviewer = _FakeStructuredReviewer(
+            {"decision": "allow", "reason_code": "explicit_user_request"}
+        )
+        unavailable = asyncio.run(
+            review_memory_mutation(
+                latest_user_message="Update memory 99.",
+                tool_name="update_memory",
+                tool_args={"memory_id": 99, "value": "Be warm."},
+                reviewer=unavailable_reviewer,
+            )
+        )
+
+        payload = json.loads(reviewer.messages[-1].content)
+        self.assertEqual("allow", allowed.decision)
+        self.assertEqual("Reply tone", payload["current_target"]["key"])
+        self.assertEqual("Be concise.", payload["current_target"]["value"])
+        self.assertEqual(
+            ("deny", "target_unavailable"),
+            (unavailable.decision, unavailable.reason_code),
+        )
+        self.assertIsNone(unavailable_reviewer.messages)
+
+    def test_oversized_target_requires_approval_without_calling_reviewer(self):
+        from app.agent.memory_consent import review_memory_mutation
+
+        reviewer = _FakeStructuredReviewer(
+            {"decision": "allow", "reason_code": "explicit_user_request"}
+        )
+        target = {**_target_memory(), "value": "x" * 2001}
+
+        result = asyncio.run(
+            review_memory_mutation(
+                latest_user_message="Update my Reply tone memory.",
+                tool_name="update_memory",
+                tool_args={"memory_id": 7, "value": "Be warm."},
+                target_memory=target,
+                reviewer=reviewer,
+            )
+        )
+
+        self.assertEqual(("ask", "target_too_large"), (result.decision, result.reason_code))
+        self.assertIsNone(reviewer.messages)
 
     def test_inconsistent_or_malformed_reviewer_output_fails_closed(self):
         from app.agent.memory_consent import review_memory_mutation
