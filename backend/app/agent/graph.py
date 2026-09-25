@@ -1,3 +1,5 @@
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -287,6 +289,16 @@ def _latest_user_message(messages: list) -> str:
     return ""
 
 
+def _memory_mutation_fingerprint(tool_name: str, tool_args: dict) -> str:
+    canonical = json.dumps(
+        {"tool": tool_name, "args": tool_args},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
@@ -373,6 +385,26 @@ def build_agent(
             "total_tokens_used": total_tokens_used,
         }
 
+    async def memory_consent_node(state: AgentState) -> dict:
+        last = state["messages"][-1]
+        latest_user_message = _latest_user_message(state["messages"])
+        decisions = {}
+        for tc in last.tool_calls:
+            name, args, call_id = tc["name"], tc["args"], tc["id"]
+            if name not in MEMORY_MUTATION_TOOLS:
+                continue
+            consent = await review_memory_mutation(
+                latest_user_message=latest_user_message,
+                tool_name=name,
+                tool_args=args,
+                reviewer=memory_consent_reviewer,
+            )
+            decisions[call_id] = {
+                **consent.model_dump(),
+                "fingerprint": _memory_mutation_fingerprint(name, args),
+            }
+        return {"memory_consent": decisions}
+
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         token = current_thread_id.set(thread_id)
@@ -392,15 +424,16 @@ def build_agent(
                 try:
                     requires_approval = name in HIGH_RISK_TOOLS
                     if name in MEMORY_MUTATION_TOOLS:
-                        consent = await review_memory_mutation(
-                            latest_user_message=_latest_user_message(state["messages"]),
-                            tool_name=name,
-                            tool_args=args,
-                            reviewer=memory_consent_reviewer,
+                        consent = state.get("memory_consent", {}).get(call_id, {})
+                        fingerprint_matches = consent.get(
+                            "fingerprint"
+                        ) == _memory_mutation_fingerprint(name, args)
+                        decision = (
+                            consent.get("decision") if fingerprint_matches else "ask"
                         )
-                        if consent.decision == "allow":
+                        if decision == "allow":
                             requires_approval = False
-                        elif consent.decision == "deny":
+                        elif decision == "deny":
                             results.append(
                                 ToolMessage(
                                     "[memory consent denied] No confirmed memory was changed.",
@@ -461,15 +494,23 @@ def build_agent(
     def route_after_agent(state: AgentState) -> str:
         last = state["messages"][-1]
         if getattr(last, "tool_calls", None):
+            if any(tc["name"] in MEMORY_MUTATION_TOOLS for tc in last.tool_calls):
+                return "memory_consent"
             return "tools"
         return END
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node, retry_policy=provider_retry_policy)
+    graph.add_node("memory_consent", memory_consent_node)
     graph.add_node("tools", tools_node)
     graph.add_node("tool_error", _raise_tool_error)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
+    graph.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        {"memory_consent": "memory_consent", "tools": "tools", END: END},
+    )
+    graph.add_edge("memory_consent", "tools")
     graph.add_conditional_edges(
         "tools",
         _route_after_tools,

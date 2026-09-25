@@ -65,6 +65,19 @@ class _FakeConsentReviewer:
         return self.result
 
 
+class _ChangingConsentReviewer:
+    def __init__(self, *results):
+        self.results = list(results)
+        self.messages = []
+
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        self.messages.append(messages)
+        return self.results.pop(0)
+
+
 class _ListCallingMemoryModel:
     def __init__(self):
         self.tool_output = None
@@ -502,6 +515,67 @@ class AgentMemoryToolsTest(unittest.TestCase):
         self.assertEqual(1, len(memories))
         self.assertEqual("explicit_user", memories[0].source)
         self.assertEqual(LOCAL_PROFILE_ID, memories[0].profile_id)
+
+    def test_memory_consent_decision_is_stable_when_declined_after_resume(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        reviewer = _ChangingConsentReviewer(
+            {
+                "decision": "ask",
+                "reason_code": "ambiguous_user_intent",
+            },
+            {
+                "decision": "allow",
+                "reason_code": "explicit_user_request",
+            },
+        )
+        model = _InferenceCallingMemoryModel()
+        agent = build_agent(llm=model, memory_consent_reviewer=reviewer)
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        interrupted_events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Maybe keep this style in mind."),
+                    "memory-decline-replay-thread",
+                )
+            )
+        )
+        self.assertTrue(
+            any(event["type"] == "interrupt" for event in interrupted_events)
+        )
+
+        resumed_events = asyncio.run(
+            _collect(
+                runtime.stream_resumed_run(
+                    resume_input(approve=False, note="Do not remember this."),
+                    "memory-decline-replay-thread",
+                )
+            )
+        )
+        session = database.Session()
+        try:
+            memory_count = session.query(SemanticMemory).count()
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        self.assertFalse(
+            any(event["type"] == "interrupt" for event in resumed_events)
+        )
+        self.assertEqual(0, memory_count)
+        self.assertEqual(1, len(reviewer.messages))
+        self.assertIn("[rejected by user]", model.tool_output)
 
     def test_memory_list_executes_without_interrupt_and_stays_bounded(self):
         from app.agent.graph import build_agent
