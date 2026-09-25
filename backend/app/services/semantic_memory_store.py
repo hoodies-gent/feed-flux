@@ -4,7 +4,11 @@ from uuid import uuid4
 from sqlalchemy import and_, case, literal, text
 from sqlalchemy.orm import Session
 
-from app.models.semantic_memory import SemanticMemory
+from app.models.semantic_memory import (
+    SemanticMemory,
+    SemanticMemoryCandidate,
+    SemanticMemoryCandidateEvidence,
+)
 from app.services.database import DatabaseService
 
 
@@ -507,6 +511,13 @@ def _scrub_lineages(session, lineage_ids: list[str]) -> int:
         )
         .all()
     )
+    candidate_refs = {
+        (memory.profile_id, candidate_id)
+        for memory in memories
+        if memory.source == "candidate_confirmation"
+        and (candidate_id := _candidate_id(memory.source_ref)) is not None
+    }
+    _scrub_candidates(session, candidate_refs)
     forgotten_at = _utc_timestamp()
     for memory in memories:
         memory.status = "forgotten"
@@ -519,6 +530,33 @@ def _scrub_lineages(session, lineage_ids: list[str]) -> int:
         memory.disabled_at = None
         memory.forgotten_at = forgotten_at
     return len(memories)
+
+
+def _candidate_id(source_ref: str | None) -> int | None:
+    if not source_ref or not source_ref.startswith("candidate:"):
+        return None
+    candidate_id = source_ref.removeprefix("candidate:")
+    return int(candidate_id) if candidate_id.isdigit() else None
+
+
+def _scrub_candidates(session, candidate_refs: set[tuple[str, int]]) -> None:
+    for profile_id, candidate_id in candidate_refs:
+        candidate = session.get(SemanticMemoryCandidate, candidate_id)
+        if candidate is None or candidate.profile_id != profile_id:
+            continue
+        (
+            session.query(SemanticMemoryCandidateEvidence)
+            .filter_by(candidate_id=candidate_id)
+            .delete(synchronize_session=False)
+        )
+        candidate.status = "forgotten"
+        candidate.workflow_scope = ""
+        candidate.contact_scope = ""
+        candidate.key = ""
+        candidate.normalized_key = f"forgotten:{candidate.id}"
+        candidate.value = ""
+        candidate.normalized_value = ""
+        candidate.evidence_count = 0
 
 
 def _memory_to_dict(memory: SemanticMemory) -> dict:

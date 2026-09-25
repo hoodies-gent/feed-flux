@@ -290,6 +290,75 @@ class MemoryCandidateStoreTest(unittest.TestCase):
         self.assertEqual(original["id"], history[1]["supersedes_id"])
         self.assertEqual("Keep replies concise.", history[1]["value"])
 
+    def test_forget_scrubs_confirmed_candidate_and_deletes_its_evidence(self):
+        from app.models.semantic_memory import (
+            SemanticMemoryCandidate,
+            SemanticMemoryCandidateEvidence,
+        )
+        from app.services.memory_candidate_store import MemoryCandidateStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        candidate_store = MemoryCandidateStore(self.database)
+        candidate = self._suggest_candidate(candidate_store)
+        candidate_store.confirm(
+            profile_id="profile-a",
+            candidate_id=candidate["id"],
+        )
+        memory_store = SemanticMemoryStore(self.database)
+        memory = memory_store.list_memories(profile_id="profile-a")[0]
+
+        memory_store.forget(profile_id="profile-a", memory_id=memory["id"])
+
+        session = self.database.Session()
+        try:
+            scrubbed = session.get(SemanticMemoryCandidate, candidate["id"])
+            evidence_count = (
+                session.query(SemanticMemoryCandidateEvidence)
+                .filter_by(candidate_id=candidate["id"])
+                .count()
+            )
+        finally:
+            session.close()
+        self.assertEqual("forgotten", scrubbed.status)
+        self.assertEqual("", scrubbed.workflow_scope)
+        self.assertEqual("", scrubbed.contact_scope)
+        self.assertEqual("", scrubbed.key)
+        self.assertEqual(f"forgotten:{candidate['id']}", scrubbed.normalized_key)
+        self.assertEqual("", scrubbed.value)
+        self.assertEqual("", scrubbed.normalized_value)
+        self.assertEqual(0, scrubbed.evidence_count)
+        self.assertEqual(0, evidence_count)
+
+    def test_reset_scrubs_only_matching_profile_confirmed_candidates(self):
+        from app.models.semantic_memory import SemanticMemoryCandidate
+        from app.services.memory_candidate_store import MemoryCandidateStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        candidate_store = MemoryCandidateStore(self.database)
+        candidate_a = self._suggest_candidate(candidate_store, profile_id="profile-a")
+        candidate_b = self._suggest_candidate(candidate_store, profile_id="profile-b")
+        candidate_store.confirm(
+            profile_id="profile-a",
+            candidate_id=candidate_a["id"],
+        )
+        candidate_store.confirm(
+            profile_id="profile-b",
+            candidate_id=candidate_b["id"],
+        )
+
+        SemanticMemoryStore(self.database).reset(profile_id="profile-a")
+
+        session = self.database.Session()
+        try:
+            scrubbed_a = session.get(SemanticMemoryCandidate, candidate_a["id"])
+            retained_b = session.get(SemanticMemoryCandidate, candidate_b["id"])
+        finally:
+            session.close()
+        self.assertEqual("forgotten", scrubbed_a.status)
+        self.assertEqual("", scrubbed_a.value)
+        self.assertEqual("confirmed", retained_b.status)
+        self.assertEqual("Keep replies concise.", retained_b.value)
+
 
 if __name__ == "__main__":
     unittest.main()
