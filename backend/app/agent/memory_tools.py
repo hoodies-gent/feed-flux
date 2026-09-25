@@ -96,7 +96,7 @@ def list_memories(
     limit: int = 10,
     cursor: int | None = None,
 ) -> dict:
-    """List one approved, filtered page of the user's current confirmed memories."""
+    """List one filtered page of the user's current confirmed memories."""
     database = DatabaseService()
     try:
         return SemanticMemoryStore(database).list_memories_page(

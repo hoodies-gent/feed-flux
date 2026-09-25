@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import tempfile
@@ -41,6 +42,30 @@ class _InferenceCallingMemoryModel:
                         "value": "Use the style from that one edit.",
                     },
                     "id": "inferred-memory-call",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ListCallingMemoryModel:
+    def __init__(self):
+        self.tool_output = None
+
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        if isinstance(messages[-1], ToolMessage):
+            self.tool_output = ast.literal_eval(messages[-1].content)
+            return AIMessage(content="Memory list ready.")
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "list_memories",
+                    "args": {"workflow_scope": "drafting"},
+                    "id": "list-memory-call",
                     "type": "tool_call",
                 }
             ],
@@ -311,7 +336,7 @@ class AgentMemoryToolsTest(unittest.TestCase):
             "reset_memories",
         }
         self.assertTrue(write_tools.issubset(HIGH_RISK_TOOLS))
-        self.assertIn("list_memories", HIGH_RISK_TOOLS)
+        self.assertNotIn("list_memories", HIGH_RISK_TOOLS)
         self.assertTrue({*write_tools, "list_memories"}.issubset(TOOLS_BY_NAME))
 
         database = DatabaseService(str(self.data_dir / "emails.db"))
@@ -371,6 +396,51 @@ class AgentMemoryToolsTest(unittest.TestCase):
         self.assertEqual(1, len(memories))
         self.assertEqual("explicit_user", memories[0].source)
         self.assertEqual(LOCAL_PROFILE_ID, memories[0].profile_id)
+
+    def test_memory_list_executes_without_interrupt_and_stays_bounded(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        for index in range(12):
+            store.remember(
+                profile_id=LOCAL_PROFILE_ID,
+                memory_type="preference",
+                workflow_scope="drafting",
+                contact_scope=None,
+                key=f"Preference {index}",
+                value=f"Value {index}",
+                source="explicit_user",
+            )
+
+        model = _ListCallingMemoryModel()
+        agent = build_agent(llm=model)
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("List my drafting memories."),
+                    "memory-list-thread",
+                )
+            )
+        )
+        database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual(10, model.tool_output["count"])
+        self.assertEqual(10, len(model.tool_output["memories"]))
+        self.assertIsNotNone(model.tool_output["next_cursor"])
 
     def test_memory_tool_trace_exposes_metadata_without_sensitive_fields(self):
         events = asyncio.run(
