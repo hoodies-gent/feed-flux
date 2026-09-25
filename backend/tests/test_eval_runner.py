@@ -105,6 +105,31 @@ async def _memory_approval_events(graph_input, thread_id, callbacks, tool_output
     yield {"type": "done"}
 
 
+async def _paraphrased_memory_approval_events(
+    graph_input,
+    thread_id,
+    callbacks,
+    tool_output_limit,
+):
+    yield {
+        "type": "interrupt",
+        "tool": "remember_memory",
+        "tool_call_id": "memory-eval-paraphrase-call",
+        "args": {
+            "memory_type": "preference",
+            "workflow_scope": "drafting",
+            "contact_scope": "private-contact@example.com",
+            "key": "Private reply tone",
+            "value": "Use an upbeat and concise tone",
+        },
+    }
+    yield {
+        "type": "token",
+        "content": "I'll keep future replies short, positive, and energetic.",
+    }
+    yield {"type": "done"}
+
+
 async def _sanitized_memory_list_events(
     graph_input,
     thread_id,
@@ -288,7 +313,7 @@ class EvalRunnerTest(unittest.TestCase):
         self.assertNotIn("Secret preference value", serialized)
         self.assertNotIn("Private reply tone", serialized)
         self.assertNotIn("private-contact@example.com", serialized)
-        self.assertIn("[REDACTED_MEMORY_VALUE]", serialized)
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
         self.assertEqual(
             {
                 "memory_type": "preference",
@@ -299,6 +324,22 @@ class EvalRunnerTest(unittest.TestCase):
             },
             record["tool_calls"][0]["args"],
         )
+
+    def test_memory_tainted_output_is_hidden_even_when_value_is_paraphrased(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["high_risk_approval"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-memory-paraphrase-redaction",
+                recorder=self.recorder,
+                event_source=_paraphrased_memory_approval_events,
+            )
+        )
+
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertNotIn("positive", json.dumps(record).casefold())
 
     def test_memory_eval_output_is_hidden_when_exact_values_are_unavailable(self):
         record = asyncio.run(

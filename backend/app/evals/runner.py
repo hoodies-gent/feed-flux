@@ -342,7 +342,7 @@ async def run_trial(
     )
     public_output = (
         "[REDACTED_MEMORY_OUTPUT]"
-        if has_memory_activity and output and not redactions
+        if has_memory_activity and output
         else output
     )
     tool_calls = [
