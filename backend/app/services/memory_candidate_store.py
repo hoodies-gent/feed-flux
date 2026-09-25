@@ -7,6 +7,7 @@ from app.models.semantic_memory import (
     SemanticMemoryCandidateEvidence,
 )
 from app.services.database import DatabaseService
+from app.services.semantic_memory_store import SemanticMemoryStore
 
 
 SUGGESTION_EVIDENCE_THRESHOLD = 2
@@ -116,6 +117,39 @@ class MemoryCandidateStore:
                 raise ValueError("only a pending or suggested candidate can expire")
             candidate.status = "expired"
             candidate.expired_at = _utc_timestamp()
+            session.commit()
+            session.refresh(candidate)
+            return _candidate_to_dict(candidate)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def confirm(self, *, profile_id: str, candidate_id: int) -> dict:
+        session = self.database.Session()
+        try:
+            session.execute(text("BEGIN IMMEDIATE"))
+            candidate = _get_owned_candidate(session, profile_id, candidate_id)
+            if candidate.status == "confirmed":
+                session.commit()
+                return _candidate_to_dict(candidate)
+            if candidate.status != "suggested":
+                raise ValueError("only a suggested candidate can be confirmed")
+
+            SemanticMemoryStore(self.database).remember_in_session(
+                session,
+                profile_id=candidate.profile_id,
+                memory_type=candidate.memory_type,
+                workflow_scope=candidate.workflow_scope,
+                contact_scope=candidate.contact_scope,
+                key=candidate.key,
+                value=candidate.value,
+                source="candidate_confirmation",
+                source_ref=f"candidate:{candidate.id}",
+            )
+            candidate.status = "confirmed"
+            candidate.confirmed_at = _utc_timestamp()
             session.commit()
             session.refresh(candidate)
             return _candidate_to_dict(candidate)
