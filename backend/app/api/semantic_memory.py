@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.core.profile import LOCAL_PROFILE_ID
 from app.services.database import DatabaseService
+from app.services.memory_candidate_store import MemoryCandidateStore
 from app.services.semantic_memory_store import SemanticMemoryStore
 
 
@@ -46,6 +47,37 @@ async def list_semantic_memories(
             item for item in memories if item["contact_scope"] == normalized_contact
         ]
     return {"memories": memories, "count": len(memories)}
+
+
+@router.get("/candidates")
+async def list_memory_candidates():
+    candidates = MemoryCandidateStore(db).list_candidates(
+        profile_id=LOCAL_PROFILE_ID,
+        status="suggested",
+    )
+    return {"candidates": candidates, "count": len(candidates)}
+
+
+@router.post("/candidates/{candidate_id}/accept")
+async def accept_memory_candidate(candidate_id: int):
+    try:
+        return MemoryCandidateStore(db).confirm(
+            profile_id=LOCAL_PROFILE_ID,
+            candidate_id=candidate_id,
+        )
+    except (KeyError, ValueError) as error:
+        raise _memory_mutation_error(error)
+
+
+@router.post("/candidates/{candidate_id}/dismiss")
+async def dismiss_memory_candidate(candidate_id: int):
+    try:
+        return MemoryCandidateStore(db).reject(
+            profile_id=LOCAL_PROFILE_ID,
+            candidate_id=candidate_id,
+        )
+    except (KeyError, ValueError) as error:
+        raise _memory_mutation_error(error)
 
 
 @router.patch("/{memory_id}")

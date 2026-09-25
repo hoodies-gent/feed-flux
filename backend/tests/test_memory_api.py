@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.api import semantic_memory as memory_api
 from app.core.profile import LOCAL_PROFILE_ID
 from app.services.database import DatabaseService
+from app.services.memory_candidate_store import MemoryCandidateStore
 from app.services.semantic_memory_store import SemanticMemoryStore
 
 
@@ -17,6 +18,7 @@ class MemoryApiTest(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db = DatabaseService(str(Path(self.temp_dir.name) / "memory-api.db"))
         self.store = SemanticMemoryStore(self.db)
+        self.candidate_store = MemoryCandidateStore(self.db)
         self.db_patch = patch.object(memory_api, "db", self.db)
         self.db_patch.start()
 
@@ -42,6 +44,26 @@ class MemoryApiTest(unittest.TestCase):
             value=f"value for {key}",
             source="explicit_user",
         )
+
+    def _suggest_candidate(
+        self,
+        *,
+        profile_id: str = LOCAL_PROFILE_ID,
+        key: str = "Reply length",
+        value: str = "Keep replies concise.",
+    ) -> dict:
+        for thread_id in ("thread-1", "thread-2"):
+            candidate = self.candidate_store.record_candidate(
+                profile_id=profile_id,
+                memory_type="preference",
+                workflow_scope="drafting",
+                contact_scope=None,
+                key=key,
+                value=value,
+                source="agent_correction",
+                source_ref=f"{profile_id}:{thread_id}",
+            )
+        return candidate
 
     def test_list_returns_current_local_profile_memories_with_filters(self):
         active = self._remember(key="active")
@@ -159,6 +181,60 @@ class MemoryApiTest(unittest.TestCase):
             [other["id"]],
             [item["id"] for item in self.store.list_memories(profile_id="profile-b")],
         )
+
+    def test_list_candidates_returns_only_local_profile_suggestions(self):
+        suggested = self._suggest_candidate()
+        self.candidate_store.record_candidate(
+            profile_id=LOCAL_PROFILE_ID,
+            memory_type="preference",
+            workflow_scope="drafting",
+            contact_scope=None,
+            key="Reply tone",
+            value="Use a warm tone.",
+            source="agent_correction",
+            source_ref="pending-thread",
+        )
+        self._suggest_candidate(profile_id="profile-b")
+
+        response = asyncio.run(memory_api.list_memory_candidates())
+
+        self.assertEqual(1, response["count"])
+        self.assertEqual([suggested], response["candidates"])
+
+    def test_accept_candidate_is_idempotent_and_immediately_retrievable(self):
+        candidate = self._suggest_candidate()
+
+        accepted = asyncio.run(memory_api.accept_memory_candidate(candidate["id"]))
+        replay = asyncio.run(memory_api.accept_memory_candidate(candidate["id"]))
+        active = self.store.retrieve_active(
+            profile_id=LOCAL_PROFILE_ID,
+            workflow_scope="drafting",
+            contact_scope=None,
+        )
+        suggestions = asyncio.run(memory_api.list_memory_candidates())
+
+        self.assertEqual(accepted, replay)
+        self.assertEqual("confirmed", accepted["status"])
+        self.assertEqual([], suggestions["candidates"])
+        self.assertEqual(1, len(active))
+        self.assertEqual("Keep replies concise.", active[0]["value"])
+        self.assertEqual("candidate_confirmation", active[0]["source"])
+
+    def test_dismiss_candidate_hides_it_and_enforces_profile_boundary(self):
+        candidate = self._suggest_candidate()
+        other = self._suggest_candidate(profile_id="profile-b")
+
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(memory_api.dismiss_memory_candidate(other["id"]))
+        self.assertEqual(404, context.exception.status_code)
+
+        dismissed = asyncio.run(
+            memory_api.dismiss_memory_candidate(candidate["id"])
+        )
+        suggestions = asyncio.run(memory_api.list_memory_candidates())
+
+        self.assertEqual("rejected", dismissed["status"])
+        self.assertEqual([], suggestions["candidates"])
 
 
 if __name__ == "__main__":
