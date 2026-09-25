@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.semantic_memory import (
     SemanticMemoryCandidate,
+    SemanticMemoryCandidateConfirmation,
     SemanticMemoryCandidateEvidence,
 )
 from app.services.database import DatabaseService
@@ -129,7 +130,7 @@ class MemoryCandidateStore:
             if candidate.status != "suggested":
                 raise ValueError("only a suggested candidate can be confirmed")
 
-            SemanticMemoryStore(self.database).remember_in_session(
+            memory = SemanticMemoryStore(self.database).remember_in_session(
                 session,
                 profile_id=candidate.profile_id,
                 memory_type=candidate.memory_type,
@@ -139,6 +140,13 @@ class MemoryCandidateStore:
                 value=candidate.value,
                 source="candidate_confirmation",
                 source_ref=f"candidate:{candidate.id}",
+            )
+            session.add(
+                SemanticMemoryCandidateConfirmation(
+                    candidate_id=candidate.id,
+                    profile_id=candidate.profile_id,
+                    lineage_id=memory["lineage_id"],
+                )
             )
             candidate.status = "confirmed"
             candidate.confirmed_at = _utc_timestamp()

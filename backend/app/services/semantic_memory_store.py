@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.semantic_memory import (
     SemanticMemory,
     SemanticMemoryCandidate,
+    SemanticMemoryCandidateConfirmation,
     SemanticMemoryCandidateEvidence,
 )
 from app.services.database import DatabaseService
@@ -566,6 +567,14 @@ def _scrub_lineages(session, lineage_ids: list[str]) -> int:
         if memory.source == "candidate_confirmation"
         and (candidate_id := _candidate_id(memory.source_ref)) is not None
     }
+    candidate_refs.update(
+        (confirmation.profile_id, confirmation.candidate_id)
+        for confirmation in (
+            session.query(SemanticMemoryCandidateConfirmation)
+            .filter(SemanticMemoryCandidateConfirmation.lineage_id.in_(lineage_ids))
+            .all()
+        )
+    )
     _scrub_candidates(session, candidate_refs)
     forgotten_at = _utc_timestamp()
     for memory in memories:

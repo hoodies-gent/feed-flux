@@ -116,3 +116,16 @@ class SemanticMemoryCandidateEvidence(Base):
     source = Column(String, nullable=False)
     source_ref = Column(String, nullable=False)
     created_at = Column(Integer, nullable=False, default=_utc_timestamp)
+
+
+class SemanticMemoryCandidateConfirmation(Base):
+    __tablename__ = "semantic_memory_candidate_confirmations"
+
+    candidate_id = Column(
+        Integer,
+        ForeignKey("semantic_memory_candidates.id"),
+        primary_key=True,
+    )
+    profile_id = Column(String, nullable=False, index=True)
+    lineage_id = Column(String, nullable=False, index=True)
+    created_at = Column(Integer, nullable=False, default=_utc_timestamp)
