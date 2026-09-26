@@ -88,6 +88,85 @@ async def _approval_events(graph_input, thread_id, callbacks, tool_output_limit)
     yield {"type": "done"}
 
 
+async def _memory_approval_events(graph_input, thread_id, callbacks, tool_output_limit):
+    yield {
+        "type": "interrupt",
+        "tool": "remember_memory",
+        "tool_call_id": "memory-eval-call",
+        "args": {
+            "memory_type": "preference",
+            "workflow_scope": "drafting",
+            "contact_scope": "private-contact@example.com",
+            "key": "Private reply tone",
+            "value": "Secret preference value",
+        },
+    }
+    yield {"type": "token", "content": "Secret preference value"}
+    yield {"type": "done"}
+
+
+async def _paraphrased_memory_approval_events(
+    graph_input,
+    thread_id,
+    callbacks,
+    tool_output_limit,
+):
+    yield {
+        "type": "interrupt",
+        "tool": "remember_memory",
+        "tool_call_id": "memory-eval-paraphrase-call",
+        "args": {
+            "memory_type": "preference",
+            "workflow_scope": "drafting",
+            "contact_scope": "private-contact@example.com",
+            "key": "Private reply tone",
+            "value": "Use an upbeat and concise tone",
+        },
+    }
+    yield {
+        "type": "token",
+        "content": "I'll keep future replies short, positive, and energetic.",
+    }
+    yield {"type": "done"}
+
+
+async def _sanitized_memory_list_events(
+    graph_input,
+    thread_id,
+    callbacks,
+    tool_output_limit,
+):
+    yield {
+        "type": "trace",
+        "step": "tool_start",
+        "tool": "list_memories",
+        "args": {"memory_type": "preference"},
+    }
+    yield {
+        "type": "trace",
+        "step": "tool_end",
+        "tool": "list_memories",
+        "output": '{"result_count": 1, "memory_ids": [7]}',
+    }
+    yield {"type": "token", "content": "Secret recalled preference"}
+    yield {"type": "done"}
+
+
+async def _memory_context_events(graph_input, thread_id, callbacks, tool_output_limit):
+    yield {
+        "type": "trace",
+        "step": "memory_context_loaded",
+        "memory_ids": [7],
+        "memory_count": 1,
+        "workflow_scope": "drafting",
+        "has_contact_scope": False,
+        "context_chars": 321,
+        "estimated_tokens": 81,
+    }
+    yield {"type": "token", "content": "Secret injected preference"}
+    yield {"type": "done"}
+
+
 async def _failing_events(graph_input, thread_id, callbacks, tool_output_limit):
     if False:
         yield {}
@@ -216,6 +295,83 @@ class EvalRunnerTest(unittest.TestCase):
         )
         self.assertFalse(record["final_state"]["high_risk"]["executed"])
         self.assertTrue(record["grade"]["task_success"])
+
+    def test_memory_values_are_redacted_from_public_eval_record(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["high_risk_approval"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-memory-redaction",
+                recorder=self.recorder,
+                event_source=_memory_approval_events,
+            )
+        )
+
+        serialized = json.dumps(record)
+        self.assertNotIn("Secret preference value", serialized)
+        self.assertNotIn("Private reply tone", serialized)
+        self.assertNotIn("private-contact@example.com", serialized)
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertEqual(
+            {
+                "memory_type": "preference",
+                "workflow_scope": "drafting",
+                "has_contact_scope": True,
+                "key_present": True,
+                "value_chars": 23,
+            },
+            record["tool_calls"][0]["args"],
+        )
+
+    def test_memory_tainted_output_is_hidden_even_when_value_is_paraphrased(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["high_risk_approval"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-memory-paraphrase-redaction",
+                recorder=self.recorder,
+                event_source=_paraphrased_memory_approval_events,
+            )
+        )
+
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertNotIn("positive", json.dumps(record).casefold())
+
+    def test_memory_eval_output_is_hidden_when_exact_values_are_unavailable(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["draft_creation"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-memory-output-redaction",
+                recorder=self.recorder,
+                event_source=_sanitized_memory_list_events,
+            )
+        )
+
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertNotIn("Secret recalled preference", json.dumps(record))
+
+    def test_injected_memory_output_is_hidden_from_public_eval_record(self):
+        record = asyncio.run(
+            run_trial(
+                self.tasks["draft_creation"],
+                provider="deepseek",
+                model="deepseek-chat",
+                trial_number=1,
+                run_id="run-injected-memory-redaction",
+                recorder=self.recorder,
+                event_source=_memory_context_events,
+            )
+        )
+
+        self.assertEqual("[REDACTED_MEMORY_OUTPUT]", record["output"])
+        self.assertNotIn("Secret injected preference", json.dumps(record))
 
     def test_provider_failure_is_recorded_instead_of_losing_the_trial(self):
         record = asyncio.run(

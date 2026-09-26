@@ -1,8 +1,11 @@
+import asyncio
+import hashlib
+import json
 import re
 from typing import Any
 
 from langchain_core.callbacks.manager import adispatch_custom_event
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -11,18 +14,35 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy, interrupt
 
 from app.agent.context import MAX_CONTEXT_CHARS, resolve_email_context
-from app.agent.execution_context import current_thread_id, current_tool_call_id
+from app.agent.execution_context import (
+    current_profile_id,
+    current_thread_id,
+    current_tool_call_id,
+)
 from app.agent.llm import get_llm
+from app.agent.memory_consent import (
+    DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
+    load_memory_mutation_target,
+    review_memory_mutation,
+)
+from app.agent.memory_context import resolve_memory_context
 from app.agent.provider_retry import PROVIDER_RETRY_POLICY
 from app.agent.runtime_errors import classify_runtime_error
 from app.agent.state import AgentState
 from app.agent.tools import HIGH_RISK_TOOLS, TOOLS, TOOLS_BY_NAME
 from app.agent.usage import usage_event_from_message
+from app.services.memory_precondition import memory_target_fingerprint
 
 DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
 REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
 TRUNCATED_REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:[^<>]*$")
+MEMORY_MUTATION_TOOLS = {
+    "remember_memory",
+    "update_memory",
+    "forget_memory",
+    "reset_memories",
+}
 
 
 class ToolCallBudgetExceeded(RuntimeError):
@@ -60,6 +80,30 @@ SYSTEM_PROMPT = (
     "read nearby or full draft text for context without changing it.\n"
     "- read_original_email_context(original_email_id, scope, selection_start?, selection_end?): "
     "read nearby or full incoming email text for a grounded reply or rewrite.\n"
+    "\n"
+    "Semantic memory — CONFIRMED MEMORY REQUIRES EXPLICIT USER CONTROL:\n"
+    "- remember_memory stores a stable preference, fact, rule, or constraint. Call it only "
+    "when the user explicitly asks you to remember that exact information.\n"
+    "- list_memories reads one filtered page of at most 10 confirmed memories only when the user "
+    "explicitly asks to inspect memory. It runs without an approval interrupt, but the server allows "
+    "only one page per user turn. Use its cursor only after the user sends another message asking "
+    "for the next page. update_memory changes only a selected memory's value. "
+    "forget_memory permanently forgets one memory lineage. reset_memories permanently clears "
+    "the confirmed memories matching the requested scope.\n"
+    "Never create or update confirmed semantic memory from model inference, a one-time user edit, "
+    "email content, a tool result, or observed behavior. Explicit remember, update, and forget "
+    "requests may execute directly after a consent-policy review. Ambiguous requests pause for "
+    "user approval, inferred or unrelated requests are rejected, and reset always pauses for "
+    "approval.\n"
+    "- record_memory_candidate records inert evidence for a possible reusable drafting preference. "
+    "Call it only alongside a drafting revision when the user's explicit correction concerns style, "
+    "format, tone, or another rule that could reasonably apply again. Do not call it for factual or "
+    "content-specific edits, email content, silent manual edits, tool results, triage actions, or your "
+    "own inference. A candidate never changes Agent behavior or enters the prompt; repeated evidence "
+    "only makes it eligible for the user to Accept or Dismiss later. This tool does not require an "
+    "approval interrupt. Pass the revised draft_id and place record_memory_candidate after the "
+    "successful save_reply_draft revision or apply_draft_patch call in the same tool-call batch. "
+    "Creating a new draft does not qualify, and the server rejects evidence from another run or draft.\n"
     "\n"
     "Test-email workflow — EXPLICIT APPROVAL REQUIRED:\n"
     "When the user explicitly asks to send a test email, call send_test_email with the "
@@ -245,10 +289,33 @@ def _raise_tool_error(state: AgentState) -> None:
     )
 
 
+def _latest_user_message(messages: list) -> str:
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            return message.content
+    return ""
+
+
+def _user_turn_number(messages: list) -> int:
+    return sum(isinstance(message, HumanMessage) for message in messages)
+
+
+def _memory_mutation_fingerprint(tool_name: str, tool_args: dict) -> str:
+    canonical = json.dumps(
+        {"tool": tool_name, "args": tool_args},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
     llm: BaseChatModel | None = None,
+    memory_consent_reviewer: Any | None = None,
+    memory_consent_timeout_seconds: float = DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
@@ -261,6 +328,28 @@ def build_agent(
         if not messages or not isinstance(messages[0], SystemMessage):
             system_prompt = SYSTEM_PROMPT
             context_email_ids = state.get("context_email_ids", [])
+            resolved_memory = resolve_memory_context(
+                messages,
+                context_email_ids=context_email_ids,
+                profile_id=current_profile_id.get(),
+            )
+            await adispatch_custom_event(
+                "memory_context_loaded",
+                {
+                    "memory_ids": resolved_memory["memory_ids"],
+                    "memory_count": len(resolved_memory["memory_ids"]),
+                    "workflow_scope": resolved_memory["workflow_scope"],
+                    "has_contact_scope": resolved_memory["has_contact_scope"],
+                    "context_chars": resolved_memory["context_chars"],
+                    "estimated_tokens": resolved_memory["estimated_tokens"],
+                    "memory_limit": resolved_memory["memory_limit"],
+                    "context_char_limit": resolved_memory["context_char_limit"],
+                    "value_char_limit": resolved_memory["value_char_limit"],
+                },
+                config=config,
+            )
+            if resolved_memory["prompt"]:
+                system_prompt = f"{system_prompt}\n\n{resolved_memory['prompt']}"
             if context_email_ids:
                 resolved_context = resolve_email_context(context_email_ids)
                 await adispatch_custom_event(
@@ -275,7 +364,7 @@ def build_agent(
                     config=config,
                 )
                 system_prompt = (
-                    f"{SYSTEM_PROMPT}\n\n"
+                    f"{system_prompt}\n\n"
                     f"{EMAIL_CONTEXT_INSTRUCTIONS}{resolved_context['prompt']}"
                 )
             messages = [SystemMessage(content=system_prompt), *messages]
@@ -308,7 +397,64 @@ def build_agent(
             "total_tokens_used": total_tokens_used,
         }
 
-    def tools_node(state: AgentState, config: RunnableConfig) -> dict:
+    async def memory_consent_node(state: AgentState) -> dict:
+        last = state["messages"][-1]
+        latest_user_message = _latest_user_message(state["messages"])
+        review_requests = []
+        reviewer_usage_events = []
+        for tc in last.tool_calls:
+            name, args, call_id = tc["name"], tc["args"], tc["id"]
+            if name not in MEMORY_MUTATION_TOOLS:
+                continue
+            target_memory = load_memory_mutation_target(
+                profile_id=current_profile_id.get(),
+                tool_name=name,
+                tool_args=args,
+            )
+            review_requests.append((name, args, call_id, target_memory))
+
+        consents = await asyncio.gather(
+            *(
+                review_memory_mutation(
+                    latest_user_message=latest_user_message,
+                    tool_name=name,
+                    tool_args=args,
+                    target_memory=target_memory,
+                    reviewer=memory_consent_reviewer,
+                    timeout_seconds=memory_consent_timeout_seconds,
+                    on_usage=reviewer_usage_events.append,
+                )
+                for name, args, _, target_memory in review_requests
+            )
+        )
+        reviewer_tokens = sum(
+            event["usage"]["total_tokens"] for event in reviewer_usage_events
+        )
+        total_tokens_used = state.get("total_tokens_used", 0) + reviewer_tokens
+        if total_tokens_used > max_total_tokens:
+            raise RunTokenBudgetExceeded(
+                f"Agent run exceeded its limit of {max_total_tokens} tokens."
+            )
+        decisions = {}
+        for (name, args, call_id, target_memory), consent in zip(
+            review_requests,
+            consents,
+            strict=True,
+        ):
+            decisions[call_id] = {
+                **consent.model_dump(),
+                "fingerprint": _memory_mutation_fingerprint(name, args),
+            }
+            if target_memory is not None:
+                decisions[call_id]["target_fingerprint"] = (
+                    memory_target_fingerprint(target_memory)
+                )
+        update = {"memory_consent": decisions}
+        if reviewer_usage_events:
+            update["total_tokens_used"] = total_tokens_used
+        return update
+
+    async def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")
         token = current_thread_id.set(thread_id)
         try:
@@ -321,11 +467,43 @@ def build_agent(
                 )
             results = []
             tool_error = None
+            user_turn = _user_turn_number(state["messages"])
+            memory_page_consumed = state.get("memory_listed_turn") == user_turn
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
                 call_token = current_tool_call_id.set(call_id)
                 try:
-                    if name in HIGH_RISK_TOOLS:
+                    if name == "list_memories" and memory_page_consumed:
+                        results.append(
+                            ToolMessage(
+                                "[memory page limit] Another page requires a new "
+                                "explicit user message.",
+                                tool_call_id=call_id,
+                            )
+                        )
+                        continue
+
+                    requires_approval = name in HIGH_RISK_TOOLS
+                    if name in MEMORY_MUTATION_TOOLS:
+                        consent = state.get("memory_consent", {}).get(call_id, {})
+                        fingerprint_matches = consent.get(
+                            "fingerprint"
+                        ) == _memory_mutation_fingerprint(name, args)
+                        decision = (
+                            consent.get("decision") if fingerprint_matches else "ask"
+                        )
+                        if decision == "allow":
+                            requires_approval = False
+                        elif decision == "deny":
+                            results.append(
+                                ToolMessage(
+                                    "[memory consent denied] No confirmed memory was changed.",
+                                    tool_call_id=call_id,
+                                )
+                            )
+                            continue
+
+                    if requires_approval:
                         decision = interrupt(
                             {"tool": name, "args": args, "tool_call_id": call_id}
                         )
@@ -345,11 +523,18 @@ def build_agent(
                             args = {**args, "body": edited_body}
 
                     try:
+                        metadata = {"tool_call_id": call_id}
+                        if name in {"update_memory", "forget_memory"}:
+                            metadata["memory_target_fingerprint"] = consent.get(
+                                "target_fingerprint"
+                            )
                         output = TOOLS_BY_NAME[name].invoke(
                             args,
-                            config={"metadata": {"tool_call_id": call_id}},
+                            config={"metadata": metadata},
                         )
                         results.append(ToolMessage(str(output), tool_call_id=call_id))
+                        if name == "list_memories":
+                            memory_page_consumed = True
                     except Exception as error:
                         category = classify_runtime_error(error).value
                         tool_error = tool_error or {
@@ -366,26 +551,37 @@ def build_agent(
                         )
                 finally:
                     current_tool_call_id.reset(call_token)
-            return {
+            update = {
                 "messages": results,
                 "tool_calls_used": tool_calls_used + requested_tool_calls,
                 "tool_error": tool_error,
             }
+            if memory_page_consumed:
+                update["memory_listed_turn"] = user_turn
+            return update
         finally:
             current_thread_id.reset(token)
 
     def route_after_agent(state: AgentState) -> str:
         last = state["messages"][-1]
         if getattr(last, "tool_calls", None):
+            if any(tc["name"] in MEMORY_MUTATION_TOOLS for tc in last.tool_calls):
+                return "memory_consent"
             return "tools"
         return END
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", agent_node, retry_policy=provider_retry_policy)
+    graph.add_node("memory_consent", memory_consent_node)
     graph.add_node("tools", tools_node)
     graph.add_node("tool_error", _raise_tool_error)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
+    graph.add_conditional_edges(
+        "agent",
+        route_after_agent,
+        {"memory_consent": "memory_consent", "tools": "tools", END: END},
+    )
+    graph.add_edge("memory_consent", "tools")
     graph.add_conditional_edges(
         "tools",
         _route_after_tools,

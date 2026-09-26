@@ -580,3 +580,117 @@ export async function triageUndo(rowId: number): Promise<{ ok: boolean; email_id
     }
     return res.json();
 }
+
+export type SemanticMemoryStatus = 'active' | 'disabled';
+
+export interface SemanticMemory {
+    id: number;
+    lineage_id: string;
+    version: number;
+    supersedes_id: number | null;
+    profile_id: string;
+    memory_type: 'preference' | 'fact' | 'rule' | 'constraint';
+    workflow_scope: string;
+    contact_scope: string | null;
+    key: string;
+    value: string;
+    source: string;
+    source_ref: string | null;
+    status: SemanticMemoryStatus;
+    created_at: number;
+    updated_at: number;
+    confirmed_at: number;
+    disabled_at: number | null;
+}
+
+export type SemanticMemoryCandidateStatus =
+    | 'pending'
+    | 'suggested'
+    | 'confirmed'
+    | 'rejected'
+    | 'expired';
+
+export interface SemanticMemoryCandidate {
+    id: number;
+    profile_id: string;
+    memory_type: 'preference' | 'rule' | 'constraint';
+    workflow_scope: string;
+    contact_scope: string | null;
+    key: string;
+    normalized_key: string;
+    value: string;
+    status: SemanticMemoryCandidateStatus;
+    evidence_count: number;
+    created_at: number;
+    updated_at: number;
+    suggested_at: number | null;
+    confirmed_at: number | null;
+    rejected_at: number | null;
+    expired_at: number | null;
+}
+
+async function memoryApiError(response: Response, fallback: string): Promise<Error> {
+    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+    if (typeof body?.detail === 'string') return new Error(body.detail);
+    return new Error(`${fallback} (${response.status})`);
+}
+
+export async function listSemanticMemories(): Promise<SemanticMemory[]> {
+    const response = await fetch('/api/memories');
+    if (!response.ok) throw await memoryApiError(response, 'Failed to load memories');
+    const body = await response.json() as { memories: SemanticMemory[] };
+    return body.memories;
+}
+
+export async function listMemoryCandidates(): Promise<SemanticMemoryCandidate[]> {
+    const response = await fetch('/api/memories/candidates');
+    if (!response.ok) throw await memoryApiError(response, 'Failed to load memory suggestions');
+    const body = await response.json() as { candidates: SemanticMemoryCandidate[] };
+    return body.candidates;
+}
+
+export async function acceptMemoryCandidate(candidateId: number): Promise<SemanticMemoryCandidate> {
+    const response = await fetch(`/api/memories/candidates/${candidateId}/accept`, {
+        method: 'POST',
+    });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to accept memory suggestion');
+    return response.json();
+}
+
+export async function dismissMemoryCandidate(candidateId: number): Promise<SemanticMemoryCandidate> {
+    const response = await fetch(`/api/memories/candidates/${candidateId}/dismiss`, {
+        method: 'POST',
+    });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to dismiss memory suggestion');
+    return response.json();
+}
+
+export async function updateSemanticMemory(memoryId: number, value: string): Promise<SemanticMemory> {
+    const response = await fetch(`/api/memories/${memoryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+    });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to update memory');
+    return response.json();
+}
+
+export async function setSemanticMemoryEnabled(
+    memoryId: number,
+    enabled: boolean,
+): Promise<SemanticMemory> {
+    const action = enabled ? 'enable' : 'disable';
+    const response = await fetch(`/api/memories/${memoryId}/${action}`, { method: 'POST' });
+    if (!response.ok) throw await memoryApiError(response, `Failed to ${action} memory`);
+    return response.json();
+}
+
+export async function deleteSemanticMemory(memoryId: number): Promise<void> {
+    const response = await fetch(`/api/memories/${memoryId}`, { method: 'DELETE' });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to delete memory');
+}
+
+export async function clearSemanticMemories(): Promise<void> {
+    const response = await fetch('/api/memories', { method: 'DELETE' });
+    if (!response.ok) throw await memoryApiError(response, 'Failed to clear memories');
+}

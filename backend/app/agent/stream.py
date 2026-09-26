@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any, AsyncIterator
 
@@ -5,6 +6,12 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from app.agent.graph import build_agent
+from app.agent.memory_trace import (
+    is_memory_tool,
+    memory_trace_outcome,
+    sanitize_memory_args,
+    sanitize_memory_result,
+)
 from app.agent.usage import usage_event_from_message
 from app.services.database import DatabaseService
 
@@ -256,6 +263,22 @@ async def stream_agent(
                 "context_char_limit": data.get("context_char_limit"),
             }
 
+        elif kind == "on_custom_event" and name == "memory_context_loaded":
+            memory_ids = list(data.get("memory_ids") or [])
+            yield {
+                "type": "trace",
+                "step": "memory_context_loaded",
+                "memory_ids": memory_ids,
+                "memory_count": len(memory_ids),
+                "workflow_scope": data.get("workflow_scope"),
+                "has_contact_scope": bool(data.get("has_contact_scope")),
+                "context_chars": data.get("context_chars", 0),
+                "estimated_tokens": data.get("estimated_tokens", 0),
+                "memory_limit": data.get("memory_limit"),
+                "context_char_limit": data.get("context_char_limit"),
+                "value_char_limit": data.get("value_char_limit"),
+            }
+
         elif kind == "on_custom_event" and name == "email_context_references":
             references = [
                 {
@@ -271,11 +294,16 @@ async def stream_agent(
 
         elif kind == "on_tool_start":
             tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
+            tool_input = data.get("input")
             event = {
                 "type": "trace",
                 "step": "tool_start",
                 "tool": name,
-                "args": data.get("input"),
+                "args": (
+                    sanitize_memory_args(name, tool_input)
+                    if is_memory_tool(name)
+                    else tool_input
+                ),
             }
             if tool_call_id is not None:
                 event["tool_call_id"] = tool_call_id
@@ -301,6 +329,9 @@ async def stream_agent(
             tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
             if tool_call_id is None:
                 tool_call_id = getattr(output, "tool_call_id", None)
+            if is_memory_tool(name):
+                safe_output = sanitize_memory_result(name, output)
+                output_text = json.dumps(safe_output, sort_keys=True)
             truncated = (
                 output_text
                 if tool_output_limit is None
@@ -310,9 +341,16 @@ async def stream_agent(
             event = {"type": "trace", "step": "tool_end", "tool": name, "output": truncated}
             if tool_call_id is not None:
                 event["tool_call_id"] = tool_call_id
-            count = _count_list_result(output, output_text)
+            count = (
+                safe_output.get("result_count")
+                if is_memory_tool(name)
+                else _count_list_result(output, output_text)
+            )
             if count is not None:
                 event["result_count"] = count
+
+            if is_memory_tool(name):
+                event["outcome"] = memory_trace_outcome(name, output)
 
             draft_event = None
             if name == "apply_triage_batch":

@@ -27,6 +27,7 @@ from app.agent.stream import (
     set_agent_checkpointer,
 )
 from app.services.agent_run_store import AgentRunStore
+from app.api.semantic_memory import router as semantic_memory_router
 
 # Initialize Database Service
 db = DatabaseService()
@@ -157,6 +158,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(semantic_memory_router)
+
 # --- Endpoints ---
 @app.get("/api/config/status")
 async def config_status():
@@ -213,6 +216,7 @@ async def app_status():
         "rag_enabled": True, 
         "version": "1.0.0"
     }
+
 
 @app.get("/api/feed", response_model=List[FeedItem])
 async def get_feed(limit: int = 5, q: Optional[str] = None):

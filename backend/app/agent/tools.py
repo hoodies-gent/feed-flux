@@ -9,6 +9,14 @@ from app.agent.execution_context import (
     current_thread_id,
     current_tool_call_id,
 )
+from app.agent.memory_tools import (
+    forget_memory,
+    list_memories,
+    remember_memory,
+    reset_memories,
+    update_memory,
+)
+from app.agent.memory_candidate_tools import record_memory_candidate
 from app.services.database import DatabaseService
 from app.services.reply_draft_service import ReplyDraftService
 
@@ -436,6 +444,18 @@ TOOLS = [
     read_original_email_context,
     apply_draft_patch,
     apply_triage_batch,
+    remember_memory,
+    list_memories,
+    update_memory,
+    forget_memory,
+    reset_memories,
+    record_memory_candidate,
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
-HIGH_RISK_TOOLS = {"send_test_email"}
+HIGH_RISK_TOOLS = {
+    "send_test_email",
+    "remember_memory",
+    "update_memory",
+    "forget_memory",
+    "reset_memories",
+}

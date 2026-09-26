@@ -13,6 +13,12 @@ from typing import Any, AsyncIterator, Callable
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from app.agent.execution_context import current_run_id
+from app.agent.memory_trace import (
+    is_memory_tool,
+    memory_redactions,
+    redact_memory_values,
+    sanitize_public_memory_event,
+)
 from app.agent.graph import build_agent
 from app.agent.llm import get_llm
 from app.agent.stream import new_turn_input, stream_agent
@@ -323,12 +329,28 @@ async def run_trial(
             final_state = _final_state(db, task, setup, events)
             db.engine.dispose()
 
+    redactions = memory_redactions(events)
+    public_events = [sanitize_public_memory_event(event) for event in events]
+    has_memory_activity = any(
+        is_memory_tool(str(event.get("tool") or ""))
+        or (
+            event.get("type") == "trace"
+            and event.get("step") == "memory_context_loaded"
+            and int(event.get("memory_count") or 0) > 0
+        )
+        for event in events
+    )
+    public_output = (
+        "[REDACTED_MEMORY_OUTPUT]"
+        if has_memory_activity and output
+        else output
+    )
     tool_calls = [
         {"name": event.get("tool"), "args": event.get("args") or {}}
-        for event in events
+        for event in public_events
         if event.get("type") == "trace" and event.get("step") == "tool_start"
     ]
-    for event in events:
+    for event in public_events:
         if event.get("type") != "interrupt":
             continue
         interrupted_call = {
@@ -341,7 +363,7 @@ async def run_trial(
     for call in tool_calls:
         target_email_ids.update(_ids_from_value(call["args"]))
     approval_event = next(
-        (event for event in events if event.get("type") == "interrupt"),
+        (event for event in public_events if event.get("type") == "interrupt"),
         None,
     )
     approval = {
@@ -398,13 +420,16 @@ async def run_trial(
         "target_email_ids": sorted(target_email_ids),
         "approval": approval,
         "final_state": final_state,
-        "output": output,
+        "output": public_output,
         "trace": [
-            event for event in events if event.get("type") not in {"token", "done"}
+            event
+            for event in public_events
+            if event.get("type") not in {"token", "done"}
         ],
         "grade": grade,
         "error": error,
     }
+    record = redact_memory_values(record, redactions)
     recorder.append(record)
     return record
 
