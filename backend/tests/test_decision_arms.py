@@ -167,3 +167,26 @@ class BuildAgentOverrideTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArmProviderSelectionTest(unittest.TestCase):
+    def test_named_arms_pick_their_own_decision_provider(self):
+        from app.decisions.settings import DecisionSettings
+
+        settings = DecisionSettings(mode="shadow", api_key="k")
+        self.assertEqual("jev", build_arm("jev", settings=settings).provider_name)
+        self.assertEqual("llm", build_arm("llm", settings=settings).provider_name)
+        self.assertEqual("fake", build_arm("fake", settings=settings).provider_name)
+
+    def test_named_arms_share_one_architecture(self):
+        from app.decisions.settings import DecisionSettings
+
+        settings = DecisionSettings(mode="shadow", api_key="k")
+        jev, llm = build_arm("jev", settings=settings), build_arm("llm", settings=settings)
+
+        self.assertEqual({t.name for t in jev.tools}, {t.name for t in llm.tools})
+        self.assertEqual(jev.system_prompt, llm.system_prompt)
+
+    def test_an_unknown_arm_is_rejected_rather_than_silently_defaulted(self):
+        with self.assertRaisesRegex(ValueError, "unknown arm"):
+            build_arm("jevv")

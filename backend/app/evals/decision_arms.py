@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Literal
 
 from langchain_core.tools import tool
@@ -15,7 +15,7 @@ from app.agent.triage_tools import (
 )
 from app.agent.triage_tools import triage_unread as production_triage_unread
 from app.decisions.contract import DecisionProvider
-from app.decisions.settings import DecisionSettings
+from app.decisions.settings import DecisionSettings, decision_settings
 
 ArmId = Literal["baseline", "provider_tool"]
 
@@ -74,6 +74,11 @@ class Arm:
     provider_name: str | None = None
 
 
+# "jev" and "llm" are the same architecture with a different decision provider,
+# so comparing them separates the provider from the change in how the agent works.
+ARM_PROVIDERS = {"jev": "jev", "llm": "llm", "fake": "fake", "provider_tool": None}
+
+
 def build_arm(
     arm_id: str,
     *,
@@ -82,6 +87,12 @@ def build_arm(
 ) -> Arm:
     if arm_id == "baseline":
         return Arm("baseline", baseline_tools(), SYSTEM_PROMPT, ArmResult())
+    if arm_id not in ARM_PROVIDERS:
+        raise ValueError(f"unknown arm {arm_id!r}; expected baseline or one of {sorted(ARM_PROVIDERS)}")
+    if provider is None:
+        named = ARM_PROVIDERS[arm_id]
+        base = settings or decision_settings()
+        settings = replace(base, provider=named) if named else base
     resolved = provider or build_provider(settings)
     result = ArmResult()
     return Arm(
