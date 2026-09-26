@@ -43,10 +43,12 @@ class _FakeModel:
         self.error = error
         self.calls = []
         self.structured_schema = None
+        self.structured_method = None
 
-    def with_structured_output(self, schema, *, include_raw=False):
+    def with_structured_output(self, schema, *, include_raw=False, method=None):
         self.structured_schema = schema
         self.include_raw = include_raw
+        self.structured_method = method
         return self
 
     def invoke(self, messages):
@@ -97,6 +99,15 @@ class LlmDecisionProviderTest(unittest.TestCase):
 
         self.assertIs(_LlmBatchDecision, model.structured_schema)
         self.assertTrue(model.include_raw)
+
+    def test_asks_for_tool_calling_because_deepseek_rejects_response_format(self):
+        """Observed live: every chunk came back 400 "This response_format type is
+        unavailable now" until the mode was named. A mock cannot notice the default
+        changing, so the mode is asserted rather than inherited."""
+        model = _FakeModel()
+        LlmDecisionProvider(model, settings=_settings()).decide_triage(_items(1))
+
+        self.assertEqual("function_calling", model.structured_method)
 
     def test_sends_the_same_bounded_fields_as_the_other_arms(self):
         model = _FakeModel()

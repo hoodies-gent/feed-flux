@@ -101,10 +101,16 @@ class LlmDecisionProvider:
             except Exception as error:
                 failed_requests += 1
                 category = classify_runtime_error(error)
+                # Category alone is not diagnosable: TERMINAL is the classifier's
+                # fallback for anything it does not recognise. The provider's own
+                # message says what went wrong; it is truncated because only the
+                # failure reason belongs in a log, never the request it came from.
                 logger.warning(
-                    "llm decision chunk failed: items=%d category=%s",
+                    "llm decision chunk failed: items=%d category=%s error=%s: %s",
                     len(chunk),
                     category.value,
+                    type(error).__name__,
+                    str(error)[:200],
                 )
                 decisions.extend(
                     TriageDecision(item_id=item.item_id, status="failed", error_category=category.value)
@@ -158,7 +164,14 @@ class LlmDecisionProvider:
             }
             for index, item in enumerate(chunk)
         ]
-        structured = self._model().with_structured_output(_LlmBatchDecision, include_raw=True)
+        # Tool calling rather than the response_format default: DeepSeek, the
+        # provider this project is configured with, answers a json_schema
+        # response_format with "This response_format type is unavailable now"
+        # and every chunk fails. Tool calling is the mode every provider here
+        # supports, so it is named instead of inherited.
+        structured = self._model().with_structured_output(
+            _LlmBatchDecision, include_raw=True, method="function_calling"
+        )
         return structured.invoke(
             [
                 SystemMessage(content=_prompt()),
