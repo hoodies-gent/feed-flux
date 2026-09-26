@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Literal
 
@@ -8,6 +9,8 @@ from app.agent.llm import get_llm
 from app.services.database import DatabaseService
 from app.services.semantic_memory_store import SemanticMemoryStore
 
+
+DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS = 15.0
 
 MemoryConsentAction = Literal["allow", "ask", "deny"]
 MemoryConsentReason = Literal[
@@ -82,6 +85,7 @@ async def review_memory_mutation(
     tool_args: dict[str, Any],
     target_memory: dict[str, Any] | None = None,
     reviewer: Any | None = None,
+    timeout_seconds: float = DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
 ) -> MemoryConsentDecision:
     if tool_name == "reset_memories":
         return MemoryConsentDecision(
@@ -122,12 +126,17 @@ async def review_memory_mutation(
         structured_reviewer = active_reviewer.with_structured_output(
             MemoryConsentDecision
         )
-        result = await structured_reviewer.ainvoke(
-            [
-                SystemMessage(content=_REVIEW_PROMPT),
-                HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
-            ]
+        result = await asyncio.wait_for(
+            structured_reviewer.ainvoke(
+                [
+                    SystemMessage(content=_REVIEW_PROMPT),
+                    HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
+                ]
+            ),
+            timeout=timeout_seconds,
         )
+    except asyncio.CancelledError:
+        raise
     except Exception:
         return MemoryConsentDecision(
             decision="ask",

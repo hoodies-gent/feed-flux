@@ -71,6 +71,42 @@ class _InferenceCallingMemoryModel:
         )
 
 
+class _BatchMemoryCallingModel:
+    def bind_tools(self, tools):
+        return self
+
+    async def ainvoke(self, messages):
+        if isinstance(messages[-1], ToolMessage):
+            return AIMessage(content="Memory requests handled.")
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "remember_memory",
+                    "args": {
+                        "memory_type": "preference",
+                        "workflow_scope": "drafting",
+                        "key": "Reply tone",
+                        "value": "Be concise.",
+                    },
+                    "id": "batch-memory-call-1",
+                    "type": "tool_call",
+                },
+                {
+                    "name": "remember_memory",
+                    "args": {
+                        "memory_type": "constraint",
+                        "workflow_scope": "scheduling",
+                        "key": "Meeting hours",
+                        "value": "Use afternoons.",
+                    },
+                    "id": "batch-memory-call-2",
+                    "type": "tool_call",
+                },
+            ],
+        )
+
+
 class _FakeConsentReviewer:
     def __init__(self, decision, reason_code):
         self.result = {"decision": decision, "reason_code": reason_code}
@@ -82,6 +118,34 @@ class _FakeConsentReviewer:
     async def ainvoke(self, messages):
         self.messages.append(messages)
         return self.result
+
+
+class _HangingConsentReviewer:
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        await asyncio.sleep(60)
+
+
+class _BarrierConsentReviewer:
+    def __init__(self, required_calls):
+        self.required_calls = required_calls
+        self.started_calls = 0
+        self.ready = asyncio.Event()
+
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        self.started_calls += 1
+        if self.started_calls == self.required_calls:
+            self.ready.set()
+        await self.ready.wait()
+        return {
+            "decision": "allow",
+            "reason_code": "explicit_user_request",
+        }
 
 
 class _ChangingConsentReviewer:
@@ -570,6 +634,86 @@ class AgentMemoryToolsTest(unittest.TestCase):
             model.tool_output,
         )
         self.assertNotIn("Use the style from that one edit.", json.dumps(events))
+
+    def test_reviewer_timeout_interrupts_without_storing_memory(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        agent = build_agent(
+            llm=_InferenceCallingMemoryModel(),
+            memory_consent_reviewer=_HangingConsentReviewer(),
+            memory_consent_timeout_seconds=0.01,
+        )
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Remember that I prefer concise replies."),
+                    "memory-reviewer-timeout-thread",
+                )
+            )
+        )
+        session = database.Session()
+        try:
+            memory_count = session.query(SemanticMemory).count()
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        interrupt = next(event for event in events if event["type"] == "interrupt")
+        self.assertEqual("remember_memory", interrupt["tool"])
+        self.assertEqual(0, memory_count)
+
+    def test_memory_consent_reviews_batch_concurrently(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        agent = build_agent(
+            llm=_BatchMemoryCallingModel(),
+            memory_consent_reviewer=_BarrierConsentReviewer(required_calls=2),
+            memory_consent_timeout_seconds=0.05,
+        )
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input(
+                        "Remember that replies should be concise and meetings should "
+                        "be scheduled in the afternoon."
+                    ),
+                    "memory-reviewer-batch-thread",
+                )
+            )
+        )
+        session = database.Session()
+        try:
+            memory_count = session.query(SemanticMemory).count()
+        finally:
+            session.close()
+            database.engine.dispose()
+
+        self.assertFalse(any(event["type"] == "interrupt" for event in events))
+        self.assertEqual(2, memory_count)
 
     def test_ambiguous_memory_write_interrupts_then_executes_after_approval(self):
         from app.agent.graph import build_agent

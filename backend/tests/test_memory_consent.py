@@ -21,6 +21,21 @@ class _FakeStructuredReviewer:
         return self.result
 
 
+class _HangingStructuredReviewer:
+    def __init__(self):
+        self.cancelled = False
+
+    def with_structured_output(self, schema):
+        return self
+
+    async def ainvoke(self, messages):
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
 def _target_memory():
     return {
         "id": 7,
@@ -203,6 +218,47 @@ class MemoryConsentReviewTest(unittest.TestCase):
 
         self.assertEqual("ask", result.decision)
         self.assertEqual("reviewer_unavailable", result.reason_code)
+
+    def test_reviewer_timeout_fails_closed(self):
+        from app.agent.memory_consent import review_memory_mutation
+
+        reviewer = _HangingStructuredReviewer()
+        result = asyncio.run(
+            review_memory_mutation(
+                latest_user_message="Remember this preference.",
+                tool_name="remember_memory",
+                tool_args={"value": "Private preference"},
+                reviewer=reviewer,
+                timeout_seconds=0.01,
+            )
+        )
+
+        self.assertEqual("ask", result.decision)
+        self.assertEqual("reviewer_unavailable", result.reason_code)
+        self.assertTrue(reviewer.cancelled)
+
+    def test_external_cancellation_is_not_converted_to_approval(self):
+        from app.agent.memory_consent import review_memory_mutation
+
+        reviewer = _HangingStructuredReviewer()
+
+        async def cancel_review():
+            task = asyncio.create_task(
+                review_memory_mutation(
+                    latest_user_message="Remember this preference.",
+                    tool_name="remember_memory",
+                    tool_args={"value": "Private preference"},
+                    reviewer=reviewer,
+                    timeout_seconds=60,
+                )
+            )
+            await asyncio.sleep(0)
+            task.cancel()
+            await task
+
+        with self.assertRaises(asyncio.CancelledError):
+            asyncio.run(cancel_review())
+        self.assertTrue(reviewer.cancelled)
 
     def test_reset_and_missing_input_require_approval_without_calling_reviewer(self):
         from app.agent.memory_consent import review_memory_mutation

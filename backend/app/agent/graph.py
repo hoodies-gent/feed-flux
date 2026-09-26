@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -20,6 +21,7 @@ from app.agent.execution_context import (
 )
 from app.agent.llm import get_llm
 from app.agent.memory_consent import (
+    DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
     load_memory_mutation_target,
     review_memory_mutation,
 )
@@ -313,6 +315,7 @@ def build_agent(
     *,
     llm: BaseChatModel | None = None,
     memory_consent_reviewer: Any | None = None,
+    memory_consent_timeout_seconds: float = DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
@@ -397,7 +400,7 @@ def build_agent(
     async def memory_consent_node(state: AgentState) -> dict:
         last = state["messages"][-1]
         latest_user_message = _latest_user_message(state["messages"])
-        decisions = {}
+        review_requests = []
         for tc in last.tool_calls:
             name, args, call_id = tc["name"], tc["args"], tc["id"]
             if name not in MEMORY_MUTATION_TOOLS:
@@ -407,13 +410,27 @@ def build_agent(
                 tool_name=name,
                 tool_args=args,
             )
-            consent = await review_memory_mutation(
-                latest_user_message=latest_user_message,
-                tool_name=name,
-                tool_args=args,
-                target_memory=target_memory,
-                reviewer=memory_consent_reviewer,
+            review_requests.append((name, args, call_id, target_memory))
+
+        consents = await asyncio.gather(
+            *(
+                review_memory_mutation(
+                    latest_user_message=latest_user_message,
+                    tool_name=name,
+                    tool_args=args,
+                    target_memory=target_memory,
+                    reviewer=memory_consent_reviewer,
+                    timeout_seconds=memory_consent_timeout_seconds,
+                )
+                for name, args, _, target_memory in review_requests
             )
+        )
+        decisions = {}
+        for (name, args, call_id, target_memory), consent in zip(
+            review_requests,
+            consents,
+            strict=True,
+        ):
             decisions[call_id] = {
                 **consent.model_dump(),
                 "fingerprint": _memory_mutation_fingerprint(name, args),
