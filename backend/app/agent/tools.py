@@ -17,6 +17,7 @@ from app.agent.memory_tools import (
     update_memory,
 )
 from app.agent.memory_candidate_tools import record_memory_candidate
+from app.decisions.shadow import observe_triage_shadow
 from app.services.database import DatabaseService
 from app.services.reply_draft_service import ReplyDraftService
 
@@ -421,6 +422,7 @@ def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
     draft-reply per row on the card. You do NOT execute the actions. Give a
     single one-line acknowledgement after this tool returns and STOP.
     """
+    observe_triage_shadow(actions or [], needs_reply or [])
     n_bulk = len(actions or [])
     n_reply = len(needs_reply or [])
     return (

@@ -16,6 +16,7 @@ class DecisionSettings:
     model: str = "jev-latest"
     base_url: str = "https://api.typesafe.ai"
     timeout_seconds: float = 10.0
+    shadow_timeout_seconds: float = 3.0
     max_attempts: int = 3
     max_items_per_request: int = 20
     token_budget: int = 24000
@@ -49,6 +50,7 @@ def decision_settings() -> DecisionSettings:
         model=os.getenv("TYPESAFE_MODEL_NAME") or "jev-latest",
         base_url=(os.getenv("TYPESAFE_BASE_URL") or "https://api.typesafe.ai").rstrip("/"),
         timeout_seconds=_env_float("DECISION_TIMEOUT_SECONDS", 10.0),
+        shadow_timeout_seconds=_env_float("DECISION_SHADOW_TIMEOUT_SECONDS", 3.0),
         max_attempts=max(1, _env_int("DECISION_MAX_ATTEMPTS", 3)),
         max_items_per_request=max(1, _env_int("DECISION_MAX_ITEMS_PER_REQUEST", 20)),
         token_budget=max(1000, _env_int("DECISION_TOKEN_BUDGET", 24000)),
