@@ -2,6 +2,8 @@ import asyncio
 import json
 import unittest
 
+from langchain_core.messages import AIMessage
+
 
 class _FakeStructuredReviewer:
     def __init__(self, result=None, error: Exception | None = None):
@@ -10,7 +12,7 @@ class _FakeStructuredReviewer:
         self.schema = None
         self.messages = None
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         self.schema = schema
         return self
 
@@ -18,14 +20,18 @@ class _FakeStructuredReviewer:
         self.messages = messages
         if self.error is not None:
             raise self.error
-        return self.result
+        return {
+            "raw": AIMessage(content=""),
+            "parsed": self.result,
+            "parsing_error": None,
+        }
 
 
 class _HangingStructuredReviewer:
     def __init__(self):
         self.cancelled = False
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
@@ -34,6 +40,30 @@ class _HangingStructuredReviewer:
         except asyncio.CancelledError:
             self.cancelled = True
             raise
+
+
+class _UsageReportingReviewer:
+    def with_structured_output(self, schema, *, include_raw=False):
+        self.include_raw = include_raw
+        return self
+
+    async def ainvoke(self, messages):
+        return {
+            "raw": AIMessage(
+                content="",
+                response_metadata={"model_name": "consent-fixture"},
+                usage_metadata={
+                    "input_tokens": 40,
+                    "output_tokens": 10,
+                    "total_tokens": 50,
+                },
+            ),
+            "parsed": {
+                "decision": "allow",
+                "reason_code": "explicit_user_request",
+            },
+            "parsing_error": None,
+        }
 
 
 def _target_memory():
@@ -218,6 +248,38 @@ class MemoryConsentReviewTest(unittest.TestCase):
 
         self.assertEqual("ask", result.decision)
         self.assertEqual("reviewer_unavailable", result.reason_code)
+
+    def test_reviewer_reports_normalized_usage_from_raw_response(self):
+        from app.agent.memory_consent import review_memory_mutation
+
+        reviewer = _UsageReportingReviewer()
+        usage_events = []
+        result = asyncio.run(
+            review_memory_mutation(
+                latest_user_message="Remember this preference.",
+                tool_name="remember_memory",
+                tool_args={"value": "Private preference"},
+                reviewer=reviewer,
+                on_usage=usage_events.append,
+            )
+        )
+
+        self.assertEqual("allow", result.decision)
+        self.assertEqual(
+            [
+                {
+                    "type": "usage",
+                    "model": "consent-fixture",
+                    "usage": {
+                        "input_tokens": 40,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 10,
+                        "total_tokens": 50,
+                    },
+                }
+            ],
+            usage_events,
+        )
 
     def test_reviewer_timeout_fails_closed(self):
         from app.agent.memory_consent import review_memory_mutation

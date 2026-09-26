@@ -401,6 +401,7 @@ def build_agent(
         last = state["messages"][-1]
         latest_user_message = _latest_user_message(state["messages"])
         review_requests = []
+        reviewer_usage_events = []
         for tc in last.tool_calls:
             name, args, call_id = tc["name"], tc["args"], tc["id"]
             if name not in MEMORY_MUTATION_TOOLS:
@@ -421,10 +422,19 @@ def build_agent(
                     target_memory=target_memory,
                     reviewer=memory_consent_reviewer,
                     timeout_seconds=memory_consent_timeout_seconds,
+                    on_usage=reviewer_usage_events.append,
                 )
                 for name, args, _, target_memory in review_requests
             )
         )
+        reviewer_tokens = sum(
+            event["usage"]["total_tokens"] for event in reviewer_usage_events
+        )
+        total_tokens_used = state.get("total_tokens_used", 0) + reviewer_tokens
+        if total_tokens_used > max_total_tokens:
+            raise RunTokenBudgetExceeded(
+                f"Agent run exceeded its limit of {max_total_tokens} tokens."
+            )
         decisions = {}
         for (name, args, call_id, target_memory), consent in zip(
             review_requests,
@@ -439,7 +449,10 @@ def build_agent(
                 decisions[call_id]["target_fingerprint"] = (
                     memory_target_fingerprint(target_memory)
                 )
-        return {"memory_consent": decisions}
+        update = {"memory_consent": decisions}
+        if reviewer_usage_events:
+            update["total_tokens_used"] = total_tokens_used
+        return update
 
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict:
         thread_id = config.get("configurable", {}).get("thread_id", "unknown")

@@ -1,11 +1,13 @@
 import asyncio
 import json
+from collections.abc import Callable
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, model_validator
 
 from app.agent.llm import get_llm
+from app.agent.usage import usage_event_from_message
 from app.services.database import DatabaseService
 from app.services.semantic_memory_store import SemanticMemoryStore
 
@@ -86,6 +88,7 @@ async def review_memory_mutation(
     target_memory: dict[str, Any] | None = None,
     reviewer: Any | None = None,
     timeout_seconds: float = DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
+    on_usage: Callable[[dict[str, Any]], None] | None = None,
 ) -> MemoryConsentDecision:
     if tool_name == "reset_memories":
         return MemoryConsentDecision(
@@ -124,7 +127,8 @@ async def review_memory_mutation(
     try:
         active_reviewer = reviewer or get_llm(temperature=0)
         structured_reviewer = active_reviewer.with_structured_output(
-            MemoryConsentDecision
+            MemoryConsentDecision,
+            include_raw=True,
         )
         result = await asyncio.wait_for(
             structured_reviewer.ainvoke(
@@ -142,8 +146,21 @@ async def review_memory_mutation(
             decision="ask",
             reason_code="reviewer_unavailable",
         )
+    if not isinstance(result, dict):
+        return MemoryConsentDecision(
+            decision="ask",
+            reason_code="reviewer_invalid",
+        )
+    usage_event = usage_event_from_message(result.get("raw"))
+    if usage_event is not None and on_usage is not None:
+        on_usage(usage_event)
+    if result.get("parsing_error") is not None:
+        return MemoryConsentDecision(
+            decision="ask",
+            reason_code="reviewer_invalid",
+        )
     try:
-        return MemoryConsentDecision.model_validate(result)
+        return MemoryConsentDecision.model_validate(result.get("parsed"))
     except Exception:
         return MemoryConsentDecision(
             decision="ask",

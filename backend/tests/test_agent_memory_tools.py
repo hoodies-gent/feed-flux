@@ -23,6 +23,14 @@ async def _collect(stream):
     return [event async for event in stream]
 
 
+def _structured_review(parsed):
+    return {
+        "raw": AIMessage(content=""),
+        "parsed": parsed,
+        "parsing_error": None,
+    }
+
+
 def _target_config(data_dir: Path, memory_id: int) -> dict:
     from app.services.memory_precondition import memory_target_fingerprint
     from app.services.semantic_memory_store import SemanticMemoryStore
@@ -112,16 +120,16 @@ class _FakeConsentReviewer:
         self.result = {"decision": decision, "reason_code": reason_code}
         self.messages = []
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
         self.messages.append(messages)
-        return self.result
+        return _structured_review(self.result)
 
 
 class _HangingConsentReviewer:
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
@@ -134,7 +142,7 @@ class _BarrierConsentReviewer:
         self.started_calls = 0
         self.ready = asyncio.Event()
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
@@ -142,10 +150,12 @@ class _BarrierConsentReviewer:
         if self.started_calls == self.required_calls:
             self.ready.set()
         await self.ready.wait()
-        return {
-            "decision": "allow",
-            "reason_code": "explicit_user_request",
-        }
+        return _structured_review(
+            {
+                "decision": "allow",
+                "reason_code": "explicit_user_request",
+            }
+        )
 
 
 class _ChangingConsentReviewer:
@@ -153,12 +163,12 @@ class _ChangingConsentReviewer:
         self.results = list(results)
         self.messages = []
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
         self.messages.append(messages)
-        return self.results.pop(0)
+        return _structured_review(self.results.pop(0))
 
 
 class _TargetAwareConsentReviewer:
@@ -166,7 +176,7 @@ class _TargetAwareConsentReviewer:
         self.expected_key = expected_key
         self.payloads = []
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, *, include_raw=False):
         return self
 
     async def ainvoke(self, messages):
@@ -174,14 +184,18 @@ class _TargetAwareConsentReviewer:
         self.payloads.append(payload)
         target = payload.get("current_target") or {}
         if target.get("key") == self.expected_key:
-            return {
-                "decision": "allow",
-                "reason_code": "explicit_user_request",
+            return _structured_review(
+                {
+                    "decision": "allow",
+                    "reason_code": "explicit_user_request",
+                }
+            )
+        return _structured_review(
+            {
+                "decision": "deny",
+                "reason_code": "argument_mismatch",
             }
-        return {
-            "decision": "deny",
-            "reason_code": "argument_mismatch",
-        }
+        )
 
 
 class _MemoryMutationCallingModel:
