@@ -7,6 +7,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     context_email_ids: NotRequired[list[str]]
     memory_consent: NotRequired[dict[str, dict[str, str]]]
+    memory_listed_turn: NotRequired[int]
     tool_calls_used: NotRequired[int]
     total_tokens_used: NotRequired[int]
     tool_error: NotRequired[dict[str, str] | None]

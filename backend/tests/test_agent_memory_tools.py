@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agent.execution_context import current_run_id, current_tool_call_id
 from app.agent.run_runtime import AgentRunRuntime
@@ -168,6 +168,50 @@ class _ListCallingMemoryModel:
                 }
             ],
         )
+
+
+class _PagingListCallingMemoryModel:
+    def __init__(self):
+        self.next_cursor = None
+        self.pages = []
+        self.denials = []
+        self.request_count = 0
+
+    def bind_tools(self, tools):
+        return self
+
+    def _list_call(self, cursor=None):
+        self.request_count += 1
+        args = {"workflow_scope": "drafting"}
+        if cursor is not None:
+            args["cursor"] = cursor
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "list_memories",
+                    "args": args,
+                    "id": f"list-page-call-{self.request_count}",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+    async def ainvoke(self, messages):
+        if isinstance(messages[-1], HumanMessage):
+            return self._list_call(self.next_cursor)
+        if isinstance(messages[-1], ToolMessage):
+            try:
+                page = ast.literal_eval(messages[-1].content)
+            except (SyntaxError, ValueError):
+                self.denials.append(messages[-1].content)
+                return AIMessage(content="Another page requires a new user request.")
+            self.pages.append(page)
+            self.next_cursor = page["next_cursor"]
+            if len(self.pages) == 1:
+                return self._list_call(self.next_cursor)
+            return AIMessage(content="Memory page ready.")
+        return AIMessage(content="Memory page ready.")
 
 
 class _MemoryTraceAgent:
@@ -883,6 +927,79 @@ class AgentMemoryToolsTest(unittest.TestCase):
         self.assertEqual(10, model.tool_output["count"])
         self.assertEqual(10, len(model.tool_output["memories"]))
         self.assertIsNotNone(model.tool_output["next_cursor"])
+
+    def test_memory_list_allows_only_one_page_per_user_turn(self):
+        from app.agent.graph import build_agent
+        from app.services.agent_run_store import AgentRunStore
+        from app.services.semantic_memory_store import SemanticMemoryStore
+
+        database = DatabaseService(str(self.data_dir / "emails.db"))
+        store = SemanticMemoryStore(database)
+        for index in range(12):
+            store.remember(
+                profile_id=LOCAL_PROFILE_ID,
+                memory_type="preference",
+                workflow_scope="drafting",
+                contact_scope=None,
+                key=f"Preference {index}",
+                value=f"Value {index}",
+                source="explicit_user",
+            )
+
+        model = _PagingListCallingMemoryModel()
+        agent = build_agent(llm=model)
+        runtime = AgentRunRuntime(
+            AgentRunStore(database),
+            provider="fixture-provider",
+            stream=lambda graph_input, thread_id: stream_agent(
+                graph_input,
+                thread_id,
+                agent=agent,
+            ),
+        )
+
+        first_turn_events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("List my drafting memories."),
+                    "memory-paging-thread",
+                )
+            )
+        )
+        self.assertEqual(1, len(model.pages))
+        self.assertEqual(10, model.pages[0]["count"])
+        self.assertEqual(1, len(model.denials))
+        self.assertEqual(
+            1,
+            sum(
+                event.get("type") == "trace"
+                and event.get("step") == "tool_start"
+                and event.get("tool") == "list_memories"
+                for event in first_turn_events
+            ),
+        )
+
+        second_turn_events = asyncio.run(
+            _collect(
+                runtime.stream_new_run(
+                    new_turn_input("Show me the next memory page."),
+                    "memory-paging-thread",
+                )
+            )
+        )
+        database.engine.dispose()
+
+        self.assertEqual(2, len(model.pages))
+        self.assertEqual(2, model.pages[1]["count"])
+        self.assertEqual(
+            1,
+            sum(
+                event.get("type") == "trace"
+                and event.get("step") == "tool_start"
+                and event.get("tool") == "list_memories"
+                for event in second_turn_events
+            ),
+        )
 
     def test_memory_tool_trace_exposes_metadata_without_sensitive_fields(self):
         events = asyncio.run(

@@ -83,8 +83,9 @@ SYSTEM_PROMPT = (
     "- remember_memory stores a stable preference, fact, rule, or constraint. Call it only "
     "when the user explicitly asks you to remember that exact information.\n"
     "- list_memories reads one filtered page of at most 10 confirmed memories only when the user "
-    "explicitly asks to inspect memory. It runs without an approval interrupt. Use its cursor only "
-    "when the user asks for another page. update_memory changes only a selected memory's value. "
+    "explicitly asks to inspect memory. It runs without an approval interrupt, but the server allows "
+    "only one page per user turn. Use its cursor only after the user sends another message asking "
+    "for the next page. update_memory changes only a selected memory's value. "
     "forget_memory permanently forgets one memory lineage. reset_memories permanently clears "
     "the confirmed memories matching the requested scope.\n"
     "Never create or update confirmed semantic memory from model inference, a one-time user edit, "
@@ -293,6 +294,10 @@ def _latest_user_message(messages: list) -> str:
     return ""
 
 
+def _user_turn_number(messages: list) -> int:
+    return sum(isinstance(message, HumanMessage) for message in messages)
+
+
 def _memory_mutation_fingerprint(tool_name: str, tool_args: dict) -> str:
     canonical = json.dumps(
         {"tool": tool_name, "args": tool_args},
@@ -432,10 +437,22 @@ def build_agent(
                 )
             results = []
             tool_error = None
+            user_turn = _user_turn_number(state["messages"])
+            memory_page_consumed = state.get("memory_listed_turn") == user_turn
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
                 call_token = current_tool_call_id.set(call_id)
                 try:
+                    if name == "list_memories" and memory_page_consumed:
+                        results.append(
+                            ToolMessage(
+                                "[memory page limit] Another page requires a new "
+                                "explicit user message.",
+                                tool_call_id=call_id,
+                            )
+                        )
+                        continue
+
                     requires_approval = name in HIGH_RISK_TOOLS
                     if name in MEMORY_MUTATION_TOOLS:
                         consent = state.get("memory_consent", {}).get(call_id, {})
@@ -486,6 +503,8 @@ def build_agent(
                             config={"metadata": metadata},
                         )
                         results.append(ToolMessage(str(output), tool_call_id=call_id))
+                        if name == "list_memories":
+                            memory_page_consumed = True
                     except Exception as error:
                         category = classify_runtime_error(error).value
                         tool_error = tool_error or {
@@ -502,11 +521,14 @@ def build_agent(
                         )
                 finally:
                     current_tool_call_id.reset(call_token)
-            return {
+            update = {
                 "messages": results,
                 "tool_calls_used": tool_calls_used + requested_tool_calls,
                 "tool_error": tool_error,
             }
+            if memory_page_consumed:
+                update["memory_listed_turn"] = user_turn
+            return update
         finally:
             current_thread_id.reset(token)
 
