@@ -7,6 +7,8 @@ import requests
 
 from app.decisions.contract import (
     ACTION_CRITERIA,
+    IMPORTANCE_CRITERIA,
+    IMPORTANCE_QUESTION,
     REASON_CRITERIA,
     TRIAGE_ACTIONS,
     DecisionUsage,
@@ -163,6 +165,11 @@ class JevDecisionProvider:
                 ),
                 "criteria": REASON_CRITERIA,
             }
+            questions[f"important_{ref}"] = {
+                "type": "noul",
+                "instructions": f"For the inbox email with ref '{ref}': {IMPORTANCE_QUESTION}",
+                "criteria": IMPORTANCE_CRITERIA,
+            }
         return {"model": self.settings.model, "state": {"emails": state}, "questions": questions}
 
     def _post(self, payload: dict) -> dict:
@@ -202,11 +209,18 @@ class JevDecisionProvider:
         decisions = []
         for index, item in enumerate(chunk):
             ref = f"e{index}"
-            decisions.append(self._decision(item.item_id, answers.get(f"action_{ref}"), answers.get(f"reason_{ref}")))
+            decisions.append(
+                self._decision(
+                    item.item_id,
+                    answers.get(f"action_{ref}"),
+                    answers.get(f"reason_{ref}"),
+                    answers.get(f"important_{ref}"),
+                )
+            )
         return decisions
 
     @staticmethod
-    def _decision(item_id: str, action_answer, reason_answer) -> TriageDecision:
+    def _decision(item_id: str, action_answer, reason_answer, importance_answer=None) -> TriageDecision:
         def failed(category: ErrorCategory) -> TriageDecision:
             return TriageDecision(item_id=item_id, status="failed", error_category=category.value)
 
@@ -235,6 +249,15 @@ class JevDecisionProvider:
         reason_choice = reason_answer.get("choice") if isinstance(reason_answer, dict) else None
         reason_code = reason_choice if reason_choice in set(ReasonCode) else None
 
+        important = importance_confidence = None
+        if isinstance(importance_answer, dict):
+            noul = importance_answer.get("noul")
+            if isinstance(noul, (int, float)):
+                noul = min(max(float(noul), 0.0), 1.0)
+                important = noul >= 0.5
+                # A noul near either end is a confident answer; 0.5 is maximal doubt.
+                importance_confidence = abs(noul - 0.5) * 2
+
         return TriageDecision(
             item_id=item_id,
             status="ok",
@@ -242,4 +265,6 @@ class JevDecisionProvider:
             reason_code=reason_code,
             confidence=confidence,
             probabilities=probabilities,
+            important=important,
+            importance_confidence=importance_confidence,
         )

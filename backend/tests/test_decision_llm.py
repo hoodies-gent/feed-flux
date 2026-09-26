@@ -61,7 +61,14 @@ class _FakeModel:
 def _ok_result(count, action="archive", confidence=0.8, reason=ReasonCode.NEWSLETTER):
     parsed = _LlmBatchDecision(
         decisions=[
-            {"ref": f"e{index}", "action": action, "reason_code": reason, "confidence": confidence}
+            {
+                "ref": f"e{index}",
+                "action": action,
+                "reason_code": reason,
+                "confidence": confidence,
+                "important": False,
+                "importance_confidence": 0.7,
+            }
             for index in range(count)
         ]
     )
@@ -157,8 +164,10 @@ class LlmDecisionProviderTest(unittest.TestCase):
     def test_unknown_ref_is_dropped_and_missing_item_becomes_failed(self):
         parsed = _LlmBatchDecision(
             decisions=[
-                {"ref": "e1", "action": "delete", "reason_code": ReasonCode.CI_NOTIFICATION, "confidence": 0.95},
-                {"ref": "e9", "action": "delete", "reason_code": ReasonCode.OTHER, "confidence": 0.9},
+                {"ref": "e1", "action": "delete", "reason_code": ReasonCode.CI_NOTIFICATION,
+                 "confidence": 0.95, "important": False, "importance_confidence": 0.9},
+                {"ref": "e9", "action": "delete", "reason_code": ReasonCode.OTHER,
+                 "confidence": 0.9, "important": False, "importance_confidence": 0.9},
             ]
         )
         model = _FakeModel([{"raw": _raw(), "parsed": parsed, "parsing_error": None}])

@@ -44,6 +44,21 @@ ACTION_CRITERIA: dict[str, str] = {
     ),
 }
 
+IMPORTANCE_QUESTION = (
+    "Would the user lose something they need if this email were archived or deleted "
+    "without them reading it?"
+)
+IMPORTANCE_CRITERIA: dict[str, str] = {
+    "true": (
+        "Yes. It carries a deadline, money, a security or account action, a live "
+        "incident, a record worth keeping, or a person waiting on the user."
+    ),
+    "false": (
+        "No. It is disposable or fully re-derivable noise: routine tool notifications, "
+        "marketing, digests the user opted into but can skip."
+    ),
+}
+
 REASON_CRITERIA: dict[str, str] = {
     ReasonCode.NEWSLETTER: "Subscription newsletter or digest.",
     ReasonCode.PROMOTION: "Marketing or promotional mail.",
@@ -77,6 +92,10 @@ class TriageDecision(BaseModel):
     reason_code: ReasonCode | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     probabilities: dict[TriageAction, float] = Field(default_factory=dict)
+    # Second axis, asked separately from the action so a provider can say an email
+    # belongs in the inbox *and* matters. Absent when a provider does not answer it.
+    important: bool | None = None
+    importance_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     error_category: str | None = None
 
 

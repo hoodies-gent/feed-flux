@@ -118,12 +118,15 @@ class JevRequestShapeTest(unittest.TestCase):
         self.assertEqual(100, len(email["preview"]))
         self.assertNotIn("dev-000", json.dumps(payload))
 
-    def test_asks_one_action_and_one_reason_question_per_item(self):
+    def test_asks_one_question_per_axis_per_item(self):
         session = _FakeSession()
         _provider(session).decide_triage(_items(2))
 
         questions = session.payloads[0]["questions"]
-        self.assertEqual({"action_e0", "reason_e0", "action_e1", "reason_e1"}, set(questions))
+        self.assertEqual(
+            {"action_e0", "reason_e0", "important_e0", "action_e1", "reason_e1", "important_e1"},
+            set(questions),
+        )
         self.assertEqual("choice", questions["action_e0"]["type"])
         self.assertEqual(
             {"mark_read", "archive", "delete", "needs_reply"},

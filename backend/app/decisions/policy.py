@@ -13,7 +13,9 @@ GateRule = Literal[
     "abstained",
     "below_threshold",
     "delete_below_threshold",
+    "important_bulk_action",
 ]
+REMOVING_ACTIONS = ("delete", "archive")
 ReasonLanguage = Literal["en", "zh"]
 
 
@@ -21,6 +23,7 @@ ReasonLanguage = Literal["en", "zh"]
 class GatePolicy:
     accept_threshold: float = 0.7
     delete_threshold: float = 0.9
+    importance_threshold: float = 0.7
 
 
 class GateResult(BaseModel):
@@ -30,6 +33,7 @@ class GateResult(BaseModel):
     action: TriageAction | None = None
     reason_code: ReasonCode | None = None
     confidence: float | None = None
+    important: bool | None = None
 
 
 def apply_gate(decision: TriageDecision, policy: GatePolicy = GatePolicy()) -> GateResult:
@@ -41,12 +45,21 @@ def apply_gate(decision: TriageDecision, policy: GatePolicy = GatePolicy()) -> G
             action=decision.action,
             reason_code=decision.reason_code,
             confidence=decision.confidence,
+            important=decision.important,
         )
 
     if decision.status == "failed":
         return result("fallback", "provider_failed")
     if decision.status == "abstained" or decision.action is None or decision.confidence is None:
         return result("fallback", "abstained")
+    # The provider's own importance signal outranks a confident bulk action: taking mail
+    # out of the inbox is what loses it. Skipped when the provider does not answer it.
+    if (
+        decision.action in REMOVING_ACTIONS
+        and decision.important
+        and (decision.importance_confidence or 0.0) >= policy.importance_threshold
+    ):
+        return result("review", "important_bulk_action")
     # A low-confidence delete is never handed to another model to re-litigate; the user decides.
     if decision.action == "delete" and decision.confidence < policy.delete_threshold:
         return result("review", "delete_below_threshold")

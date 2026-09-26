@@ -116,6 +116,12 @@ def _record(batch: TriageDecisionBatch, agent_actions: dict[str, str]) -> None:
                 "provider_status": decision.status,
                 "reason_code": decision.reason_code.value if decision.reason_code else None,
                 "confidence": round(decision.confidence, 4) if decision.confidence is not None else None,
+                "important": decision.important,
+                "importance_confidence": (
+                    round(decision.importance_confidence, 4)
+                    if decision.importance_confidence is not None
+                    else None
+                ),
                 "gate_outcome": gate.outcome,
                 "gate_rule": gate.rule,
                 "agrees_with_agent": (

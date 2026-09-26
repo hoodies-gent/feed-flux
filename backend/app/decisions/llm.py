@@ -10,6 +10,7 @@ from app.agent.runtime_errors import classify_runtime_error
 from app.agent.usage import usage_event_from_message
 from app.decisions.contract import (
     ACTION_CRITERIA,
+    IMPORTANCE_QUESTION,
     REASON_CRITERIA,
     DecisionUsage,
     ReasonCode,
@@ -34,8 +35,11 @@ def _prompt() -> str:
         "action and one reason code. Answer for every ref, exactly once.\n\n"
         f"Actions:\n{actions}\n\nReason codes:\n{reasons}\n\n"
         "confidence is your probability that the action is the one the user would "
-        "pick, between 0 and 1. Use low values when the email is ambiguous. Propose "
-        "only; the user executes every action themselves."
+        "pick, between 0 and 1. Use low values when the email is ambiguous.\n\n"
+        f"Answer `important` separately from the action: {IMPORTANCE_QUESTION} An email "
+        "can belong in the inbox and still be important. importance_confidence is your "
+        "probability that this judgement is right.\n\n"
+        "Propose only; the user executes every action themselves."
     )
 
 
@@ -44,6 +48,8 @@ class _LlmItemDecision(BaseModel):
     action: TriageAction
     reason_code: ReasonCode
     confidence: float = Field(ge=0.0, le=1.0)
+    important: bool
+    importance_confidence: float = Field(ge=0.0, le=1.0)
 
 
 class _LlmBatchDecision(BaseModel):
@@ -186,6 +192,8 @@ class LlmDecisionProvider:
                     action=decision.action,
                     reason_code=decision.reason_code,
                     confidence=decision.confidence,
+                    important=decision.important,
+                    importance_confidence=decision.importance_confidence,
                 )
             )
         return decisions
