@@ -25,6 +25,42 @@ class ReasonCode(StrEnum):
     OTHER = "other"
 
 
+# Shared by every adapter so the arms of an A/B answer the same question.
+ACTION_CRITERIA: dict[str, str] = {
+    "mark_read": (
+        "Low-signal informational mail the user wants to keep: FYI threads, "
+        "status updates they were only cc'd on. No reply expected."
+    ),
+    "archive": (
+        "Receipts, confirmations and finished threads: out of the inbox but retained."
+    ),
+    "delete": (
+        "Disposable noise: CI run notifications, obvious junk, promos the user never "
+        "reads. Nothing the user could need later."
+    ),
+    "needs_reply": (
+        "A person is asking a question, requesting an action, or otherwise expecting "
+        "a personal response from the user."
+    ),
+}
+
+REASON_CRITERIA: dict[str, str] = {
+    ReasonCode.NEWSLETTER: "Subscription newsletter or digest.",
+    ReasonCode.PROMOTION: "Marketing or promotional mail.",
+    ReasonCode.CI_NOTIFICATION: "Automated build, test or deployment notification.",
+    ReasonCode.TOOL_NOTIFICATION: "Automated notification from a SaaS tool.",
+    ReasonCode.RECEIPT: "Receipt, invoice or payment confirmation.",
+    ReasonCode.STATUS_UPDATE: "Project or team status update, informational only.",
+    ReasonCode.CALENDAR_UPDATE: "Calendar change such as a cancellation or reschedule notice.",
+    ReasonCode.MEETING_REQUEST: "Invitation asking the user to confirm or propose a time.",
+    ReasonCode.DIRECT_QUESTION: "A person asks the user a direct question.",
+    ReasonCode.ACTION_REQUEST: "A person asks the user to do something specific.",
+    ReasonCode.FOLLOW_UP: "Repeated follow-up chasing an earlier unanswered message.",
+    ReasonCode.URGENT_ISSUE: "Urgent incident or failure needing attention.",
+    ReasonCode.OTHER: "None of the other categories fit.",
+}
+
+
 class TriageItem(BaseModel):
     item_id: str
     subject: str
