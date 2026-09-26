@@ -119,6 +119,7 @@ async def run_arm(
     *,
     provider=None,
     mode: str = "dry_run",
+    trial: int = 1,
 ) -> dict:
     arm = build_arm(arm_id, provider=provider)
     case_ids = [case.case_id for case in cases]
@@ -148,6 +149,7 @@ async def run_arm(
     return {
         "mode": mode,
         "arm": arm_id,
+        "trial": trial,
         "provider": arm.provider_name,
         "size": len(cases),
         "case_ids": case_ids,
@@ -263,28 +265,89 @@ async def run_suite(
     provider_factory=None,
     mode: str = "dry_run",
     suite: DecisionCaseSuite | None = None,
+    trials: int = 1,
 ) -> list[dict]:
     suite = suite or load_case_suite()
     records = []
     for size in sizes:
         cases = select_cases(suite, size)
         for arm_id in arm_ids:
-            provider = provider_factory(arm_id) if provider_factory and arm_id != "baseline" else None
-            records.append(
-                await run_arm(arm_id, cases, suite, llm_factory, provider=provider, mode=mode)
-            )
+            for trial in range(1, trials + 1):
+                provider = (
+                    provider_factory(arm_id)
+                    if provider_factory and arm_id != "baseline"
+                    else None
+                )
+                records.append(
+                    await run_arm(
+                        arm_id, cases, suite, llm_factory,
+                        provider=provider, mode=mode, trial=trial,
+                    )
+                )
     return records
+
+
+def aggregate(records: list[dict]) -> list[dict]:
+    """Collapse repeated trials so run-to-run variation is visible rather than
+    hidden behind a single number."""
+    import statistics
+
+    grouped: dict[tuple, list[dict]] = {}
+    for record in records:
+        grouped.setdefault((record["arm"], record["provider"], record["size"]), []).append(record)
+
+    rows = []
+    for (arm, provider, size), runs in sorted(grouped.items(), key=lambda kv: (kv[0][2], kv[0][0])):
+        latencies = sorted(r["latency_ms"] for r in runs)
+        recalls = [r["scores"]["overall"]["attention_recall"] for r in runs]
+        recalls = [r for r in recalls if r is not None]
+        rows.append({
+            "arm": arm,
+            "provider": provider,
+            "size": size,
+            "trials": len(runs),
+            "latency_ms_median": statistics.median(latencies),
+            "latency_ms_min": latencies[0],
+            "latency_ms_max": latencies[-1],
+            "agent_output_tokens_median": statistics.median(
+                r["agent_usage"]["output_tokens"] for r in runs
+            ),
+            "agent_total_tokens_median": statistics.median(
+                r["agent_usage"]["total_tokens"] for r in runs
+            ),
+            "provider_input_tokens_median": statistics.median(
+                (r["provider_stats"] or {}).get("input_tokens", 0) for r in runs
+            ),
+            "provider_requests_median": statistics.median(
+                (r["provider_stats"] or {}).get("requests", 0) for r in runs
+            ),
+            "attention_recall_min": min(recalls) if recalls else None,
+            "attention_recall_max": max(recalls) if recalls else None,
+            "buried_max": max(r["scores"]["overall"]["buried_count"] for r in runs),
+            "forbidden_violations_max": max(
+                len(r["scores"]["overall"]["forbidden_action_violations"]) for r in runs
+            ),
+            "review_effort_median": statistics.median(
+                r["scores"]["overall"]["review_effort"] for r in runs
+            ),
+            "one_click_median": statistics.median(
+                r["scores"]["overall"]["one_click_dismissals"] for r in runs
+            ),
+        })
+    return rows
 
 
 def summarise(records: list[dict]) -> dict:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "modes": sorted({r["mode"] for r in records}),
+        "aggregated": aggregate(records),
         "runs": [
             {
                 "arm": r["arm"],
                 "provider": r["provider"],
                 "size": r["size"],
+                "trial": r["trial"],
                 "latency_ms": r["latency_ms"],
                 "agent_output_tokens": r["agent_usage"]["output_tokens"],
                 "agent_total_tokens": r["agent_usage"]["total_tokens"],
@@ -303,6 +366,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Batch-triage A/B across decision arms.")
     parser.add_argument("--sizes", type=int, nargs="+", default=[6, 20, 38])
     parser.add_argument("--arms", nargs="+", default=["baseline", "provider_tool"])
+    parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument(
         "--live",
@@ -316,7 +380,7 @@ def main() -> int:
         from app.agent.triage_tools import build_provider
 
         llm_factory = lambda arm_id, cases: get_llm(temperature=0)
-        provider_factory = lambda arm_id: build_provider()
+        provider_factory = None
         mode = "live"
     else:
         llm_factory = scripted_llm_factory()
@@ -325,7 +389,10 @@ def main() -> int:
         provider_factory = lambda arm_id: dry_run_provider(suite_cases)
 
     records = asyncio.run(
-        run_suite(args.sizes, args.arms, llm_factory, provider_factory=provider_factory, mode=mode)
+        run_suite(
+            args.sizes, args.arms, llm_factory,
+            provider_factory=provider_factory, mode=mode, trials=args.trials,
+        )
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     recorder = TrialRecorder(args.output_dir / f"decision-ab-{mode}.jsonl")

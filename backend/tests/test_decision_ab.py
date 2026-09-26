@@ -168,3 +168,28 @@ class RunSuiteTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrialsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_each_trial_is_recorded_separately(self):
+        from app.evals.decision_ab import aggregate
+
+        records = await run_suite([6], ["baseline"], scripted_llm_factory(), trials=3)
+
+        self.assertEqual(3, len(records))
+        self.assertEqual([1, 2, 3], [r["trial"] for r in records])
+
+        rows = aggregate(records)
+        self.assertEqual(1, len(rows))
+        self.assertEqual(3, rows[0]["trials"])
+        self.assertLessEqual(rows[0]["latency_ms_min"], rows[0]["latency_ms_median"])
+        self.assertLessEqual(rows[0]["latency_ms_median"], rows[0]["latency_ms_max"])
+
+    async def test_aggregate_reports_the_worst_case_for_safety_numbers(self):
+        from app.evals.decision_ab import aggregate
+
+        records = await run_suite([6], ["baseline"], scripted_llm_factory(), trials=2)
+        records[0]["scores"]["overall"]["buried_count"] = 5
+        records[1]["scores"]["overall"]["buried_count"] = 1
+
+        self.assertEqual(5, aggregate(records)[0]["buried_max"])
