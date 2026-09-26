@@ -314,19 +314,24 @@ def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     *,
     llm: BaseChatModel | None = None,
+    tools: list | None = None,
+    system_prompt: str | None = None,
     memory_consent_reviewer: Any | None = None,
     memory_consent_timeout_seconds: float = DEFAULT_MEMORY_CONSENT_TIMEOUT_SECONDS,
     provider_retry_policy: RetryPolicy | None = PROVIDER_RETRY_POLICY,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     max_total_tokens: int = DEFAULT_MAX_TOTAL_TOKENS,
 ):
-    bound_llm = (llm or get_llm()).bind_tools(TOOLS)
+    active_tools = TOOLS if tools is None else tools
+    active_tools_by_name = TOOLS_BY_NAME if tools is None else {t.name: t for t in tools}
+    base_prompt = SYSTEM_PROMPT if system_prompt is None else system_prompt
+    bound_llm = (llm or get_llm()).bind_tools(active_tools)
 
     async def agent_node(state: AgentState, config: RunnableConfig) -> dict:
         messages = state["messages"]
         resolved_context = None
         if not messages or not isinstance(messages[0], SystemMessage):
-            system_prompt = SYSTEM_PROMPT
+            system_prompt = base_prompt
             context_email_ids = state.get("context_email_ids", [])
             resolved_memory = resolve_memory_context(
                 messages,
@@ -528,7 +533,7 @@ def build_agent(
                             metadata["memory_target_fingerprint"] = consent.get(
                                 "target_fingerprint"
                             )
-                        output = TOOLS_BY_NAME[name].invoke(
+                        output = active_tools_by_name[name].invoke(
                             args,
                             config={"metadata": metadata},
                         )

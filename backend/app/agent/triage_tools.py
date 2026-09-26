@@ -150,6 +150,17 @@ def build_provider(settings=None) -> DecisionProvider:
     return LlmDecisionProvider(settings=settings)
 
 
+def plan_summary(plan: TriagePlan) -> str:
+    return (
+        f"PLAN READY: {len(plan.needs_reply)} needing a reply, {len(plan.important)} worth "
+        f"a look, {len(plan.bulk)} safe to mark read, {len(plan.unresolved)} left untouched. "
+        f"The card is in front of the user and they are acting on it directly. Reply ONE "
+        f"line telling them the plan is on the card, then STOP. CRITICAL: match the language "
+        f"of the user's ORIGINAL request. Do NOT enumerate the buckets, do NOT list items, "
+        f"do NOT offer to draft."
+    )
+
+
 class TriageUnreadInput(BaseModel):
     limit: int = Field(
         default=20,
@@ -177,11 +188,4 @@ def triage_unread(limit: int = 20, language: str = "en") -> str:
     plan = build_triage_plan(
         _unread_items(limit), build_provider(), language="zh" if language == "zh" else "en"
     )
-    return (
-        f"PLAN READY: {len(plan.needs_reply)} needing a reply, {len(plan.important)} worth "
-        f"a look, {len(plan.bulk)} safe to mark read, {len(plan.unresolved)} left untouched. "
-        f"The card is in front of the user and they are acting on it directly. Reply ONE "
-        f"line telling them the plan is on the card, then STOP. CRITICAL: match the language "
-        f"of the user's ORIGINAL request. Do NOT enumerate the buckets, do NOT list items, "
-        f"do NOT offer to draft."
-    )
+    return plan_summary(plan)
