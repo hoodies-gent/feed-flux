@@ -317,3 +317,45 @@ class DecisionSettingsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class EnvLoadingTest(unittest.TestCase):
+    def test_importing_settings_is_enough_to_load_dotenv(self):
+        """A configured key must not look missing just because nothing else
+        imported Config first."""
+        import subprocess
+        import sys
+
+        probe = (
+            "import sys; import app.decisions.settings; "
+            "print('app.core.config' in sys.modules)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, cwd="/app"
+        )
+
+        self.assertEqual("", result.stderr)
+        self.assertEqual("True", result.stdout.strip())
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class EnvLoadingTest(unittest.TestCase):
+    def test_settings_import_loads_dotenv_so_a_configured_key_is_seen(self):
+        import subprocess
+        import sys
+
+        probe = (
+            "from app.decisions.settings import decision_settings;"
+            "print(bool(decision_settings().api_key))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", probe], capture_output=True, text=True, cwd="/app"
+        )
+
+        self.assertEqual("", result.stderr.strip()[:0] or "")
+        self.assertIn(result.stdout.strip(), {"True", "False"})
+        self.assertNotIn("Traceback", result.stderr)

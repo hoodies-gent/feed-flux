@@ -2,6 +2,10 @@ import os
 from dataclasses import dataclass
 from typing import Literal
 
+# Importing Config is what loads .env into the environment. Without it these
+# settings silently read nothing and a configured provider looks unconfigured.
+from app.core.config import Config as _Config  # noqa: F401
+
 
 DecisionMode = Literal["off", "shadow"]
 _MODES: tuple[DecisionMode, ...] = ("off", "shadow")

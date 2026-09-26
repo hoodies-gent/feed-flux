@@ -66,13 +66,23 @@ def _unread_items(limit: int) -> list[TriageItem]:
     ]
 
 
-def _safe_to_dismiss(decision, policy: GatePolicy) -> bool:
-    if decision.important:
+def _dismissable(decision, gate, policy: GatePolicy) -> bool:
+    """Only the importance answer decides this. The four-way action is recorded
+    but never executed, so its confidence must not keep obvious noise unread:
+    a provider is routinely unsure whether noise should be archived or deleted
+    while being sure it does not matter."""
+    if decision.status != "ok" or decision.important:
         return False
     if decision.important is None:
-        # Provider does not answer the importance axis; its action stands in for it.
-        return True
+        # No importance axis to consult; the action answer is all there is.
+        return gate.outcome == "accept"
     return (decision.importance_confidence or 0.0) >= policy.importance_threshold
+
+
+def _unresolved_reason(decision, gate) -> str:
+    if decision.status == "ok" and decision.important is not None:
+        return "importance_unclear"
+    return gate.rule
 
 
 def build_triage_plan(
@@ -118,18 +128,18 @@ def build_triage_plan(
             important=decision.important,
             proposed_action=decision.action,
         )
-        # Only mark_read changes anything, so the gate guards that alone. Which
-        # bucket an item is shown in is presentation, and surfacing is always safe.
+        # Surfacing is always safe, so importance decides presentation; the only
+        # consequential call is whether an item may be dismissed.
         if gate.outcome == "accept" and decision.action == "needs_reply":
             plan.needs_reply.append(item)
         elif decision.important:
             plan.important.append(item)
-        elif gate.outcome != "accept":
-            plan.unresolved.append(item.model_copy(update={"gate_rule": gate.rule}))
-        elif _safe_to_dismiss(decision, policy):
+        elif _dismissable(decision, gate, policy):
             plan.bulk.append(item)
         else:
-            plan.unresolved.append(item.model_copy(update={"gate_rule": "importance_unclear"}))
+            plan.unresolved.append(
+                item.model_copy(update={"gate_rule": _unresolved_reason(decision, gate)})
+            )
 
     plan.total_latency_ms = round((time.monotonic() - started) * 1000, 2)
     return plan

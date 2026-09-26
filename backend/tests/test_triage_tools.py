@@ -65,6 +65,28 @@ class UncertaintyTest(unittest.TestCase):
         self.assertEqual(["a"], [i.email_id for i in plan.unresolved])
         self.assertEqual("below_threshold", plan.unresolved[0].gate_rule)
 
+    def test_an_ambiguous_filing_action_does_not_keep_obvious_noise_unread(self):
+        """Observed with a real provider: it split delete/mark_read/archive almost
+        evenly on a CI notification while being sure it did not matter."""
+        provider = _provider(
+            {"ci": ("delete", ReasonCode.CI_NOTIFICATION, 0.28)},
+            importance={"ci": (False, 0.76)},
+        )
+        plan = build_triage_plan(_items("ci"), provider)
+
+        self.assertEqual(["ci"], [i.email_id for i in plan.bulk])
+        self.assertEqual([], plan.unresolved)
+
+    def test_an_ambiguous_action_still_blocks_the_reply_bucket(self):
+        provider = _provider(
+            {"ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.3)},
+            importance={"ask": (False, 0.9)},
+        )
+        plan = build_triage_plan(_items("ask"), provider)
+
+        self.assertEqual([], plan.needs_reply)
+        self.assertEqual(["ask"], [i.email_id for i in plan.bulk])
+
     def test_unclear_importance_is_not_dismissed(self):
         provider = _provider(
             {"a": ("mark_read", ReasonCode.STATUS_UPDATE, 0.95)},
