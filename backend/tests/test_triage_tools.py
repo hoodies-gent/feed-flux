@@ -12,100 +12,136 @@ def _items(*ids) -> list[TriageItem]:
     return [TriageItem(item_id=i, subject=f"subject {i}", sender_email="a@b.test", body_preview="p") for i in ids]
 
 
-class TriagePlanTest(unittest.TestCase):
-    def test_routes_accepted_proposals_into_bulk_and_needs_reply(self):
-        provider = FakeDecisionProvider(
+def _provider(scripted, importance=None):
+    return FakeDecisionProvider(scripted, importance=importance or {})
+
+
+class AttentionRoutingTest(unittest.TestCase):
+    def test_splits_the_batch_into_reply_attention_and_dismissable(self):
+        provider = _provider(
             {
-                "ci": ("delete", ReasonCode.CI_NOTIFICATION, 0.95),
+                "ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.93),
+                "invoice": ("archive", ReasonCode.RECEIPT, 0.9),
                 "news": ("archive", ReasonCode.NEWSLETTER, 0.9),
-                "ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.92),
-            }
+            },
+            importance={"invoice": (True, 0.9), "news": (False, 0.9)},
         )
-        plan = build_triage_plan(_items("ci", "news", "ask"), provider)
+        plan = build_triage_plan(_items("ask", "invoice", "news"), provider)
 
-        self.assertEqual(["ci", "news"], [i.email_id for i in plan.bulk])
         self.assertEqual(["ask"], [i.email_id for i in plan.needs_reply])
-        self.assertEqual([], plan.review)
-        self.assertEqual(3, plan.item_count)
+        self.assertEqual(["invoice"], [i.email_id for i in plan.important])
+        self.assertEqual(["news"], [i.email_id for i in plan.bulk])
+        self.assertEqual([], plan.unresolved)
+        self.assertEqual(2, plan.attention_count)
 
-    def test_anything_the_gate_does_not_accept_goes_to_review_with_its_rule(self):
-        provider = FakeDecisionProvider(
-            {
-                "unsure": ("archive", ReasonCode.OTHER, 0.4),
-                "risky": ("delete", ReasonCode.PROMOTION, 0.8),
-                "quiet": None,
-            }
+    def test_never_proposes_archive_or_delete_however_the_provider_answers(self):
+        provider = _provider(
+            {i: (action, ReasonCode.PROMOTION, 0.99) for i, action in
+             (("a", "delete"), ("b", "archive"), ("c", "mark_read"))},
+            importance={i: (False, 0.95) for i in ("a", "b", "c")},
         )
-        plan = build_triage_plan(_items("unsure", "risky", "quiet"), provider)
+        plan = build_triage_plan(_items("a", "b", "c"), provider)
 
-        self.assertEqual([], plan.bulk)
-        rules = {i.email_id: i.gate_rule for i in plan.review}
-        self.assertEqual(
-            {"unsure": "below_threshold", "risky": "delete_below_threshold", "quiet": "abstained"}, rules
-        )
+        self.assertEqual(3, len(plan.bulk))
+        self.assertEqual({"delete", "archive", "mark_read"}, {i.proposed_action for i in plan.bulk})
 
-    def test_a_confident_importance_signal_pulls_a_removal_into_review(self):
-        provider = FakeDecisionProvider(
-            {"invoice": ("archive", ReasonCode.RECEIPT, 0.97)},
-            importance={"invoice": (True, 0.93)},
+    def test_an_important_email_is_surfaced_even_when_the_provider_wants_it_gone(self):
+        provider = _provider(
+            {"invoice": ("delete", ReasonCode.RECEIPT, 0.99)},
+            importance={"invoice": (True, 0.95)},
         )
         plan = build_triage_plan(_items("invoice"), provider)
 
+        self.assertEqual(["invoice"], [i.email_id for i in plan.important])
         self.assertEqual([], plan.bulk)
-        self.assertEqual("important_bulk_action", plan.review[0].gate_rule)
-        self.assertTrue(plan.review[0].important)
+        self.assertEqual("delete", plan.important[0].proposed_action)
 
+
+class UncertaintyTest(unittest.TestCase):
+    def test_low_confidence_leaves_the_email_untouched(self):
+        provider = _provider({"a": ("mark_read", ReasonCode.OTHER, 0.4)})
+        plan = build_triage_plan(_items("a"), provider)
+
+        self.assertEqual(["a"], [i.email_id for i in plan.unresolved])
+        self.assertEqual("below_threshold", plan.unresolved[0].gate_rule)
+
+    def test_unclear_importance_is_not_dismissed(self):
+        provider = _provider(
+            {"a": ("mark_read", ReasonCode.STATUS_UPDATE, 0.95)},
+            importance={"a": (False, 0.3)},
+        )
+        plan = build_triage_plan(_items("a"), provider)
+
+        self.assertEqual([], plan.bulk)
+        self.assertEqual("importance_unclear", plan.unresolved[0].gate_rule)
+
+    def test_an_abstaining_provider_touches_nothing(self):
+        provider = _provider({"a": None, "b": None})
+        plan = build_triage_plan(_items("a", "b"), provider)
+
+        self.assertEqual(2, len(plan.unresolved))
+        self.assertEqual({"abstained"}, {i.gate_rule for i in plan.unresolved})
+        self.assertEqual(0, len(plan.bulk) + plan.attention_count)
+
+    def test_a_provider_without_the_importance_axis_still_works(self):
+        provider = _provider({"a": ("mark_read", ReasonCode.NEWSLETTER, 0.95)})
+        plan = build_triage_plan(_items("a"), provider)
+
+        self.assertEqual(["a"], [i.email_id for i in plan.bulk])
+        self.assertIsNone(plan.bulk[0].important)
+
+    def test_every_item_lands_in_exactly_one_bucket(self):
+        provider = _provider(
+            {
+                "ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.95),
+                "keep": ("mark_read", ReasonCode.RECEIPT, 0.95),
+                "weak": ("mark_read", ReasonCode.OTHER, 0.2),
+                "news": ("archive", ReasonCode.NEWSLETTER, 0.95),
+            },
+            importance={"keep": (True, 0.9), "news": (False, 0.9)},
+        )
+        ids = ("ask", "keep", "weak", "news")
+
+        plan = build_triage_plan(_items(*ids), provider)
+
+        placed = [i.email_id for i in plan.needs_reply + plan.important + plan.bulk + plan.unresolved]
+        self.assertEqual(sorted(ids), sorted(placed))
+        self.assertEqual(len(ids), plan.item_count)
+
+
+class PlanMechanicsTest(unittest.TestCase):
     def test_reason_codes_become_deterministic_text_in_the_requested_language(self):
-        provider = FakeDecisionProvider({"ci": ("delete", ReasonCode.CI_NOTIFICATION, 0.95)})
+        provider = _provider({"ci": ("mark_read", ReasonCode.CI_NOTIFICATION, 0.95)})
 
         self.assertEqual("CI notification", build_triage_plan(_items("ci"), provider).bulk[0].reason)
-        self.assertEqual(
-            "CI 通知", build_triage_plan(_items("ci"), provider, language="zh").bulk[0].reason
-        )
+        self.assertEqual("CI 通知", build_triage_plan(_items("ci"), provider, language="zh").bulk[0].reason)
 
-    def test_provider_failure_sends_items_to_review_rather_than_dropping_them(self):
-        class _Failing(FakeDecisionProvider):
-            def decide_triage(self, items):
-                batch = super().decide_triage(items)
-                for decision in batch.decisions:
-                    decision.status = "failed"
-                    decision.action = None
-                    decision.confidence = None
-                batch.failed_requests = 1
-                return batch
+    def test_one_provider_request_covers_the_whole_batch(self):
+        provider = _provider({})
+        build_triage_plan(_items("a", "b", "c", "d"), provider)
 
-        plan = build_triage_plan(_items("a", "b"), _Failing())
-
-        self.assertEqual(2, len(plan.review))
-        self.assertEqual({"provider_failed"}, {i.gate_rule for i in plan.review})
-        self.assertEqual(1, plan.failed_requests)
+        self.assertEqual([["a", "b", "c", "d"]], provider.calls)
 
     def test_records_provider_identity_cost_and_timing(self):
-        plan = build_triage_plan(_items("a"), FakeDecisionProvider())
+        plan = build_triage_plan(_items("a"), _provider({}))
 
-        self.assertEqual("fake", plan.provider)
-        self.assertEqual(1, plan.requests)
+        self.assertEqual("fake", plan.provider.provider)
+        self.assertEqual(1, plan.provider.requests)
         self.assertGreaterEqual(plan.total_latency_ms, 0.0)
 
     def test_empty_inbox_makes_no_provider_call(self):
-        provider = FakeDecisionProvider()
+        provider = _provider({})
         plan = build_triage_plan([], provider)
 
         self.assertEqual([], provider.calls)
         self.assertEqual(0, plan.item_count)
 
-    def test_one_provider_request_covers_the_whole_batch(self):
-        provider = FakeDecisionProvider()
-        build_triage_plan(_items("a", "b", "c", "d"), provider)
-
-        self.assertEqual([["a", "b", "c", "d"]], provider.calls)
-
     def test_thresholds_are_configurable(self):
-        provider = FakeDecisionProvider({"a": ("archive", ReasonCode.NEWSLETTER, 0.5)})
+        provider = _provider({"a": ("mark_read", ReasonCode.NEWSLETTER, 0.5)})
         strict = build_triage_plan(_items("a"), provider, policy=GatePolicy(accept_threshold=0.9))
         loose = build_triage_plan(_items("a"), provider, policy=GatePolicy(accept_threshold=0.4))
 
-        self.assertEqual(1, len(strict.review))
+        self.assertEqual(1, len(strict.unresolved))
         self.assertEqual(1, len(loose.bulk))
 
 
@@ -122,28 +158,30 @@ class TriageUnreadToolTest(unittest.TestCase):
 
         self.assertEqual({"limit", "language"}, set(schema["properties"]))
 
-    def test_tool_summarises_every_bucket_and_stops_the_agent(self):
-        provider = FakeDecisionProvider(
+    def test_tool_reports_every_bucket_and_stops_the_agent(self):
+        provider = _provider(
             {
-                "ci": ("delete", ReasonCode.CI_NOTIFICATION, 0.95),
-                "ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.92),
-                "unsure": ("archive", ReasonCode.OTHER, 0.3),
-            }
+                "ask": ("needs_reply", ReasonCode.DIRECT_QUESTION, 0.95),
+                "keep": ("mark_read", ReasonCode.RECEIPT, 0.95),
+                "news": ("mark_read", ReasonCode.NEWSLETTER, 0.95),
+                "weak": ("mark_read", ReasonCode.OTHER, 0.2),
+            },
+            importance={"keep": (True, 0.9), "news": (False, 0.9)},
         )
-        with mock.patch("app.agent.triage_tools._unread_items", return_value=_items("ci", "ask", "unsure")), \
+        with mock.patch("app.agent.triage_tools._unread_items", return_value=_items("ask", "keep", "news", "weak")), \
              mock.patch("app.agent.triage_tools.build_provider", return_value=provider):
             result = triage_unread.invoke({"limit": 20})
 
-        self.assertIn("PLAN READY: 1 bulk items + 1 needs-reply + 1 for review", result)
+        self.assertIn("1 needing a reply, 1 worth a look, 1 safe to mark read, 1 left untouched", result)
         self.assertIn("STOP", result)
 
     def test_tool_passes_the_requested_language_through(self):
-        provider = FakeDecisionProvider({"ci": ("delete", ReasonCode.CI_NOTIFICATION, 0.95)})
+        provider = _provider({"ci": ("mark_read", ReasonCode.CI_NOTIFICATION, 0.95)})
         captured = {}
 
-        def _capture(items, prov, *, language="en", policy=None):
+        def _capture(items, prov, *, language="en", **kwargs):
             captured["language"] = language
-            return build_triage_plan(items, prov, language=language, policy=policy)
+            return build_triage_plan(items, prov, language=language)
 
         with mock.patch("app.agent.triage_tools._unread_items", return_value=_items("ci")), \
              mock.patch("app.agent.triage_tools.build_provider", return_value=provider), \
