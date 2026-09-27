@@ -31,6 +31,7 @@ import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
+import { restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -49,6 +50,7 @@ interface ChatMessage {
   references?: AgentReference[];
   contextEvent?: ChatContextEvent;
   isLoading?: boolean;
+  isStreaming?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
   triagePlan?: TriagePlan;
@@ -694,7 +696,7 @@ export default function Home() {
     const saved = localStorage.getItem('feedflux_chat_history');
     if (saved) {
       try {
-        const savedMessages = JSON.parse(saved) as ChatMessage[];
+        const savedMessages = restoreChatMessageState(JSON.parse(saved)) as ChatMessage[];
         setChatMessages(savedMessages);
         const latestContextMessage = [...savedMessages]
           .reverse()
@@ -895,7 +897,7 @@ export default function Home() {
       },
       onDone: () => {
         setChatMessages(prev => prev.map(msg =>
-          msg.id === targetMsgId ? { ...msg, isLoading: false } : msg
+          msg.id === targetMsgId ? { ...msg, isLoading: false, isStreaming: false } : msg
         ));
       },
       onError: (msg) => {
@@ -904,7 +906,7 @@ export default function Home() {
           if (m.id !== targetMsgId) return m;
           const errText = `\n\n_Error: ${msg}_`;
           const segments = [...(m.segments ?? []), { kind: 'text' as const, text: errText }];
-          return { ...m, content: (m.content || '') + errText, segments, isLoading: false };
+          return { ...m, content: (m.content || '') + errText, segments, isLoading: false, isStreaming: false };
         }));
       },
     };
@@ -928,7 +930,7 @@ export default function Home() {
         role: 'user',
         content: query,
       },
-      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, segments: [] },
+      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, isStreaming: true, segments: [] },
     ]);
 
     try {
@@ -942,7 +944,7 @@ export default function Home() {
       toast.error('Failed to reach agent');
       setChatMessages(prev => prev.map(msg =>
         msg.id === aiMsgId
-          ? { ...msg, content: 'Sorry, I could not reach the agent.', isLoading: false }
+          ? { ...msg, content: 'Sorry, I could not reach the agent.', isLoading: false, isStreaming: false }
           : msg
       ));
     } finally {
@@ -954,12 +956,15 @@ export default function Home() {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
-      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
+      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true, isStreaming: true } : msg
     ));
     try {
       await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody);
     } catch (err) {
       toast.error('Failed to resume agent');
+      setChatMessages(prev => prev.map(msg =>
+        msg.id === msgId ? { ...msg, isLoading: false, isStreaming: false } : msg
+      ));
     } finally {
       setIsSendingChat(false);
     }
@@ -1484,7 +1489,7 @@ export default function Home() {
                     />
                   )}
 
-                  {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                  {shouldShowMessageReferences(msg) && msg.sources && msg.sources.length > 0 && (
                     <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
                       {msg.sources.map((source, i) => (
                         <button
@@ -1500,7 +1505,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {msg.role === 'assistant' && msg.references && msg.references.length > 0 && (
+                  {shouldShowMessageReferences(msg) && msg.references && msg.references.length > 0 && (
                     <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
                       {msg.references.map((reference) => (
                         <button
