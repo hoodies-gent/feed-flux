@@ -1326,11 +1326,13 @@ export default function Home() {
                     onOpenEmail={(emailId) => void handleOpenEmailDetail(emailId)}
                   />
                 ) : (
-                <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-                  <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-
+                <div
+                  key={msg.id}
+                  aria-label={msg.role === 'user' ? 'Your message' : 'Assistant message'}
+                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}
+                >
                   {msg.role === 'user' ? (
-                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground">
+                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-3 py-2 text-sm text-primary-foreground">
                       <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-snug">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>

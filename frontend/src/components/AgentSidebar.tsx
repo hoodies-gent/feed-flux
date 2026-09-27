@@ -82,10 +82,10 @@ export function AgentSidebar({
 }: AgentSidebarProps) {
   return (
     <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3 py-2.5">
         <div className="flex items-center gap-2">
           <div className="rounded-md bg-muted p-1.5">
-            <Sparkles className="h-4 w-4 text-foreground" />
+            <Sparkles className="h-3.5 w-3.5 text-foreground" />
           </div>
           <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
         </div>
@@ -94,7 +94,7 @@ export function AgentSidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              className="h-7 w-7 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
               onClick={onNewChat}
               title="New chat (clears history and resets thread)"
             >
@@ -104,7 +104,7 @@ export function AgentSidebar({
           <Button
             variant="ghost"
             size="icon"
-            className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground"
+            className="-mr-1 h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={onClose}
             title="Close Agent"
           >
@@ -114,16 +114,16 @@ export function AgentSidebar({
       </div>
 
       {focusedEmailContext && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-3 py-2">
           <button
             type="button"
             onClick={() => onOpenFocusedEmail(focusedEmailContext.email_id)}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
             title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
           >
-            <Mail className="h-4 w-4 shrink-0 text-primary" />
-            <span className="min-w-0">
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="min-w-0 leading-tight">
+              <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Focused email
               </span>
               <span className="block truncate text-xs font-medium text-foreground">
@@ -137,7 +137,7 @@ export function AgentSidebar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+            className="h-6 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
             onClick={onClearFocus}
             title="Stop treating this email as the conversational focus"
           >
