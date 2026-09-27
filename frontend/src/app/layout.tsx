@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import type { ComponentProps } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { TOASTER_OPTIONS } from "@/lib/notification-policy.mjs";
 import "./globals.css";
+
+const toasterOptions = TOASTER_OPTIONS as ComponentProps<typeof Toaster>;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,7 +33,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
-        <Toaster position="top-right" richColors />
+        <Toaster {...toasterOptions} />
       </body>
     </html>
   );
