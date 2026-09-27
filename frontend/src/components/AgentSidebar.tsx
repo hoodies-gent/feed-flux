@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Mail, Send, Sparkles, Trash2, X } from 'lucide-react';
+import { Mail, PanelRightClose, PanelRightOpen, Send, Sparkles, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { AgentReference } from '@/lib/api';
@@ -10,19 +10,25 @@ import {
   AGENT_EMPTY_STATE_TITLE,
   AGENT_SUGGESTED_PROMPTS,
 } from '@/lib/agent-sidebar-contract.mjs';
+import {
+  AI_PANEL_LABEL,
+  getAssistantSidebarLayout,
+  getAssistantSidebarToggle,
+} from '@/lib/workspace-chrome-contract.mjs';
 
 interface AgentSidebarProps {
   children: ReactNode;
   composer: ReactNode;
   focusedEmailContext: AgentReference | null;
   hasMessages: boolean;
+  isOpen: boolean;
   isSending: boolean;
   messagesEnd: ReactNode;
   onClearFocus: () => void;
-  onClose: () => void;
   onNewChat: () => void;
   onOpenFocusedEmail: (emailId: string) => void;
   onSuggestion: (prompt: string) => void;
+  onToggle: () => void;
 }
 
 function EmptyAgentState({
@@ -67,95 +73,126 @@ function EmptyAgentState({
   );
 }
 
+function AssistantSidebarToggle({
+  isOpen,
+  onToggle,
+}: Pick<AgentSidebarProps, 'isOpen' | 'onToggle'>) {
+  const toggle = getAssistantSidebarToggle(isOpen);
+  const ToggleIcon = toggle.icon === 'panel-right-close' ? PanelRightClose : PanelRightOpen;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+      onClick={onToggle}
+      aria-controls="assistant-content"
+      aria-expanded={isOpen}
+      aria-label={toggle.label}
+      title={toggle.label}
+    >
+      <ToggleIcon className="h-4 w-4" />
+    </Button>
+  );
+}
+
 export function AgentSidebar({
   children,
   composer,
   focusedEmailContext,
   hasMessages,
+  isOpen,
   isSending,
   messagesEnd,
   onClearFocus,
-  onClose,
   onNewChat,
   onOpenFocusedEmail,
   onSuggestion,
+  onToggle,
 }: AgentSidebarProps) {
-  return (
-    <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3 py-2.5">
-        <div className="flex items-center gap-2">
-          <div className="rounded-md bg-muted p-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-foreground" />
-          </div>
-          <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {hasMessages && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              onClick={onNewChat}
-              title="New chat (clears history and resets thread)"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="-mr-1 h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={onClose}
-            title="Close Agent"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+  const layout = getAssistantSidebarLayout(isOpen);
 
-      {focusedEmailContext && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => onOpenFocusedEmail(focusedEmailContext.email_id)}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-            title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
-          >
-            <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="min-w-0 leading-tight">
-              <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Focused email
-              </span>
-              <span className="block truncate text-xs font-medium text-foreground">
-                {focusedEmailContext.subject}
-              </span>
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {focusedEmailContext.sender}
-              </span>
-            </span>
-          </button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
-            onClick={onClearFocus}
-            title="Stop treating this email as the conversational focus"
-          >
-            Clear focus
-          </Button>
+  return (
+    <aside
+      id="assistant-panel"
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm ${isOpen ? 'min-w-0' : 'w-9 shrink-0'}`}
+    >
+      {layout.showContent && (
+        <div id="assistant-content" className="flex min-w-0 flex-1 flex-col">
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3">
+            <div className="flex items-center gap-2">
+              <div className="rounded-md bg-muted p-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-foreground" />
+              </div>
+              <h2 className="text-sm font-semibold text-foreground">{AI_PANEL_LABEL}</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              {hasMessages && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  onClick={onNewChat}
+                  title="New chat (clears history and resets thread)"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+              <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
+            </div>
+          </div>
+
+          {focusedEmailContext && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => onOpenFocusedEmail(focusedEmailContext.email_id)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
+              >
+                <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 leading-tight">
+                  <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Focused email
+                  </span>
+                  <span className="block truncate text-xs font-medium text-foreground">
+                    {focusedEmailContext.subject}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {focusedEmailContext.sender}
+                  </span>
+                </span>
+              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={onClearFocus}
+                title="Stop treating this email as the conversational focus"
+              >
+                Clear focus
+              </Button>
+            </div>
+          )}
+
+          <div className="relative flex-1 overflow-y-auto p-5">
+            <div className="space-y-6 pb-2">
+              {hasMessages ? children : (
+                <EmptyAgentState isSending={isSending} onSuggestion={onSuggestion} />
+              )}
+              {messagesEnd}
+            </div>
+          </div>
+
+          {composer}
         </div>
       )}
-
-      <div className="relative flex-1 overflow-y-auto p-5">
-        <div className="space-y-6 pb-2">
-          {hasMessages ? children : (
-            <EmptyAgentState isSending={isSending} onSuggestion={onSuggestion} />
-          )}
-          {messagesEnd}
+      {!layout.showContent && (
+        <div className="flex h-12 w-full shrink-0 items-center justify-center bg-muted/10">
+          <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
         </div>
-      </div>
-
-      {composer}
+      )}
     </aside>
   );
 }

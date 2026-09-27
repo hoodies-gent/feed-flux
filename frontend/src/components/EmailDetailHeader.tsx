@@ -1,9 +1,10 @@
 'use client';
 
-import { MessageSquare, X } from 'lucide-react';
+import { MessageSquareText } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { EmailDetail } from '@/lib/api';
+import { EMAIL_AI_ACTION_LABEL } from '@/lib/workspace-chrome-contract.mjs';
 
 interface AvatarPresentation {
   background: string;
@@ -16,8 +17,7 @@ interface EmailDetailHeaderProps {
   detail: EmailDetail | null;
   isLoading: boolean;
   receivedAt?: string;
-  onAskAgent: () => void;
-  onClose: () => void;
+  onAskAI: () => void;
 }
 
 export function EmailDetailHeader({
@@ -25,8 +25,7 @@ export function EmailDetailHeader({
   detail,
   isLoading,
   receivedAt,
-  onAskAgent,
-  onClose,
+  onAskAI,
 }: EmailDetailHeaderProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-4 py-3">
@@ -37,24 +36,16 @@ export function EmailDetailHeader({
         <div className="flex shrink-0 items-center gap-1">
           {detail && (
             <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={onAskAgent}
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={onAskAI}
+              aria-label={EMAIL_AI_ACTION_LABEL}
+              title={EMAIL_AI_ACTION_LABEL}
             >
-              <MessageSquare className="mr-1 h-3.5 w-3.5" />
-              Ask Agent
+              <MessageSquareText className="h-4 w-4" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="-mr-1 h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={onClose}
-            title="Close"
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
       {detail && (

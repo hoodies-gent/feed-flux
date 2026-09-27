@@ -9,6 +9,7 @@ import {
   APP_HEADER_SEARCH_PLACEHOLDER,
   getAskAiPrompt,
 } from '@/lib/app-header-contract.mjs';
+import { AI_ACTION_LABEL } from '@/lib/workspace-chrome-contract.mjs';
 import { RefreshCw, Search, Sparkles, Wrench } from 'lucide-react';
 
 interface AppHeaderProps {
@@ -57,7 +58,7 @@ export function AppHeader({
           onClick={() => onAskAi(getAskAiPrompt(searchQuery))}
         >
           <Sparkles className="mr-1.5 h-4 w-4" />
-          Ask AI
+          {AI_ACTION_LABEL}
         </Button>
         <MemoryManager />
         <DropdownMenu>

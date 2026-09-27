@@ -960,7 +960,7 @@ export default function Home() {
     }
   };
 
-  const handleAskAgentAboutEmail = (detail: EmailDetail) => {
+  const handleAskAiAboutEmail = (detail: EmailDetail) => {
     const nextContext = {
       email_id: detail.id,
       subject: detail.subject,
@@ -1015,14 +1015,6 @@ export default function Home() {
     } finally {
       setLoadingEmailIds((current) => ({ ...current, [id]: false }));
     }
-  };
-
-  const handleCloseEmailDetail = () => {
-    if (activeEmailId && !(draftsByEmailId[activeEmailId]?.length)) {
-      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
-    }
-    setAutoDraftOnOpen(false);
-    setActiveEmailId(null);
   };
 
   const loadFeed = async (query: string = '') => {
@@ -1306,18 +1298,19 @@ export default function Home() {
     </div>
   );
 
-  const chatSidebar = isChatOpen ? (
+  const chatSidebar = (
     <AgentSidebar
       composer={chatComposer}
       focusedEmailContext={focusedEmailContext}
       hasMessages={chatMessages.length > 0}
+      isOpen={isChatOpen}
       isSending={isSendingChat}
       messagesEnd={<div ref={messagesEndRef} />}
       onClearFocus={handleClearEmailFocus}
-      onClose={() => setIsChatOpen(false)}
       onNewChat={handleNewChat}
       onOpenFocusedEmail={(emailId) => void handleOpenEmailDetail(emailId)}
       onSuggestion={(prompt) => void handleSendChatMessage(undefined, prompt)}
+      onToggle={() => setIsChatOpen((current) => !current)}
     >
       {chatMessages.map(msg => (
                 msg.role === 'context' ? (
@@ -1433,13 +1426,14 @@ export default function Home() {
                 )
       ))}
     </AgentSidebar>
-  ) : null;
+  );
 
   return (
     <WorkspaceShell
       isAgentOpen={isChatOpen}
       layout={isChatOpen ? mainLayoutOpen : mainLayoutClosed}
       onLayoutChanged={isChatOpen ? setMainLayoutOpen : setMainLayoutClosed}
+      collapsedAssistant={isChatOpen ? null : chatSidebar}
       header={(
         <AppHeader
           searchQuery={searchQuery}
@@ -1618,10 +1612,9 @@ export default function Home() {
                   detail={emailDetailData}
                   isLoading={isLoadingDetail}
                   receivedAt={emailDetailData ? formatDateTime(emailDetailData.received_datetime) : undefined}
-                  onAskAgent={() => {
-                    if (emailDetailData) handleAskAgentAboutEmail(emailDetailData);
+                  onAskAI={() => {
+                    if (emailDetailData) handleAskAiAboutEmail(emailDetailData);
                   }}
-                  onClose={handleCloseEmailDetail}
                 />
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
