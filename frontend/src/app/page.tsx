@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { MemoryManager } from '@/components/MemoryManager';
+import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
@@ -16,8 +17,13 @@ import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { type PanelImperativeHandle } from "react-resizable-panels";
+import type { Layout } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_WORKSPACE_PREFERENCES,
+  loadWorkspacePreferences,
+  saveWorkspacePreferences,
+} from '@/lib/workspace-preferences.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -653,6 +659,16 @@ export default function Home() {
 
   // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [workspacePreferencesLoaded, setWorkspacePreferencesLoaded] = useState(false);
+  const [mainLayoutOpen, setMainLayoutOpen] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.mainLayoutOpen,
+  }));
+  const [mainLayoutClosed, setMainLayoutClosed] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.mainLayoutClosed,
+  }));
+  const [detailLayout, setDetailLayout] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.detailLayout,
+  }));
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoaded, setIsChatLoaded] = useState(false);
   const [chatInput, setChatInput] = useState('');
@@ -720,6 +736,63 @@ export default function Home() {
   const detailAvatar = emailDetailData
     ? getAvatarPresentation(emailDetailData.sender || emailDetailData.sender_email)
     : null;
+
+  useEffect(() => {
+    const preferences = loadWorkspacePreferences(window.localStorage);
+    let cancelled = false;
+
+    setIsChatOpen(preferences.isAgentOpen);
+    setMainLayoutOpen(preferences.mainLayoutOpen);
+    setMainLayoutClosed(preferences.mainLayoutClosed);
+    setDetailLayout(preferences.detailLayout);
+    setWorkspacePreferencesLoaded(true);
+
+    if (preferences.activeEmailId) {
+      const emailId = preferences.activeEmailId;
+      setActiveEmailId(emailId);
+      setMountedEmailIds([emailId]);
+      setLoadingEmailIds({ [emailId]: true });
+      void getEmailDetail(emailId)
+        .then((detail) => {
+          if (!cancelled) {
+            setEmailDetailsById({ [emailId]: detail });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setActiveEmailId(null);
+            setMountedEmailIds([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingEmailIds({ [emailId]: false });
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspacePreferencesLoaded) return;
+    saveWorkspacePreferences(window.localStorage, {
+      activeEmailId,
+      isAgentOpen: isChatOpen,
+      mainLayoutOpen,
+      mainLayoutClosed,
+      detailLayout,
+    });
+  }, [
+    activeEmailId,
+    detailLayout,
+    isChatOpen,
+    mainLayoutClosed,
+    mainLayoutOpen,
+    workspacePreferencesLoaded,
+  ]);
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -1183,7 +1256,7 @@ export default function Home() {
     );
   }
 
-  if (appState !== 'feed') {
+  if (appState !== 'feed' || !workspacePreferencesLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center">
          <p className="text-muted-foreground font-mono">Loading MVP State: [{appState}]...</p>
@@ -1192,8 +1265,7 @@ export default function Home() {
   }
 
   const chatSidebar = isChatOpen ? (
-    <ResizablePanel id="chat-panel" defaultSize="20%" minSize="18%" maxSize="38%">
-      <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
           <div className="flex items-center gap-2">
             <div className="rounded-md bg-muted p-1.5">
@@ -1395,13 +1467,15 @@ export default function Home() {
             </Button>
           </form>
         </div>
-      </aside>
-    </ResizablePanel>
+    </aside>
   ) : null;
 
   return (
-    <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
+    <WorkspaceShell
+      isAgentOpen={isChatOpen}
+      layout={isChatOpen ? mainLayoutOpen : mainLayoutClosed}
+      onLayoutChanged={isChatOpen ? setMainLayoutOpen : setMainLayoutClosed}
+      header={(
         <header className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
           <div className="flex w-full items-center gap-3">
             <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
@@ -1465,10 +1539,15 @@ export default function Home() {
             </DropdownMenu>
           </div>
         </header>
-
-        <ResizablePanelGroup id="mail-layout-group" orientation="horizontal" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }} className="min-h-0 flex-1">
+      )}
+    >
           {/* Left column: Feed */}
-          <ResizablePanel id="feed-panel" defaultSize="30%" minSize="22%" maxSize="50%">
+          <ResizablePanel
+            id="feed-panel"
+            defaultSize={`${(isChatOpen ? mainLayoutOpen : mainLayoutClosed)['feed-panel']}%`}
+            minSize="22%"
+            maxSize="50%"
+          >
             <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
 
           <div className="min-h-0 flex-1 overflow-y-auto pb-3">
@@ -1608,7 +1687,12 @@ export default function Home() {
           <ResizableHandle id="feed-detail-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
 
         {/* Right column: Email reading pane (master-detail) */}
-        <ResizablePanel id="detail-panel" defaultSize={isChatOpen ? "50%" : "70%"} minSize="32%" maxSize="72%">
+        <ResizablePanel
+          id="detail-panel"
+          defaultSize={`${(isChatOpen ? mainLayoutOpen : mainLayoutClosed)['detail-panel']}%`}
+          minSize="32%"
+          maxSize="72%"
+        >
           <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {emailDetailData || isLoadingDetail ? (
               <>
@@ -1654,10 +1738,21 @@ export default function Home() {
                 </div>
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
-                  <ResizablePanelGroup id="email-detail-group" orientation="vertical" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}>
+                  <ResizablePanelGroup
+                    id="email-detail-group"
+                    orientation="vertical"
+                    resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}
+                    defaultLayout={detailLayout}
+                    onLayoutChanged={setDetailLayout}
+                  >
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize="78%" minSize="45%" className="bg-background flex flex-col relative pb-4">
+              <ResizablePanel
+                id="email-body-panel"
+                defaultSize={`${detailLayout['email-body-panel']}%`}
+                minSize="45%"
+                className="bg-background flex flex-col relative pb-4"
+              >
                 <div className="flex-1 overflow-y-auto w-full p-6">
                   {isLoadingDetail ? (
                     <div className="space-y-4">
@@ -1688,7 +1783,7 @@ export default function Home() {
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
-                defaultSize="22%"
+                defaultSize={`${detailLayout['email-action-panel']}%`}
                 minSize="12%"
                 className="bg-muted/30 flex flex-col relative border-t border-border"
               >
@@ -1761,9 +1856,16 @@ export default function Home() {
           </section>
         </ResizablePanel>
         {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
-        {chatSidebar}
-        </ResizablePanelGroup>
-      </div>
-    </div >
+        {isChatOpen && (
+          <ResizablePanel
+            id="chat-panel"
+            defaultSize={`${mainLayoutOpen['chat-panel']}%`}
+            minSize="18%"
+            maxSize="38%"
+          >
+            {chatSidebar}
+          </ResizablePanel>
+        )}
+    </WorkspaceShell>
   );
 }
