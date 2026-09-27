@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { AppHeader } from '@/components/AppHeader';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
-import { MemoryManager } from '@/components/MemoryManager';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Trash2, Send, RefreshCw, X, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { Layout } from "react-resizable-panels";
@@ -951,6 +950,14 @@ export default function Home() {
     setFocusedEmailContext(null);
   };
 
+  const handleAskAi = (prompt: string) => {
+    setIsChatOpen(true);
+    if (prompt) {
+      setChatInput(prompt);
+      setSearchQuery('');
+    }
+  };
+
   const handleAskAgentAboutEmail = (detail: EmailDetail) => {
     const nextContext = {
       email_id: detail.id,
@@ -1486,69 +1493,16 @@ export default function Home() {
       layout={isChatOpen ? mainLayoutOpen : mainLayoutClosed}
       onLayoutChanged={isChatOpen ? setMainLayoutOpen : setMainLayoutClosed}
       header={(
-        <header className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
-          <div className="flex w-full items-center gap-3">
-            <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
-
-            <div className="relative min-w-0 flex-1 rounded-full shadow-sm">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-                <Search className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <Input
-                type="text"
-                placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                className="w-full rounded-full border-0 bg-muted/50 py-2 pl-11 pr-4 text-sm shadow-none focus-visible:ring-1"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
-            <Button
-              variant="outline"
-              className="shrink-0 whitespace-nowrap px-4"
-              onClick={() => {
-                setIsChatOpen(true);
-                if (searchQuery.trim()) {
-                  setChatInput(searchQuery);
-                  setSearchQuery('');
-                }
-              }}
-            >
-              <Sparkles className="w-4 h-4 mr-1.5" />
-              Ask AI
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={handleSync}
-              disabled={isSyncing}
-            >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Sync'}
-            </Button>
-            <MemoryManager />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  title="Dev menu"
-                >
-                  <User className="w-4 h-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => loadFeed(debouncedQuery)}
-                  disabled={loading || isRefreshingFeed || isSyncing}
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  {loading || isRefreshingFeed ? 'Updating...' : 'Reload Local Data'}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
+        <AppHeader
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onAskAi={handleAskAi}
+          onSync={handleSync}
+          isSyncing={isSyncing}
+          onReloadLocalData={() => loadFeed(debouncedQuery)}
+          isLoading={loading}
+          isRefreshing={isRefreshingFeed}
+        />
       )}
     >
           {/* Left column: Feed */}
