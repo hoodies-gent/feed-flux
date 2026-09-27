@@ -1,0 +1,338 @@
+{
+  "mode": "live",
+  "run_id": "paired-20260926",
+  "cases": 38,
+  "reps": 3,
+  "planned_requests": 12,
+  "providers": {
+    "jev": {
+      "provider": "jev",
+      "model": "jev-latest",
+      "reps": 3,
+      "requests": 6,
+      "failed_requests": 0,
+      "usage_reported": true,
+      "input_tokens": 87039,
+      "output_tokens": 20892,
+      "wall_ms_median": 564.62,
+      "wall_ms_range": [
+        458.93,
+        565.64
+      ],
+      "gate": {
+        "low_signal_cases": 13,
+        "attention_cases": 25,
+        "failed_observations": 0,
+        "dismissal_ceiling_median": 0.8462,
+        "dismissal_ceiling_per_rep": [
+          0.8462,
+          0.7692,
+          0.8462
+        ],
+        "gate_blocked_low_signal": [
+          "en-meeting-cancelled",
+          "mixed-status-update",
+          "zh-meeting-cancelled"
+        ],
+        "dismissable_attention_items": [],
+        "forbidden_action_proposals": [],
+        "forbidden_action_proposal_count": 0
+      },
+      "determinism": {
+        "reps": 3,
+        "cases": 38,
+        "answers_stable": true,
+        "answer_flip_cases": 0,
+        "confidence_jitter_cases": 30,
+        "max_importance_confidence_spread": 0.06,
+        "answer_flips": [],
+        "confidence_jitter": [
+          {
+            "item_id": "en-ci-passed",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-cloud-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-design-question",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.06
+          },
+          {
+            "item_id": "en-meeting-conflict",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "en-newsletter",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-payment-declined",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-person-behind-newsletter-shape",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "en-promo-flash-sale",
+            "answers": [
+              "('ok', 'delete', False)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "en-second-follow-up",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-security-rotate-codes",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-status-longform",
+            "answers": [
+              "('ok', 'mark_read', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-urgent-incident",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-ci-notification",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-design-question",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-expense-deadline",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "mixed-newsletter",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-promo",
+            "answers": [
+              "('ok', 'delete', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-reschedule-request",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "mixed-second-follow-up",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          }
+        ]
+      },
+      "importance_confidence_histogram": {
+        "important": {
+          "0.1-0.2": 6,
+          "0.3-0.4": 3,
+          "0.5-0.6": 1,
+          "0.6-0.7": 2,
+          "0.8-0.9": 26,
+          "0.9-1.0": 1
+        },
+        "low_signal": {
+          "0.5-0.6": 3,
+          "0.6-0.7": 9,
+          "0.7-0.8": 16,
+          "0.8-0.9": 11
+        },
+        "needs_reply": {
+          "0.2-0.3": 2,
+          "0.3-0.4": 3,
+          "0.4-0.5": 1,
+          "0.5-0.6": 7,
+          "0.6-0.7": 11,
+          "0.7-0.8": 9,
+          "0.8-0.9": 3
+        }
+      }
+    },
+    "llm": {
+      "provider": "llm",
+      "model": "deepseek-flash",
+      "reps": 3,
+      "requests": 6,
+      "failed_requests": 0,
+      "usage_reported": true,
+      "input_tokens": 19002,
+      "output_tokens": 5496,
+      "wall_ms_median": 6144.83,
+      "wall_ms_range": [
+        5881.0,
+        6792.56
+      ],
+      "gate": {
+        "low_signal_cases": 13,
+        "attention_cases": 25,
+        "failed_observations": 0,
+        "dismissal_ceiling_median": 1.0,
+        "dismissal_ceiling_per_rep": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "gate_blocked_low_signal": [],
+        "dismissable_attention_items": [
+          "en-cloud-invoice",
+          "en-status-longform"
+        ],
+        "forbidden_action_proposals": [],
+        "forbidden_action_proposal_count": 0
+      },
+      "determinism": {
+        "reps": 3,
+        "cases": 38,
+        "answers_stable": true,
+        "answer_flip_cases": 0,
+        "confidence_jitter_cases": 8,
+        "max_importance_confidence_spread": 0.1,
+        "answer_flips": [],
+        "confidence_jitter": [
+          {
+            "item_id": "en-deadline-reminder",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.05
+          },
+          {
+            "item_id": "en-meeting-cancelled",
+            "answers": [
+              "('ok', 'archive', False)"
+            ],
+            "importance_confidence_spread": 0.05
+          },
+          {
+            "item_id": "en-person-behind-newsletter-shape",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.05
+          },
+          {
+            "item_id": "en-status-longform",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.1
+          },
+          {
+            "item_id": "mixed-expense-deadline",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.05
+          },
+          {
+            "item_id": "mixed-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.1
+          },
+          {
+            "item_id": "zh-expense-deadline",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.05
+          },
+          {
+            "item_id": "zh-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.1
+          }
+        ]
+      },
+      "importance_confidence_histogram": {
+        "important": {
+          "0.5-0.6": 2,
+          "0.6-0.7": 5,
+          "0.7-0.8": 6,
+          "0.8-0.9": 11,
+          "0.9-1.0": 15
+        },
+        "low_signal": {
+          "0.7-0.8": 2,
+          "0.8-0.9": 28,
+          "0.9-1.0": 9
+        },
+        "needs_reply": {
+          "0.7-0.8": 3,
+          "0.8-0.9": 30,
+          "0.9-1.0": 3
+        }
+      }
+    }
+  }
+}

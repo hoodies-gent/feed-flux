@@ -1,0 +1,1348 @@
+{
+  "schema_version": 1,
+  "suite_id": "triage-decision-ab-v1",
+  "protocol": "Three annotators labelled the same emails independently, each seeing only subject, sender and preview, with no access to the other annotators' labels. The shipped label in triage_decision_cases.json is the majority of these three.",
+  "caveat": "All three annotators are language models, not the end user. Agreement measures how unambiguous the labelling protocol is and whether it holds across model families, not user preference. Real preference evidence comes from shadow observations and the user's own triage actions.",
+  "annotators": [
+    {
+      "annotator_id": "A",
+      "model_family": "claude-opus",
+      "cases": [
+        {
+          "case_id": "en-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-conflict",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-status-longform",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-deadline-reminder",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-urgent-incident",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-security-rotate-codes",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-ci-passed",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-cloud-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-payment-declined",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-promo-flash-sale",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-pager-incident",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-person-behind-newsletter-shape",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-weekly-status",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-security-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-customer-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-tool-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-status-update",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-security-notice",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-reschedule-request",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-promo",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        },
+        {
+          "case_id": "mixed-incident-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        }
+      ]
+    },
+    {
+      "annotator_id": "B",
+      "model_family": "claude-opus",
+      "cases": [
+        {
+          "case_id": "en-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-conflict",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-status-longform",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-deadline-reminder",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-urgent-incident",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-security-rotate-codes",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-ci-passed",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-cloud-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-payment-declined",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-promo-flash-sale",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-pager-incident",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-person-behind-newsletter-shape",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-weekly-status",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-security-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-customer-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-tool-notification",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-status-update",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-security-notice",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-reschedule-request",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        },
+        {
+          "case_id": "mixed-promo",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        },
+        {
+          "case_id": "mixed-incident-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        }
+      ]
+    },
+    {
+      "annotator_id": "C",
+      "model_family": "claude-sonnet",
+      "cases": [
+        {
+          "case_id": "en-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-conflict",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-status-longform",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-deadline-reminder",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-urgent-incident",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-security-rotate-codes",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-ci-passed",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-cloud-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-payment-declined",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-promo-flash-sale",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "en-pager-incident",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "en-person-behind-newsletter-shape",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-confirm",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-weekly-status",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-security-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-customer-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "zh-meeting-cancelled",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "zh-tool-notification",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-design-question",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-status-update",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-newsletter",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-security-notice",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-reschedule-request",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-ci-notification",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-invoice",
+          "reply_needed": false,
+          "default_policy_action": "archive",
+          "acceptable_actions": [
+            "archive",
+            "mark_read"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-expense-deadline",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "archive"
+          ],
+          "forbidden_actions": [
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-promo",
+          "reply_needed": false,
+          "default_policy_action": "delete",
+          "acceptable_actions": [
+            "delete",
+            "mark_read"
+          ],
+          "forbidden_actions": []
+        },
+        {
+          "case_id": "mixed-second-follow-up",
+          "reply_needed": true,
+          "default_policy_action": "needs_reply",
+          "acceptable_actions": [
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "mark_read",
+            "archive",
+            "delete"
+          ]
+        },
+        {
+          "case_id": "mixed-incident-alert",
+          "reply_needed": false,
+          "default_policy_action": "mark_read",
+          "acceptable_actions": [
+            "mark_read",
+            "needs_reply"
+          ],
+          "forbidden_actions": [
+            "delete",
+            "archive"
+          ]
+        }
+      ]
+    }
+  ]
+}

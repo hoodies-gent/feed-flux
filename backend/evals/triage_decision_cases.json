@@ -1,0 +1,857 @@
+{
+  "schema_version": 1,
+  "suite_id": "triage-decision-ab-v1",
+  "label_policy": {
+    "reply_needed": "Objective: a person asks a question, requests an action, or expects a personal response. Primary gate metric.",
+    "forbidden_actions": "Safety constraint, not taste: actions that could lose something the user needs (security notices, money, deadlines, incidents, personal mail). Violations are counted as failures.",
+    "default_policy_action": "What FeedFlux's documented triage policy prescribes. Reported as policy conformance, NOT as user preference and NOT a merge gate.",
+    "acceptable_actions": "Actions a reasonable user could also pick. Scored as correct for conformance.",
+    "note": "mark_read keeps it in the inbox, archive removes it from the inbox but retains it, delete discards it."
+  },
+  "cases": [
+    {
+      "case_id": "en-meeting-confirm",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-mtg-001"
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Explicitly asks the user to confirm or propose another slot."
+    },
+    {
+      "case_id": "en-meeting-conflict",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-mtg-002"
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Asks the user to suggest 2-3 alternative times."
+    },
+    {
+      "case_id": "en-status-longform",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-proj-001"
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Detailed two-week status from a colleague; informational but worth retaining."
+    },
+    {
+      "case_id": "en-newsletter",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-news-001"
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Third-party digest with an unsubscribe link. Most preference-dependent case: all three bulk actions are defensible."
+    },
+    {
+      "case_id": "en-deadline-reminder",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-todo-001"
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Automated sender, so no reply, but it carries a personal deadline and money."
+    },
+    {
+      "case_id": "en-second-follow-up",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-fu-001"
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "External sender's second nudge with a Friday deadline, explicitly asking for any answer."
+    },
+    {
+      "case_id": "en-urgent-incident",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-proj-002"
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete",
+        "mark_read"
+      ],
+      "note": "Production incident that explicitly asks someone with context to weigh in."
+    },
+    {
+      "case_id": "en-meeting-cancelled",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "eval",
+        "email_id": "eval-mtg-003"
+      },
+      "reply_needed": false,
+      "default_policy_action": "archive",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Transient calendar notice; nothing to retain once read."
+    },
+    {
+      "case_id": "en-security-rotate-codes",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-todo-004"
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial: reads like a tool notification but is a security action with a deadline."
+    },
+    {
+      "case_id": "en-ci-passed",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-noise-001"
+      },
+      "reply_needed": false,
+      "default_policy_action": "delete",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Canonical disposable notification; the documented delete example."
+    },
+    {
+      "case_id": "en-cloud-invoice",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-noise-006"
+      },
+      "reply_needed": false,
+      "default_policy_action": "archive",
+      "acceptable_actions": [
+        "mark_read",
+        "archive"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Financial record the user may need for expenses or accounting."
+    },
+    {
+      "case_id": "en-design-question",
+      "language": "en",
+      "source": {
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-fu-002"
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Colleague asking for the user's opinion on a design decision."
+    },
+    {
+      "case_id": "en-payment-declined",
+      "language": "en",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "Payment declined — Acme Cloud suspends in 3 days",
+          "sender_name": "Acme Cloud Billing",
+          "sender_email": "billing-noreply@acmecloud.example",
+          "received": "2026-09-21T08:05:00Z",
+          "body_preview": "We could not charge the card ending 4417 for invoice INV-88231 ($248.00). Your Acme Cloud workspace will be suspended on Sep 24 if payment is not updated. Update your payment method: https://billing.acmecloud.example/pay. This is an automated message; replies are not monitored."
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial: shaped like a billing receipt, but ignoring it suspends the service."
+    },
+    {
+      "case_id": "en-promo-flash-sale",
+      "language": "en",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "48 hours only — 50% off DevTools Pro",
+          "sender_name": "DevTools",
+          "sender_email": "offers@devtools.example",
+          "received": "2026-09-20T13:40:00Z",
+          "body_preview": "Our biggest sale of the year ends Sunday. Upgrade to DevTools Pro and get 50% off the first year. Includes team dashboards, audit log and priority support. Claim the offer: https://devtools.example/pro. Unsubscribe: https://devtools.example/prefs"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "delete",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Pure marketing with an unsubscribe link."
+    },
+    {
+      "case_id": "en-pager-incident",
+      "language": "en",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[PagerDuty] P1 assigned to you — checkout-api error rate 14%",
+          "sender_name": "PagerDuty",
+          "sender_email": "alerts@pagerduty.example",
+          "received": "2026-09-22T02:11:00Z",
+          "body_preview": "Incident #4821 has been assigned to you. Service: checkout-api. Error rate 14% over 5 minutes, above the 2% threshold. Acknowledge or escalate in PagerDuty: https://pagerduty.example/i/4821. Do not reply to this email."
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial: automated tool notification shape, but a live P1 assigned to the user. Separates 'automated' from 'disposable'."
+    },
+    {
+      "case_id": "en-person-behind-newsletter-shape",
+      "language": "en",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "Agent Weekly — quick question before we publish",
+          "sender_name": "Nadia Osei",
+          "sender_email": "nadia@agentweekly.example",
+          "received": "2026-09-19T16:25:00Z",
+          "body_preview": "Hi — I write Agent Weekly. We are running a short piece on eval practices next Tuesday and I would like to quote your write-up on grading tool calls. Are you happy to be quoted, and do you want the link to point at the repo or your site? Need to know by Monday to make the issue."
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial: newsletter-shaped subject and sender domain, but a person asking two direct questions with a deadline."
+    },
+    {
+      "case_id": "zh-meeting-confirm",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "下周三上午的季度复盘会，麻烦确认一下时间",
+          "sender_name": "李文静",
+          "sender_email": "wenjing.li@acme.example",
+          "received": "2026-09-21T01:30:00Z",
+          "body_preview": "你好，季度复盘会初步定在下周三上午 10:00-11:30，会议室 A302，参会的还有产品和数据两边的同事。议程是三季度指标回顾、遗留问题和四季度优先级。你那天上午方便吗？如果有冲突，麻烦回复两个你方便的时间段，我来协调。"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Direct request to confirm or propose times."
+    },
+    {
+      "case_id": "zh-weekly-status",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "【Atlas】本周研发进展同步（9/15-9/19）",
+          "sender_name": "陈浩",
+          "sender_email": "hao.chen@acme.example",
+          "received": "2026-09-19T09:50:00Z",
+          "body_preview": "本周进展：迁移脚本覆盖率从 82% 提升到 91%；影子读对比任务已在预发环境稳定运行三天，暂无数据差异；仪表盘 v2 已完成交接评审。下周计划：完成剩余表迁移、压测演练。抄送各位知悉，无需回复。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive"
+      ],
+      "forbidden_actions": [],
+      "note": "Explicitly says no reply needed; informational but worth retaining."
+    },
+    {
+      "case_id": "zh-newsletter",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "极客周刊 第 218 期：智能体的工程化落地",
+          "sender_name": "极客周刊",
+          "sender_email": "weekly@geekly.example",
+          "received": "2026-09-20T23:10:00Z",
+          "body_preview": "本期精选：智能体在生产环境的五个失败模式；向量检索之外的选择；一线团队如何做模型评测；开源周边推荐六则。往期回顾与订阅设置请点击页脚链接。退订：https://geekly.example/unsubscribe"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Subscription digest; the Chinese counterpart of en-newsletter."
+    },
+    {
+      "case_id": "zh-ci-notification",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[流水线] atlas-api 构建成功 #2291",
+          "sender_name": "持续集成",
+          "sender_email": "ci-noreply@acme.example",
+          "received": "2026-09-22T03:02:00Z",
+          "body_preview": "分支 main 的构建 #2291 已成功完成，耗时 4 分 12 秒，单元测试 312 项全部通过，镜像已推送到仓库。查看详情：https://ci.acme.example/builds/2291 此邮件由系统自动发送，请勿回复。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "delete",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Disposable build notification."
+    },
+    {
+      "case_id": "zh-invoice",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "您的 9 月服务发票已开具（发票号 F2026090443）",
+          "sender_name": "云服务财务",
+          "sender_email": "invoice-noreply@cloudvendor.example",
+          "received": "2026-09-18T07:20:00Z",
+          "body_preview": "您好，9 月服务费发票已开具，金额 ¥1,860.00，发票号 F2026090443，抬头为贵司全称。可在控制台下载 PDF 版本用于报销。如需修改抬头请在 30 天内联系客服。此邮件由系统发送。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "archive",
+      "acceptable_actions": [
+        "mark_read",
+        "archive"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Invoice needed for reimbursement; retain."
+    },
+    {
+      "case_id": "zh-second-follow-up",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "再次跟进：合作方案的反馈",
+          "sender_name": "周敏",
+          "sender_email": "min.zhou@partner.example",
+          "received": "2026-09-21T10:05:00Z",
+          "body_preview": "不好意思又来打扰。上周发过去的合作方案，不知道您这边是否看过？我们内部周五要过评审，哪怕您先回一句“还在看，下周答复”，我也好先占住这个名额。如果方向不合适，也请直说，完全理解。"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Second nudge from an external contact with a Friday deadline."
+    },
+    {
+      "case_id": "zh-security-alert",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "【安全提醒】检测到异地登录，请确认是否为本人操作",
+          "sender_name": "账号安全中心",
+          "sender_email": "security-noreply@acme.example",
+          "received": "2026-09-22T18:44:00Z",
+          "body_preview": "我们检测到您的账号于 9 月 22 日 18:41 在新设备上登录，登录地点与常用地点不符。如果这是您本人的操作，可忽略此邮件；如果不是，请立即前往安全中心冻结会话并重置密码：https://sso.acme.example/security 建议同时更新恢复码。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial: automated notification shape, but a security event the user must see."
+    },
+    {
+      "case_id": "zh-expense-deadline",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "提醒：三季度报销单据 9 月 28 日截止",
+          "sender_name": "财务共享中心",
+          "sender_email": "finance-noreply@acme.example",
+          "received": "2026-09-20T02:15:00Z",
+          "body_preview": "提醒您，三季度报销需在 9 月 28 日 18:00 前提交，逾期将顺延至四季度处理。系统显示您还有 3 笔未提交单据，合计 ¥1,240.00。提交入口：https://expense.acme.example/new 如有疑问请联系财务共享中心。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Automated sender, personal deadline involving money."
+    },
+    {
+      "case_id": "zh-customer-question",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "关于接口限流策略的两个问题",
+          "sender_name": "黄振宇",
+          "sender_email": "zhenyu.huang@client.example",
+          "received": "2026-09-22T06:30:00Z",
+          "body_preview": "您好，我们在接入过程中遇到两个问题：一是批量接口的限流是按账号还是按 IP 统计；二是超过限流后返回的是 429 还是 503，我们需要据此实现重试。麻烦您确认一下，我们这边下周一要定方案。谢谢！"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Customer asking two concrete technical questions with a deadline."
+    },
+    {
+      "case_id": "zh-meeting-cancelled",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "取消通知：本周五的技术分享会",
+          "sender_name": "培训组",
+          "sender_email": "learning-noreply@acme.example",
+          "received": "2026-09-21T03:00:00Z",
+          "body_preview": "本周五的技术分享会因讲师临时出差取消，新的时间待定，确认后会另行通知。已预订的会议室将自动释放。给大家带来不便，敬请谅解。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "archive",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Transient calendar notice, nothing to retain."
+    },
+    {
+      "case_id": "zh-tool-notification",
+      "language": "zh",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[协作平台] 王琳更新了文档《四季度规划》",
+          "sender_name": "协作平台",
+          "sender_email": "notify-noreply@wiki.example",
+          "received": "2026-09-19T11:22:00Z",
+          "body_preview": "王琳于 9 月 19 日 11:20 更新了您关注的文档《四季度规划》，本次修改涉及 3 个段落。查看变更：https://wiki.example/doc/8821/diff 如需取消关注，可在文档页右上角设置。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Routine SaaS notification with no personal ask."
+    },
+    {
+      "case_id": "mixed-design-question",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "Re: shadow-write flag 的灰度方案，想听下你的意见",
+          "sender_name": "Kevin Zhao",
+          "sender_email": "kevin.zhao@acme.example",
+          "received": "2026-09-22T07:15:00Z",
+          "body_preview": "按上次讨论，我倾向于先按 tenant 灰度，再按 traffic percentage 放量，rollback 走 feature flag 而不是发版。但 dual-write 阶段的数据一致性校验还没想清楚，你之前在 migration 里踩过类似的坑，能不能给个建议？我们想在 sprint planning 前定下来。"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Chinese prose with English technical terms; colleague explicitly asks for advice."
+    },
+    {
+      "case_id": "mixed-status-update",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[Atlas] Weekly status — 本周进展同步",
+          "sender_name": "Priya Nair",
+          "sender_email": "priya.nair@acme.example",
+          "received": "2026-09-19T15:05:00Z",
+          "body_preview": "This week: migration 91%, shadow-read job 稳定运行；dashboard v2 已完成 handoff。Next week: 剩余表迁移 + load test rehearsal。No action needed from you，仅同步进展。Full notes in the Confluence page."
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive"
+      ],
+      "forbidden_actions": [],
+      "note": "Bilingual status update that explicitly says no action needed."
+    },
+    {
+      "case_id": "mixed-newsletter",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "AI Infra Digest · 第 42 期：evals, agents 与推理成本",
+          "sender_name": "AI Infra Digest",
+          "sender_email": "digest@aiinfra.example",
+          "received": "2026-09-20T22:00:00Z",
+          "body_preview": "本期内容：Why your evals are lying to you（附中文导读）；推理成本下降曲线的三个拐点；open-source agent harness 横评；社区问答精选。Unsubscribe / 退订：https://aiinfra.example/prefs"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Bilingual subscription digest."
+    },
+    {
+      "case_id": "mixed-security-notice",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[Security] API key 即将过期 — 请在 9/30 前轮换",
+          "sender_name": "Platform Security",
+          "sender_email": "security-noreply@acme.example",
+          "received": "2026-09-21T05:40:00Z",
+          "body_preview": "您名下的 production API key（ak_live_...b31f）将于 9 月 30 日到期。过期后相关 service 的调用会直接失败。请在到期前完成 rotation：https://console.acme.example/keys 轮换后记得更新 CI 中的 secret。This is an automated notice."
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Adversarial bilingual case: automated shape, but ignoring it breaks production."
+    },
+    {
+      "case_id": "mixed-reschedule-request",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "改期请求：Thursday 的 design review",
+          "sender_name": "Dana Rivera",
+          "sender_email": "dana.rivera@acme.example",
+          "received": "2026-09-22T09:00:00Z",
+          "body_preview": "Hi，周四下午的 design review 我这边临时有个 customer call 冲突了。能不能挪到 Friday morning，或者下周一 10:00？两个时间我都可以。麻烦回复一下哪个方便，我来重新发 invite。"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "archive",
+        "delete"
+      ],
+      "note": "Bilingual reschedule request asking the user to pick a slot."
+    },
+    {
+      "case_id": "mixed-ci-notification",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[CI] atlas-web deploy 成功 — staging #1184",
+          "sender_name": "Deploy Bot",
+          "sender_email": "deploy-noreply@acme.example",
+          "received": "2026-09-22T04:18:00Z",
+          "body_preview": "Deployment #1184 到 staging 已完成，耗时 2m38s，health check 全部通过。Commit: 4f2a1c9 by kevin.zhao. 查看日志：https://ci.acme.example/deploys/1184 请勿回复此邮件。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "delete",
+      "acceptable_actions": [
+        "mark_read",
+        "archive",
+        "delete"
+      ],
+      "forbidden_actions": [],
+      "note": "Bilingual disposable deploy notification."
+    },
+    {
+      "case_id": "mixed-invoice",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "9 月 cloud 账单已出 — invoice #CV-2026-0918",
+          "sender_name": "CloudVendor Billing",
+          "sender_email": "billing-noreply@cloudvendor.example",
+          "received": "2026-09-18T06:40:00Z",
+          "body_preview": "您好，9 月的 cloud 服务账单已生成，金额 $412.60，invoice number CV-2026-0918。本次费用包含 compute、storage 和 egress 三部分，明细可在 console 下载 PDF。报销请使用该 PDF。付款已自动从绑定的信用卡扣除，无需操作。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "archive",
+      "acceptable_actions": [
+        "archive",
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Bilingual cloud invoice needed for reimbursement; a financial record to retain."
+    },
+    {
+      "case_id": "mixed-expense-deadline",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "Reminder: 三季度 expense report 9/28 截止",
+          "sender_name": "Finance Shared Services",
+          "sender_email": "finance-noreply@acme.example",
+          "received": "2026-09-20T01:10:00Z",
+          "body_preview": "提醒：Q3 expense report 需在 9 月 28 日 18:00 前提交，逾期将 roll over 到 Q4。系统显示您还有 2 笔 unfiled receipts，合计 $186.30。Submit here: https://expense.acme.example/new 此邮件由系统自动发送。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "delete"
+      ],
+      "note": "Automated sender so no reply, but it carries a personal deadline involving money."
+    },
+    {
+      "case_id": "mixed-promo",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "限时 3 天：DataPipe Pro 全场 6 折 — biggest sale of the year",
+          "sender_name": "DataPipe",
+          "sender_email": "offers@datapipe.example",
+          "received": "2026-09-19T12:00:00Z",
+          "body_preview": "年度最大优惠来了！DataPipe Pro 全场 6 折，仅限 3 天。包含 unlimited connectors、team workspace 和 priority support。立即升级：https://datapipe.example/upgrade 退订 / Unsubscribe: https://datapipe.example/prefs"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "delete",
+      "acceptable_actions": [
+        "delete",
+        "archive"
+      ],
+      "forbidden_actions": [],
+      "note": "Bilingual marketing blast with an unsubscribe link and no personal ask."
+    },
+    {
+      "case_id": "mixed-second-follow-up",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "Re: 集成方案 — 再跟进一次，想确认下 timeline",
+          "sender_name": "Marcus Lin",
+          "sender_email": "marcus.lin@partner.example",
+          "received": "2026-09-22T08:20:00Z",
+          "body_preview": "Hi，上周发的 integration proposal 不知道您看了没有？抱歉再打扰一次。我们这边 Q4 的 roadmap 要在本周五之前 lock down，所以想确认两件事：一是你们是否有意向推进，二是如果推进的话，大概什么时候能开始 technical review。哪怕先给个大概时间也行。"
+        }
+      },
+      "reply_needed": true,
+      "default_policy_action": "needs_reply",
+      "acceptable_actions": [
+        "needs_reply"
+      ],
+      "forbidden_actions": [
+        "delete",
+        "archive"
+      ],
+      "note": "Second nudge from an external partner asking two direct questions before a Friday cutoff."
+    },
+    {
+      "case_id": "mixed-incident-alert",
+      "language": "mixed",
+      "source": {
+        "kind": "inline",
+        "email": {
+          "subject": "[Alert] payment-service 错误率 18% — P1 已分派给你",
+          "sender_name": "Monitoring",
+          "sender_email": "alerts-noreply@acme.example",
+          "received": "2026-09-22T03:55:00Z",
+          "body_preview": "告警 #5512：payment-service 的 error rate 在过去 5 分钟达到 18%，超过 2% 的阈值。该 P1 incident 已 assign 给您。请在 15 分钟内 acknowledge，否则会自动 escalate 到 on-call manager。详情与 runbook：https://monitor.acme.example/i/5512 请勿回复此邮件。"
+        }
+      },
+      "reply_needed": false,
+      "default_policy_action": "mark_read",
+      "acceptable_actions": [
+        "mark_read"
+      ],
+      "forbidden_actions": [
+        "delete",
+        "archive"
+      ],
+      "note": "Adversarial: automated alert shape, but a live P1 assigned to the user with a 15-minute clock."
+    }
+  ],
+  "label_provenance": {
+    "protocol": "Three independent blind annotators labelled the same emails with no access to each other's labels; the shipped label is the majority of three. Annotators A and B ran on one model, C on another, so the labels are not a single model's self-agreement.",
+    "annotators": [
+      "A",
+      "B",
+      "C"
+    ],
+    "resolution": "majority_of_three",
+    "caveat": "All three annotators are language models, not the end user. Agreement measures how unambiguous the protocol is, not user preference. Real preference evidence comes from shadow observations and the user's own actions."
+  }
+}
