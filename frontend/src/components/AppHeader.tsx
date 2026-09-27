@@ -34,9 +34,9 @@ export function AppHeader({
   isRefreshing,
 }: AppHeaderProps) {
   return (
-    <header className="shrink-0 border-b border-border pb-2">
+    <header className="shrink-0 border-b border-border px-2 pb-2">
       <div className="flex w-full items-center gap-3">
-        <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
+        <h1 className="shrink-0 text-xl font-bold tracking-tight text-foreground">FeedFlux</h1>
 
         <div className="relative min-w-0 flex-1 rounded-full shadow-sm">
           <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
