@@ -27,3 +27,7 @@ test('Ask AI receives the trimmed search input as a prompt', () => {
   assert.equal(headerContract.getAskAiPrompt('  roadmap update  '), 'roadmap update');
   assert.equal(headerContract.getAskAiPrompt('   '), '');
 });
+
+test('low-frequency header actions use a neutral More label', () => {
+  assert.equal(headerContract.APP_HEADER_MORE_LABEL, 'More');
+});

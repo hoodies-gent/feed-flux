@@ -5,12 +5,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { MemoryManager } from '@/components/MemoryManager';
 import {
+  APP_HEADER_MORE_LABEL,
   APP_HEADER_SEARCH_INPUT_PROPS,
   APP_HEADER_SEARCH_PLACEHOLDER,
   getAskAiPrompt,
 } from '@/lib/app-header-contract.mjs';
 import { AI_ACTION_LABEL } from '@/lib/workspace-chrome-contract.mjs';
-import { RefreshCw, Search, Sparkles, Wrench } from 'lucide-react';
+import { Ellipsis, RefreshCw, Search, Sparkles } from 'lucide-react';
 
 interface AppHeaderProps {
   searchQuery: string;
@@ -65,10 +66,10 @@ export function AppHeader({
           <DropdownMenuTrigger asChild>
             <button
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              title="Tools"
-              aria-label="Tools"
+              title={APP_HEADER_MORE_LABEL}
+              aria-label={APP_HEADER_MORE_LABEL}
             >
-              <Wrench className="h-4 w-4" />
+              <Ellipsis className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
