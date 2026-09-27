@@ -27,6 +27,7 @@ import {
 } from '@/lib/workspace-preferences.mjs';
 import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
 import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
+import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -1483,6 +1484,7 @@ export default function Home() {
                 const isSummarizing = summarizing[item.id];
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
+                const isActive = activeEmailId === item.id;
                 const senderLabel = item.sender || 'Unknown sender';
                 const avatar = getAvatarPresentation(senderLabel);
 
@@ -1490,7 +1492,10 @@ export default function Home() {
                   <Card
                     key={item.id}
                     onClick={() => handleOpenEmailDetail(item.id)}
-                    className="group cursor-pointer rounded-none border-0 border-b border-border last:border-b-0 border-l-2 border-l-transparent gap-0 py-0 shadow-none transition-colors hover:border-l-primary hover:bg-accent/40"
+                    className={cn(
+                      'group cursor-pointer rounded-none border-0 last:border-b-0 gap-0 py-0 shadow-none transition-colors',
+                      getFeedItemStateClassName(isActive),
+                    )}
                   >
                     <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
                       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatar.background} ${avatar.foreground}`}>
