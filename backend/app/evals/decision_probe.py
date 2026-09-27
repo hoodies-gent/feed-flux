@@ -30,6 +30,7 @@ from app.evals.decision_cases import (
     DecisionCaseSuite,
     attention_label,
     is_important,
+    language_groups,
     load_case_suite,
     triage_items,
 )
@@ -199,6 +200,32 @@ def gate_report(
     }
 
 
+def language_report(
+    observations: list[Observation],
+    suite: DecisionCaseSuite,
+    *,
+    policy: GatePolicy | None = None,
+) -> dict:
+    """The same gate numbers, split by the language of the email.
+
+    TypeSafe's own model card says English is where Jev's accuracy is currently
+    best and that CJK is handled but not equally well. 22 of these 38 cases are
+    not English, so one overall number averages two populations the vendor
+    itself says behave differently. The per-language denominators are small and
+    each report carries its own `low_signal_cases`, which is the number any
+    ceiling here has to be read against."""
+    out = {}
+    for language, case_ids in sorted(language_groups(suite).items()):
+        ids = set(case_ids)
+        subset = suite.model_copy(
+            update={"cases": [case for case in suite.cases if case.case_id in ids]}
+        )
+        out[language] = gate_report(
+            [o for o in observations if o.item_id in ids], subset, policy=policy
+        )
+    return out
+
+
 def determinism(observations: list[Observation]) -> dict:
     by_case: dict[str, list[Observation]] = defaultdict(list)
     for observation in observations:
@@ -252,6 +279,7 @@ def summarise_provider(
         "wall_ms_median": round(statistics.median(walls), 2) if walls else None,
         "wall_ms_range": [min(walls), max(walls)] if walls else None,
         "gate": gate_report(observations, suite),
+        "by_language": language_report(observations, suite),
         "determinism": determinism(observations),
         "importance_confidence_histogram": confidence_histogram(observations, suite),
     }
@@ -398,6 +426,14 @@ def main() -> int:
             f"jitter={entry['determinism']['confidence_jitter_cases']}"
             f"/{entry['determinism']['max_importance_confidence_spread']}"
         )
+        for language, report in entry["by_language"].items():
+            print(
+                f"      {language:<6} ceiling={report['dismissal_ceiling_median']} "
+                f"(of {report['low_signal_cases']} low-signal, "
+                f"{report['attention_cases']} attention) "
+                f"would_dismiss_attention={len(report['dismissable_attention_items'])} "
+                f"forbidden={report['forbidden_action_proposal_count']}"
+            )
     return 0
 
 

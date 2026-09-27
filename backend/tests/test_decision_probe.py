@@ -6,6 +6,7 @@ from app.decisions.settings import DecisionSettings
 from app.evals.decision_cases import attention_label, is_important, load_case_suite, triage_items
 from app.evals.decision_probe import (
     determinism,
+    language_report,
     dry_run_probe_provider,
     gate_report,
     planned_requests,
@@ -279,3 +280,44 @@ class DryRunTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LanguageBreakdownTest(unittest.TestCase):
+    """Jev's model card says English is where its accuracy is best and that CJK
+    is handled but not equally well, and most of this suite is not English."""
+
+    def test_every_language_in_the_suite_gets_its_own_gate_report(self):
+        observations, _ = probe_provider(FakeDecisionProvider({}), ITEMS, reps=1)
+
+        report = language_report(observations, SUITE)
+
+        self.assertEqual({c.language for c in SUITE.cases}, set(report))
+        for language, entry in report.items():
+            with self.subTest(language=language):
+                self.assertIn("dismissal_ceiling_median", entry)
+                self.assertIn("low_signal_cases", entry)
+
+    def test_the_per_language_case_counts_add_up_to_the_whole_suite(self):
+        observations, _ = probe_provider(FakeDecisionProvider({}), ITEMS, reps=1)
+
+        report = language_report(observations, SUITE)
+        low = sum(e["low_signal_cases"] for e in report.values())
+        attention = sum(e["attention_cases"] for e in report.values())
+
+        whole = gate_report(observations, SUITE)
+        self.assertEqual(whole["low_signal_cases"], low)
+        self.assertEqual(whole["attention_cases"], attention)
+
+    def test_a_provider_that_only_fails_one_language_is_not_averaged_away(self):
+        zh = [c.case_id for c in SUITE.cases if c.language == "zh"]
+        provider = FakeDecisionProvider(
+            {c.case_id: (None if c.case_id in zh else ("mark_read", ReasonCode.NEWSLETTER, 0.9))
+             for c in SUITE.cases},
+            importance={c.case_id: (False, 0.9) for c in SUITE.cases},
+        )
+        observations, _ = probe_provider(provider, ITEMS, reps=1)
+
+        report = language_report(observations, SUITE)
+
+        self.assertEqual(len(zh), report["zh"]["failed_observations"])
+        self.assertEqual(0, report["en"]["failed_observations"])
