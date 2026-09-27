@@ -13,7 +13,6 @@ from app.services.memory import MemoryService
 from app.services.cleaner import ContentCleaner
 from app.services.memory import MemoryService
 from app.services.database import DatabaseService
-from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
 from app.agent.context import EmailContextError
@@ -241,27 +240,6 @@ async def get_feed(limit: int = 5, q: Optional[str] = None):
     except Exception as e:
         logger.error(f"Feed fetch failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/briefing")
-async def get_daily_briefing():
-    """
-    Returns an AI-generated daily briefing summarizing recent emails.
-    """
-    try:
-        engine = BriefingEngine()
-        # To avoid blocking the event loop on LLM generation, we run the synchronous
-        # model generation in a threadpool
-        briefing_text = await asyncio.to_thread(engine.generate_daily_briefing)
-        
-        # If the backend returns our default fallback string because of missing keys or errors
-        if "AI service is not configured" in briefing_text or "encountered an error" in briefing_text:
-             return {"briefing": "", "error": briefing_text}
-             
-        return {"briefing": briefing_text}
-    except Exception as e:
-        logger.error(f"Briefing generation failed: {e}")
-        # Return a graceful fallback instead of an HTTP 500 so the frontend banner handles it elegantly
-        return {"briefing": "", "error": "Daily Briefing is currently unavailable due to high AI service demand or API key issues."}
 
 async def run_sync_job():
     """

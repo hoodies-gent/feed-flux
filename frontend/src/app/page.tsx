@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { MemoryManager } from '@/components/MemoryManager';
 import { toast } from 'sonner';
@@ -655,11 +655,6 @@ export default function Home() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoaded, setIsChatLoaded] = useState(false);
-  // Daily Briefing State
-  const [briefing, setBriefing] = useState<string | null>(null);
-  const [isBriefingLoading, setIsBriefingLoading] = useState(true);
-  const [briefingError, setBriefingError] = useState<string | null>(null);
-  const [isBriefingCollapsed, setIsBriefingCollapsed] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [threadId, setThreadId] = useState<string>('');
@@ -1035,28 +1030,6 @@ export default function Home() {
           setIsMockLoggingIn(false);
       }
   };
-
-  // Load briefing on mount if in feed
-  useEffect(() => {
-    const fetchBriefing = async () => {
-      try {
-        setIsBriefingLoading(true);
-        setBriefingError(null);
-        const res = await getDailyBriefing();
-        if (res.error) {
-          setBriefingError(res.error);
-        } else {
-          setBriefing(res.briefing);
-        }
-      } catch (e) {
-        console.error("Failed to load briefing", e);
-        setBriefingError("Failed to connect to the intelligence server.");
-      } finally {
-        setIsBriefingLoading(false);
-      }
-    };
-    fetchBriefing();
-  }, []);
 
   /**
    * Format timestamps like a mail client: relative day labels for recent mail,
@@ -1499,45 +1472,6 @@ export default function Home() {
             <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
 
           <div className="min-h-0 flex-1 overflow-y-auto pb-3">
-          {/* Daily Briefing Banner */}
-          {!debouncedQuery && (
-            <div className="rounded-none border-0 border-b border-border bg-muted text-foreground">
-              <div className="flex items-center gap-2 p-4 pb-3">
-                <Sparkles className="h-5 w-5 text-foreground shrink-0" />
-                <h2 className="text-base font-semibold tracking-tight flex-1">Morning Intelligence Briefing</h2>
-                <button
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  onClick={() => setIsBriefingCollapsed(c => !c)}
-                  title={isBriefingCollapsed ? 'Expand' : 'Collapse'}
-                >
-                  {isBriefingCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                </button>
-              </div>
-
-              {!isBriefingCollapsed && (
-                <div className="px-4 pb-4">
-                  {isBriefingLoading ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-3/4 bg-foreground/10" />
-                      <Skeleton className="h-4 w-full bg-foreground/10" />
-                      <Skeleton className="h-4 w-5/6 bg-foreground/10" />
-                    </div>
-                  ) : briefingError ? (
-                    <div className="bg-destructive/10 p-3 rounded-lg">
-                      <div className="text-destructive text-sm">{briefingError}</div>
-                    </div>
-                  ) : briefing ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown>{briefing}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">No briefing available today.</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Feed List */}
           <div className="overflow-hidden bg-transparent">
             {loading ? (
