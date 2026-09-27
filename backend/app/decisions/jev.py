@@ -79,6 +79,7 @@ class JevDecisionProvider:
         usage = DecisionUsage()
         requests_made = 0
         failed_requests = 0
+        served: list[str] = []
 
         for chunk in self._chunks(items):
             requests_made += 1
@@ -102,6 +103,9 @@ class JevDecisionProvider:
                 )
                 continue
             decisions.extend(self._parse(chunk, body))
+            answered = body.get("model")
+            if answered and answered not in served:
+                served.append(answered)
             chunk_usage = body.get("usage") or {}
             usage = DecisionUsage(
                 input_tokens=usage.input_tokens + int(chunk_usage.get("input_tokens") or 0),
@@ -110,7 +114,13 @@ class JevDecisionProvider:
 
         return TriageDecisionBatch(
             provider=self.name,
-            model=self.settings.model,
+            # The version that answered, not the name we asked for. `jev-latest` is
+            # an alias that moves when a release ships, so storing the request's
+            # name leaves a paid result unattributable. More than one value means
+            # the alias moved mid-batch; record that rather than hide it behind the
+            # first chunk. Falls back to the configured name only when no chunk
+            # came back at all.
+            model=", ".join(served) or self.settings.model,
             decisions=align_decisions(items, decisions),
             usage=usage,
             latency_ms=round((time.monotonic() - started) * 1000, 2),

@@ -359,3 +359,67 @@ class EnvLoadingTest(unittest.TestCase):
         self.assertEqual("", result.stderr.strip()[:0] or "")
         self.assertIn(result.stdout.strip(), {"True", "False"})
         self.assertNotIn("Traceback", result.stderr)
+
+
+class ServedModelTest(unittest.TestCase):
+    """What answered, not what we asked for. `jev-latest` is an alias that moves
+    when a release ships, so a result recorded under the alias cannot be traced
+    back to the model that produced it."""
+
+    def test_records_the_version_that_answered_not_the_alias_we_sent(self):
+        session = _FakeSession()
+
+        batch = _provider(session).decide_triage(_items(2))
+
+        self.assertEqual("jev-latest", session.payloads[0]["model"])
+        self.assertEqual("jev-1.13.0", batch.model)
+
+    def test_keeps_the_configured_name_when_the_response_omits_the_model(self):
+        def handler(payload, index):
+            body = _answers_for(payload)
+            body.pop("model")
+            return _Response(200, body)
+
+        batch = _provider(_FakeSession(handler=handler)).decide_triage(_items(2))
+
+        self.assertEqual("jev-latest", batch.model)
+
+    def test_an_alias_moving_mid_batch_is_recorded_rather_than_hidden(self):
+        def handler(payload, index):
+            body = _answers_for(payload)
+            body["model"] = "jev-1.13.0" if index == 0 else "jev-1.14.0"
+            return _Response(200, body)
+
+        settings = _settings(max_items_per_request=1)
+        batch = _provider(_FakeSession(handler=handler), settings).decide_triage(_items(2))
+
+        self.assertEqual("jev-1.13.0, jev-1.14.0", batch.model)
+
+    def test_one_version_answering_every_chunk_is_recorded_once(self):
+        settings = _settings(max_items_per_request=1)
+        batch = _provider(_FakeSession(), settings).decide_triage(_items(3))
+
+        self.assertEqual(3, batch.requests)
+        self.assertEqual("jev-1.13.0", batch.model)
+
+    def test_a_batch_that_never_reached_the_api_keeps_the_configured_name(self):
+        self.assertEqual("jev-latest", _provider(_FakeSession()).decide_triage([]).model)
+
+    def test_every_chunk_failing_leaves_the_configured_name(self):
+        batch = _provider(_FakeSession([_Response(500)] * 3)).decide_triage(_items(1))
+
+        self.assertEqual("jev-latest", batch.model)
+
+
+class PinnedDefaultTest(unittest.TestCase):
+    def test_the_default_model_is_a_pinned_version_not_a_moving_alias(self):
+        with mock.patch.dict("os.environ", {"TYPESAFE_MODEL_NAME": ""}, clear=False):
+            model = decision_settings().model
+
+        self.assertEqual("jev-1.13.0", model)
+        self.assertNotIn("latest", model)
+        self.assertNotIn("preview", model)
+
+    def test_an_explicit_model_name_still_wins(self):
+        with mock.patch.dict("os.environ", {"TYPESAFE_MODEL_NAME": "jev-1.14.0"}, clear=False):
+            self.assertEqual("jev-1.14.0", decision_settings().model)

@@ -17,7 +17,10 @@ class DecisionSettings:
     mode: DecisionMode = "off"
     provider: str = "jev"
     api_key: str | None = None
-    model: str = "jev-latest"
+    # Pinned, not the `jev-latest` alias: the gate thresholds in policy.py were
+    # tuned against this version's confidence scale, and an alias moves when a
+    # release ships. Move it deliberately, after re-running the probe.
+    model: str = "jev-1.13.0"
     base_url: str = "https://api.typesafe.ai"
     timeout_seconds: float = 10.0
     shadow_timeout_seconds: float = 3.0
@@ -51,7 +54,7 @@ def decision_settings() -> DecisionSettings:
         mode=mode if mode in _MODES else "off",
         provider=provider if provider in _PROVIDERS else "jev",
         api_key=os.getenv("TYPESAFE_API_KEY") or None,
-        model=os.getenv("TYPESAFE_MODEL_NAME") or "jev-latest",
+        model=os.getenv("TYPESAFE_MODEL_NAME") or "jev-1.13.0",
         base_url=(os.getenv("TYPESAFE_BASE_URL") or "https://api.typesafe.ai").rstrip("/"),
         timeout_seconds=_env_float("DECISION_TIMEOUT_SECONDS", 10.0),
         shadow_timeout_seconds=_env_float("DECISION_SHADOW_TIMEOUT_SECONDS", 3.0),
