@@ -1,10 +1,13 @@
 'use client';
 
-import { MessageSquareText } from 'lucide-react';
+import { Loader2, MessageSquareText, Reply } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { EmailDetail } from '@/lib/api';
-import { EMAIL_AI_ACTION_LABEL } from '@/lib/workspace-chrome-contract.mjs';
+import {
+  EMAIL_AI_ACTION_LABEL,
+  EMAIL_REPLY_ACTION_LABEL,
+} from '@/lib/workspace-chrome-contract.mjs';
 
 interface AvatarPresentation {
   background: string;
@@ -16,16 +19,20 @@ interface EmailDetailHeaderProps {
   avatar: AvatarPresentation | null;
   detail: EmailDetail | null;
   isLoading: boolean;
+  isReplying: boolean;
   receivedAt?: string;
   onAskAI: () => void;
+  onReply: () => void;
 }
 
 export function EmailDetailHeader({
   avatar,
   detail,
   isLoading,
+  isReplying,
   receivedAt,
   onAskAI,
+  onReply,
 }: EmailDetailHeaderProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30 px-4 py-3">
@@ -35,16 +42,31 @@ export function EmailDetailHeader({
         </h2>
         <div className="flex shrink-0 items-center gap-1">
           {detail && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onClick={onAskAI}
-              aria-label={EMAIL_AI_ACTION_LABEL}
-              title={EMAIL_AI_ACTION_LABEL}
-            >
-              <MessageSquareText className="h-4 w-4" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onReply}
+                disabled={isReplying}
+                aria-label={EMAIL_REPLY_ACTION_LABEL}
+                title={EMAIL_REPLY_ACTION_LABEL}
+              >
+                {isReplying
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Reply className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={onAskAI}
+                aria-label={EMAIL_AI_ACTION_LABEL}
+                title={EMAIL_AI_ACTION_LABEL}
+              >
+                <MessageSquareText className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </div>

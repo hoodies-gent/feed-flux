@@ -10,7 +10,6 @@ import { RecipientField } from '@/components/RecipientField';
 import { getDraftDiscardMode } from '@/lib/draft-discard-state.mjs';
 import {
   askAgentStream,
-  createReplyDraft,
   discardDraft,
   getEmailDrafts,
   sendDraft,
@@ -68,7 +67,6 @@ export function DraftWorkspace({
   const [undoState, setUndoState] = useState<{ draftId: number; body: string } | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
-  const [isCreatingManualDraft, setIsCreatingManualDraft] = useState(false);
   const [showAiTools, setShowAiTools] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
   const [confirmingDiscardId, setConfirmingDiscardId] = useState<number | null>(null);
@@ -342,18 +340,6 @@ export function DraftWorkspace({
     }
   };
 
-  const handleManualReply = async () => {
-    setIsCreatingManualDraft(true);
-    try {
-      const draft = await createReplyDraft(emailId);
-      await loadDrafts(draft.id);
-    } catch {
-      toast.error('Failed to start a reply draft.');
-    } finally {
-      setIsCreatingManualDraft(false);
-    }
-  };
-
   const handleTextareaScroll = (draftId: number, event: UIEvent<HTMLTextAreaElement>) => {
     const highlight = highlightRefs.current[draftId];
     if (highlight) {
@@ -586,14 +572,9 @@ export function DraftWorkspace({
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Pencil className="h-4 w-4 text-primary" />
-          <h3 className="text-base font-semibold text-foreground">Reply</h3>
+          <h3 className="text-base font-semibold text-foreground">Draft</h3>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          {drafts.length === 0 && !isDrafting && (
-            <Button size="sm" className="h-7 px-2 text-sm" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
-              <Pencil className="h-3.5 w-3.5" /> Reply
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"

@@ -1,6 +1,7 @@
 export const AI_ACTION_LABEL = 'Ask AI';
 export const AI_PANEL_LABEL = 'Assistant';
 export const EMAIL_AI_ACTION_LABEL = 'Ask AI about this email';
+export const EMAIL_REPLY_ACTION_LABEL = 'Reply';
 export const WORKSPACE_PANEL_GAP_CLASS = 'gap-1.5';
 
 export function getAssistantSidebarToggle(isOpen) {

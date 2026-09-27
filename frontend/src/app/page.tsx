@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, createReplyDraft, getEmailDrafts, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { AppHeader } from '@/components/AppHeader';
 import { AgentSidebar } from '@/components/AgentSidebar';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
@@ -30,6 +30,7 @@ import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mj
 import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
+import { getReplyDraftId } from '@/lib/draft-reply-state.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -728,6 +729,7 @@ export default function Home() {
   const [draftsByEmailId, setDraftsByEmailId] = useState<Record<string, DraftReply[]>>({});
   const [focusedDraftByEmailId, setFocusedDraftByEmailId] = useState<Record<string, number | null>>({});
   const [draftRefreshByEmailId, setDraftRefreshByEmailId] = useState<Record<string, number>>({});
+  const [replyingEmailIds, setReplyingEmailIds] = useState<Record<string, boolean>>({});
   const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
   const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
@@ -943,6 +945,40 @@ export default function Home() {
 
   const handleDraftFocus = (emailId: string, draftId: number | null) => {
     setFocusedDraftByEmailId((current) => ({ ...current, [emailId]: draftId }));
+  };
+
+  const handleStartReply = async () => {
+    const emailId = activeEmailId;
+    if (!emailId || replyingEmailIds[emailId]) return;
+
+    setReplyingEmailIds((current) => ({ ...current, [emailId]: true }));
+    try {
+      let drafts = draftsByEmailId[emailId] ?? [];
+      let draftId = getReplyDraftId(drafts, focusedDraftByEmailId[emailId]);
+
+      if (draftId === null) {
+        drafts = await getEmailDrafts(emailId);
+        handleDraftsChange(emailId, drafts);
+        draftId = getReplyDraftId(drafts, focusedDraftByEmailId[emailId]);
+      }
+
+      if (draftId === null) {
+        const draft = await createReplyDraft(emailId);
+        drafts = [draft];
+        handleDraftsChange(emailId, drafts);
+        draftId = draft.id;
+      }
+
+      handleDraftFocus(emailId, draftId);
+      setDraftRefreshByEmailId((current) => ({
+        ...current,
+        [emailId]: (current[emailId] ?? 0) + 1,
+      }));
+    } catch {
+      toast.error('Failed to start a reply draft.');
+    } finally {
+      setReplyingEmailIds((current) => ({ ...current, [emailId]: false }));
+    }
   };
 
   const handleDraftTabSelect = (emailId: string, draftId: number) => {
@@ -1603,7 +1639,9 @@ export default function Home() {
                   avatar={detailAvatar}
                   detail={emailDetailData}
                   isLoading={isLoadingDetail}
+                  isReplying={activeEmailId ? Boolean(replyingEmailIds[activeEmailId]) : false}
                   receivedAt={emailDetailData ? formatEmailDateTime(emailDetailData.received_datetime) : undefined}
+                  onReply={() => void handleStartReply()}
                   onAskAI={() => {
                     if (emailDetailData) handleAskAiAboutEmail(emailDetailData);
                   }}
