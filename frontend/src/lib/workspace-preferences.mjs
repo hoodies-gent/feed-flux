@@ -5,6 +5,7 @@ export const WORKSPACE_PREFERENCES_STORAGE_KEY = 'feedflux_workspace_presentatio
 export const DEFAULT_WORKSPACE_PREFERENCES = {
   activeEmailId: null,
   isAgentOpen: false,
+  isDraftPaneOpen: true,
   mainLayoutOpen: {
     'feed-panel': 30,
     'detail-panel': 50,
@@ -88,12 +89,14 @@ export function parseWorkspacePreferences(raw, now = Date.now()) {
 
     const stored = envelope.preferences;
     const activeEmailId = stored.activeEmailId;
+    const isDraftPaneOpen = stored.isDraftPaneOpen ?? true;
     if (
       !(activeEmailId === null
         || (typeof activeEmailId === 'string'
           && activeEmailId.length > 0
           && activeEmailId.length <= 512))
       || typeof stored.isAgentOpen !== 'boolean'
+      || typeof isDraftPaneOpen !== 'boolean'
       || !isValidLayout(stored.mainLayoutOpen, layoutRules.mainLayoutOpen)
       || !isValidLayout(stored.mainLayoutClosed, layoutRules.mainLayoutClosed)
       || !isValidLayout(stored.detailLayout, layoutRules.detailLayout)
@@ -104,6 +107,7 @@ export function parseWorkspacePreferences(raw, now = Date.now()) {
     return {
       activeEmailId,
       isAgentOpen: stored.isAgentOpen,
+      isDraftPaneOpen,
       mainLayoutOpen: { ...stored.mainLayoutOpen },
       mainLayoutClosed: { ...stored.mainLayoutClosed },
       detailLayout: { ...stored.detailLayout },

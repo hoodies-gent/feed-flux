@@ -22,8 +22,9 @@ test('reply requests creation only when no draft exists', () => {
   assert.equal(draftReplyState.getReplyDraftId([], null), null);
 });
 
-test('draft pane visibility follows whether any actionable draft exists', () => {
-  assert.equal(draftReplyState.shouldShowDraftPane({}), false);
-  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [] }), false);
-  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [], email2: [{ id: 4 }] }), true);
+test('draft pane visibility requires actionable content and an open presentation state', () => {
+  assert.equal(draftReplyState.shouldShowDraftPane({}, true), false);
+  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [{ id: 4 }] }, false), false);
+  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [{ id: 4 }] }, true), true);
+  assert.equal(draftReplyState.shouldShowDraftPane({}, false, true), true);
 });

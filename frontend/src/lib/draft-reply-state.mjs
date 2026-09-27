@@ -5,6 +5,7 @@ export function getReplyDraftId(drafts, focusedDraftId) {
   return drafts[0]?.id ?? null;
 }
 
-export function shouldShowDraftPane(draftsByEmailId) {
-  return Object.values(draftsByEmailId).some((drafts) => drafts.length > 0);
+export function shouldShowDraftPane(draftsByEmailId, isOpen, isDraftRequested = false) {
+  if (isDraftRequested) return true;
+  return isOpen && Object.values(draftsByEmailId).some((drafts) => drafts.length > 0);
 }

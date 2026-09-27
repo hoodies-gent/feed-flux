@@ -668,6 +668,9 @@ export default function Home() {
 
   // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isDraftPaneOpen, setIsDraftPaneOpen] = useState(
+    DEFAULT_WORKSPACE_PREFERENCES.isDraftPaneOpen,
+  );
   const [workspacePreferencesLoaded, setWorkspacePreferencesLoaded] = useState(false);
   const [mainLayoutOpen, setMainLayoutOpen] = useState<Layout>(() => ({
     ...DEFAULT_WORKSPACE_PREFERENCES.mainLayoutOpen,
@@ -749,7 +752,11 @@ export default function Home() {
   const activeDraftRefreshToken = activeEmailId
     ? (draftRefreshByEmailId[activeEmailId] ?? 0)
     : 0;
-  const showDraftPane = shouldShowDraftPane(draftsByEmailId);
+  const showDraftPane = shouldShowDraftPane(
+    draftsByEmailId,
+    isDraftPaneOpen,
+    autoDraftOnOpen,
+  );
 
   useEffect(() => {
     if (!activeEmailId) return;
@@ -780,6 +787,7 @@ export default function Home() {
     let cancelled = false;
 
     setIsChatOpen(preferences.isAgentOpen);
+    setIsDraftPaneOpen(preferences.isDraftPaneOpen);
     setMainLayoutOpen(preferences.mainLayoutOpen);
     setMainLayoutClosed(preferences.mainLayoutClosed);
     setDetailLayout(preferences.detailLayout);
@@ -819,6 +827,7 @@ export default function Home() {
     saveWorkspacePreferences(window.localStorage, {
       activeEmailId,
       isAgentOpen: isChatOpen,
+      isDraftPaneOpen,
       mainLayoutOpen,
       mainLayoutClosed,
       detailLayout,
@@ -827,6 +836,7 @@ export default function Home() {
     activeEmailId,
     detailLayout,
     isChatOpen,
+    isDraftPaneOpen,
     mainLayoutClosed,
     mainLayoutOpen,
     workspacePreferencesLoaded,
@@ -875,6 +885,7 @@ export default function Home() {
         ));
       },
       onDraft: (event) => {
+        setIsDraftPaneOpen(true);
         setDraftRefreshByEmailId((current) => ({
           ...current,
           [event.email_id]: (current[event.email_id] ?? 0) + 1,
@@ -969,6 +980,9 @@ export default function Home() {
     if (drafts.length === 0 && emailId !== activeEmailId) {
       setMountedEmailIds((current) => current.filter((id) => id !== emailId));
     }
+    if (drafts.length > 0 && emailId === activeEmailId && autoDraftOnOpen) {
+      setAutoDraftOnOpen(false);
+    }
   };
 
   const handleDraftFocus = (emailId: string, draftId: number | null) => {
@@ -979,6 +993,8 @@ export default function Home() {
     const emailId = activeEmailId;
     if (!emailId || replyingEmailIds[emailId]) return;
 
+    setAutoDraftOnOpen(false);
+    setIsDraftPaneOpen(true);
     setReplyingEmailIds((current) => ({ ...current, [emailId]: true }));
     try {
       let drafts = draftsByEmailId[emailId] ?? [];
@@ -1010,6 +1026,7 @@ export default function Home() {
   };
 
   const handleDraftTabSelect = (emailId: string, draftId: number) => {
+    setIsDraftPaneOpen(true);
     handleDraftFocus(emailId, draftId);
     void handleOpenEmailDetail(emailId);
   };
@@ -1068,6 +1085,7 @@ export default function Home() {
       setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
     }
     setAutoDraftOnOpen(autoDraft);
+    if (autoDraft) setIsDraftPaneOpen(true);
     setActiveEmailId(id);
     setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
     if (emailDetailsById[id]) {
@@ -1769,6 +1787,10 @@ export default function Home() {
                         autoDraft={active && autoDraftOnOpen}
                         focusDraftId={focusedDraftByEmailId[id]}
                         refreshToken={draftRefreshByEmailId[id] ?? 0}
+                        onCollapse={() => {
+                          setAutoDraftOnOpen(false);
+                          setIsDraftPaneOpen(false);
+                        }}
                         onDraftsChange={(drafts) => handleDraftsChange(id, drafts)}
                         onDraftFocus={(draftId) => handleDraftFocus(id, draftId)}
                       />

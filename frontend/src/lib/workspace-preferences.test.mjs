@@ -17,6 +17,7 @@ const now = Date.UTC(2026, 8, 26);
 const defaults = {
   activeEmailId: null,
   isAgentOpen: false,
+  isDraftPaneOpen: true,
   mainLayoutOpen: {
     'feed-panel': 30,
     'detail-panel': 50,
@@ -56,6 +57,7 @@ test('valid preferences restore presentation state', () => {
     preferences: {
       activeEmailId: 'dev-email-12',
       isAgentOpen: true,
+      isDraftPaneOpen: false,
       mainLayoutOpen: {
         'feed-panel': 25,
         'detail-panel': 52,
@@ -99,6 +101,35 @@ test('out-of-range panel layouts fall back to defaults', () => {
   );
 });
 
+test('legacy preferences default the draft pane to open without losing saved layout', () => {
+  const legacy = {
+    version: 1,
+    savedAt: now,
+    preferences: {
+      activeEmailId: 'dev-email-12',
+      isAgentOpen: true,
+      mainLayoutOpen: {
+        'feed-panel': 25,
+        'detail-panel': 52,
+        'chat-panel': 23,
+      },
+      mainLayoutClosed: {
+        'feed-panel': 35,
+        'detail-panel': 65,
+      },
+      detailLayout: {
+        'email-body-panel': 64,
+        'email-action-panel': 36,
+      },
+    },
+  };
+
+  assert.deepEqual(
+    preferences.parseWorkspacePreferences(JSON.stringify(legacy), now),
+    { ...legacy.preferences, isDraftPaneOpen: true },
+  );
+});
+
 test('storage helpers persist only workspace presentation state', () => {
   const values = new Map();
   const storage = {
@@ -109,6 +140,7 @@ test('storage helpers persist only workspace presentation state', () => {
     ...defaults,
     activeEmailId: 'dev-email-12',
     isAgentOpen: true,
+    isDraftPaneOpen: false,
     emailBody: 'must not be persisted',
     subject: 'must not be persisted',
   };
@@ -116,6 +148,7 @@ test('storage helpers persist only workspace presentation state', () => {
     ...defaults,
     activeEmailId: 'dev-email-12',
     isAgentOpen: true,
+    isDraftPaneOpen: false,
   };
 
   assert.equal(
@@ -131,6 +164,7 @@ test('storage helpers persist only workspace presentation state', () => {
       'activeEmailId',
       'detailLayout',
       'isAgentOpen',
+      'isDraftPaneOpen',
       'mainLayoutClosed',
       'mainLayoutOpen',
     ],

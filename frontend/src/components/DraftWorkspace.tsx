@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type UIEvent } from 'react';
-import { Loader2, Pencil, Send, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import { ChevronDown, Loader2, Pencil, Send, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,7 @@ interface DraftWorkspaceProps {
   autoDraft?: boolean;
   focusDraftId?: number | null;
   refreshToken?: number;
+  onCollapse?: () => void;
   onDraftsChange?: (drafts: DraftReply[]) => void;
   onDraftFocus?: (draftId: number | null) => void;
 }
@@ -53,6 +54,7 @@ export function DraftWorkspace({
   autoDraft = false,
   focusDraftId = null,
   refreshToken = 0,
+  onCollapse,
   onDraftsChange,
   onDraftFocus,
 }: DraftWorkspaceProps) {
@@ -584,6 +586,19 @@ export function DraftWorkspace({
           >
             <Sparkles className="h-3.5 w-3.5" /> {showAiTools ? 'Hide AI' : 'Help me write'}
           </Button>
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onCollapse}
+              disabled={isDrafting}
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              aria-label="Collapse draft workspace"
+              title="Collapse draft workspace"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -627,11 +642,6 @@ export function DraftWorkspace({
         </div>
       ) : (
         <div className="space-y-2">
-          {drafts.length > 0 && (
-            <div className="text-xs text-muted-foreground">
-              AI actions revise this saved draft instead of creating another version.
-            </div>
-          )}
           {drafts.map((draft) => {
             const editing = editingDraftId === draft.id;
             const busy = busyDraftId === draft.id;
