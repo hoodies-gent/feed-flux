@@ -10,11 +10,12 @@ import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, re
 import { AppHeader } from '@/components/AppHeader';
 import { AgentSidebar } from '@/components/AgentSidebar';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
+import { EmailDetailHeader } from '@/components/EmailDetailHeader';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
+import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { Layout } from "react-resizable-panels";
@@ -1612,46 +1613,16 @@ export default function Home() {
           <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {emailDetailData || isLoadingDetail ? (
               <>
-                <div className="shrink-0 border-b border-border bg-muted/30 p-6">
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-xl font-semibold text-foreground">
-                      {emailDetailData?.subject || "Loading..."}
-                    </h2>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {emailDetailData && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => handleAskAgentAboutEmail(emailDetailData)}
-                        >
-                          <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-                          Ask Agent
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={handleCloseEmailDetail}
-                        title="Close"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  {emailDetailData && (
-                    <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${detailAvatar?.background} ${detailAvatar?.foreground}`}>
-                          {detailAvatar?.initials}
-                        </div>
-                        <span className="truncate">From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
-                      </div>
-                      <span>{formatDateTime(emailDetailData.received_datetime)}</span>
-                    </div>
-                  )}
-                </div>
+                <EmailDetailHeader
+                  avatar={detailAvatar}
+                  detail={emailDetailData}
+                  isLoading={isLoadingDetail}
+                  receivedAt={emailDetailData ? formatDateTime(emailDetailData.received_datetime) : undefined}
+                  onAskAgent={() => {
+                    if (emailDetailData) handleAskAgentAboutEmail(emailDetailData);
+                  }}
+                  onClose={handleCloseEmailDetail}
+                />
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
                   <ResizablePanelGroup
