@@ -4,7 +4,13 @@ from unittest import mock
 
 import requests
 
-from app.decisions.contract import ReasonCode, TriageItem
+from app.decisions.contract import (
+    ACTION_CRITERIA,
+    IMPORTANCE_CRITERIA,
+    REASON_CRITERIA,
+    ReasonCode,
+    TriageItem,
+)
 from app.decisions.jev import JevDecisionProvider
 from app.decisions.settings import DecisionSettings, decision_settings, is_enabled
 
@@ -423,3 +429,75 @@ class PinnedDefaultTest(unittest.TestCase):
     def test_an_explicit_model_name_still_wins(self):
         with mock.patch.dict("os.environ", {"TYPESAFE_MODEL_NAME": "jev-1.14.0"}, clear=False):
             self.assertEqual("jev-1.14.0", decision_settings().model)
+
+
+class RubricPlacementTest(unittest.TestCase):
+    """The rubric is identical for every email, the state is ingested once per
+    request and the questions are not, and Jev bills by input token with no
+    prompt cache. Repeating the rubric inline made 86% of the body the same text
+    over and over."""
+
+    def test_the_rubric_text_is_sent_once_in_the_state(self):
+        session = _FakeSession()
+        _provider(session).decide_triage(_items(4))
+
+        rubrics = session.payloads[0]["state"]["rubrics"]
+        self.assertEqual(ACTION_CRITERIA, rubrics["action"])
+        self.assertEqual(REASON_CRITERIA, rubrics["reason"])
+
+    def test_a_choice_still_declares_its_options_but_carries_no_rubric_text(self):
+        session = _FakeSession()
+        _provider(session).decide_triage(_items(2))
+
+        action = session.payloads[0]["questions"]["action_e1"]
+        self.assertEqual(set(ACTION_CRITERIA), set(action["criteria"]))
+        self.assertEqual([None] * len(ACTION_CRITERIA), list(action["criteria"].values()))
+
+    def test_the_importance_rubric_stays_inline_because_the_gate_cuts_on_it(self):
+        """Moving this one into the state changed no answer but lowered
+        importance_confidence on the borderline cases, taking the dismissal
+        ceiling from 0.85 to 0.54. The other two axes are never executed."""
+        session = _FakeSession()
+        _provider(session).decide_triage(_items(1))
+
+        payload = session.payloads[0]
+        self.assertEqual(IMPORTANCE_CRITERIA, payload["questions"]["important_e0"]["criteria"])
+        self.assertNotIn("importance", payload["state"]["rubrics"])
+
+    def test_every_question_points_at_the_rubric_it_should_apply(self):
+        session = _FakeSession()
+        _provider(session).decide_triage(_items(1))
+
+        questions = session.payloads[0]["questions"]
+        for key, rubric in (
+            ("action_e0", "`rubrics.action`"),
+            ("reason_e0", "`rubrics.reason`"),
+        ):
+            with self.subTest(question=key):
+                self.assertIn(rubric, questions[key]["instructions"])
+
+    def test_rubric_text_appears_once_however_many_emails_are_in_the_batch(self):
+        session = _FakeSession()
+        _provider(session).decide_triage(_items(12))
+
+        body = json.dumps(session.payloads[0], ensure_ascii=False)
+        sample = ACTION_CRITERIA["needs_reply"]
+
+        self.assertEqual(1, body.count(sample))
+
+    def test_a_bigger_batch_no_longer_pays_for_the_rubric_per_email(self):
+        """Growth per email should be the email and its three question stubs, not
+        the rubric as well."""
+        sizes = {}
+        for count in (2, 12):
+            session = _FakeSession()
+            _provider(session).decide_triage(_items(count))
+            sizes[count] = len(json.dumps(session.payloads[0], ensure_ascii=False))
+
+        per_email = (sizes[12] - sizes[2]) / 10
+        rubric_chars = len(json.dumps(
+            {"action": ACTION_CRITERIA, "reason": REASON_CRITERIA, "importance": IMPORTANCE_CRITERIA},
+            ensure_ascii=False,
+        ))
+
+        self.assertLess(per_email, rubric_chars)

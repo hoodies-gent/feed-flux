@@ -91,10 +91,13 @@ class JevImportanceQuestionTest(unittest.TestCase):
         session = self._Session(noul=0.9)
         self._provider(session).decide_triage(self._item())
 
-        questions = session.payloads[0]["questions"]
+        payload = session.payloads[0]
+        questions = payload["questions"]
         self.assertEqual(1, len(session.payloads))
         self.assertIn("important_e0", questions)
         self.assertEqual("noul", questions["important_e0"]["type"])
+        # This rubric stays in the question: the gate cuts on the confidence it
+        # produces, and moving it into the state measurably blunted that.
         self.assertEqual(IMPORTANCE_CRITERIA, questions["important_e0"]["criteria"])
 
     def test_maps_a_high_noul_to_important_with_high_confidence(self):

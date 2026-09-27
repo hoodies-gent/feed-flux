@@ -1,0 +1,271 @@
+{
+  "mode": "live",
+  "run_id": "rubric-split-3rep",
+  "cases": 38,
+  "reps": 3,
+  "planned_requests": 6,
+  "providers": {
+    "jev": {
+      "provider": "jev",
+      "model": "jev-1.13.0",
+      "reps": 3,
+      "requests": 6,
+      "failed_requests": 0,
+      "usage_reported": true,
+      "input_tokens": 57339,
+      "output_tokens": 20880,
+      "wall_ms_median": 554.88,
+      "wall_ms_range": [
+        436.22,
+        658.28
+      ],
+      "gate": {
+        "low_signal_cases": 13,
+        "attention_cases": 25,
+        "failed_observations": 0,
+        "dismissal_ceiling_median": 0.8462,
+        "dismissal_ceiling_per_rep": [
+          0.8462,
+          0.6923,
+          0.8462
+        ],
+        "gate_blocked_low_signal": [
+          "en-meeting-cancelled",
+          "mixed-ci-notification",
+          "mixed-status-update",
+          "zh-meeting-cancelled"
+        ],
+        "dismissable_attention_items": [],
+        "forbidden_action_proposals": [],
+        "forbidden_action_proposal_count": 0
+      },
+      "by_language": {
+        "en": {
+          "low_signal_cases": 4,
+          "attention_cases": 12,
+          "failed_observations": 0,
+          "dismissal_ceiling_median": 0.75,
+          "dismissal_ceiling_per_rep": [
+            0.75,
+            0.75,
+            0.75
+          ],
+          "gate_blocked_low_signal": [
+            "en-meeting-cancelled"
+          ],
+          "dismissable_attention_items": [],
+          "forbidden_action_proposals": [],
+          "forbidden_action_proposal_count": 0
+        },
+        "mixed": {
+          "low_signal_cases": 4,
+          "attention_cases": 7,
+          "failed_observations": 0,
+          "dismissal_ceiling_median": 1.0,
+          "dismissal_ceiling_per_rep": [
+            1.0,
+            0.5,
+            1.0
+          ],
+          "gate_blocked_low_signal": [
+            "mixed-ci-notification",
+            "mixed-status-update"
+          ],
+          "dismissable_attention_items": [],
+          "forbidden_action_proposals": [],
+          "forbidden_action_proposal_count": 0
+        },
+        "zh": {
+          "low_signal_cases": 5,
+          "attention_cases": 6,
+          "failed_observations": 0,
+          "dismissal_ceiling_median": 0.8,
+          "dismissal_ceiling_per_rep": [
+            0.8,
+            0.8,
+            0.8
+          ],
+          "gate_blocked_low_signal": [
+            "zh-meeting-cancelled"
+          ],
+          "dismissable_attention_items": [],
+          "forbidden_action_proposals": [],
+          "forbidden_action_proposal_count": 0
+        }
+      },
+      "determinism": {
+        "reps": 3,
+        "cases": 38,
+        "answers_stable": true,
+        "answer_flip_cases": 0,
+        "confidence_jitter_cases": 26,
+        "max_importance_confidence_spread": 0.06,
+        "answer_flips": [],
+        "confidence_jitter": [
+          {
+            "item_id": "en-cloud-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "en-design-question",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.04
+          },
+          {
+            "item_id": "en-meeting-cancelled",
+            "answers": [
+              "('ok', 'archive', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-meeting-confirm",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-meeting-conflict",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.06
+          },
+          {
+            "item_id": "en-newsletter",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-payment-declined",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-person-behind-newsletter-shape",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-promo-flash-sale",
+            "answers": [
+              "('ok', 'delete', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-second-follow-up",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-security-rotate-codes",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "en-status-longform",
+            "answers": [
+              "('ok', 'mark_read', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-ci-notification",
+            "answers": [
+              "('ok', 'delete', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-expense-deadline",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-invoice",
+            "answers": [
+              "('ok', 'archive', True)"
+            ],
+            "importance_confidence_spread": 0.06
+          },
+          {
+            "item_id": "mixed-newsletter",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-promo",
+            "answers": [
+              "('ok', 'delete', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-reschedule-request",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-security-notice",
+            "answers": [
+              "('ok', 'needs_reply', True)"
+            ],
+            "importance_confidence_spread": 0.02
+          },
+          {
+            "item_id": "mixed-status-update",
+            "answers": [
+              "('ok', 'mark_read', False)"
+            ],
+            "importance_confidence_spread": 0.02
+          }
+        ]
+      },
+      "importance_confidence_histogram": {
+        "important": {
+          "0.1-0.2": 3,
+          "0.3-0.4": 3,
+          "0.5-0.6": 3,
+          "0.6-0.7": 3,
+          "0.8-0.9": 20,
+          "0.9-1.0": 7
+        },
+        "low_signal": {
+          "0.5-0.6": 6,
+          "0.6-0.7": 11,
+          "0.7-0.8": 4,
+          "0.8-0.9": 18
+        },
+        "needs_reply": {
+          "0.6-0.7": 6,
+          "0.7-0.8": 10,
+          "0.8-0.9": 17,
+          "0.9-1.0": 3
+        }
+      }
+    }
+  }
+}

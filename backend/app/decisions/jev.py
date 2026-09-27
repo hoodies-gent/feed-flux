@@ -163,24 +163,49 @@ class JevDecisionProvider:
                 "type": "choice",
                 "instructions": (
                     f"For the inbox email with ref '{ref}', which triage action should "
-                    "be proposed to the user?"
+                    "be proposed to the user? Apply the rubric in `rubrics.action`."
                 ),
-                "criteria": ACTION_CRITERIA,
+                # Option keys with null descriptions. `criteria` is required for a
+                # choice and is what defines the option set, but the rubric behind
+                # each option is identical for every email in the batch, so it is
+                # stated once in the state rather than repeated per question. The
+                # API documents null for an option that needs no extra detail.
+                "criteria": dict.fromkeys(ACTION_CRITERIA),
             }
             questions[f"reason_{ref}"] = {
                 "type": "choice",
                 "instructions": (
                     f"For the inbox email with ref '{ref}', which category best "
-                    "explains that classification?"
+                    "explains that classification? Apply the rubric in `rubrics.reason`."
                 ),
-                "criteria": REASON_CRITERIA,
+                "criteria": dict.fromkeys(REASON_CRITERIA),
             }
             questions[f"important_{ref}"] = {
+                # This rubric stays inline, unlike the other two. Moving it into
+                # the state left every answer unchanged but made Jev measurably
+                # less certain: importance_confidence fell on the borderline
+                # cases, cases under the gate threshold went from 14 to 16 of 38,
+                # and the dismissal ceiling dropped from 0.85 to 0.54. The gate
+                # cuts on this confidence, so this is the one axis where the
+                # rubric has to sit where it sharpens the distribution.
                 "type": "noul",
                 "instructions": f"For the inbox email with ref '{ref}': {IMPORTANCE_QUESTION}",
                 "criteria": IMPORTANCE_CRITERIA,
             }
-        return {"model": self.settings.model, "state": {"emails": state}, "questions": questions}
+        return {
+            "model": self.settings.model,
+            # The action and reason rubrics ride along with the emails because the
+            # state is ingested once per request while questions are not: repeating
+            # them inline made 86% of the request body the same text over and over,
+            # and Jev bills by input token with no prompt cache. Neither answer is
+            # ever executed — the plan only proposes mark_read — so they are the
+            # two axes that can afford the weaker placement.
+            "state": {
+                "emails": state,
+                "rubrics": {"action": ACTION_CRITERIA, "reason": REASON_CRITERIA},
+            },
+            "questions": questions,
+        }
 
     def _post(self, payload: dict) -> dict:
         url = f"{self.settings.base_url}/v1/systemone"
