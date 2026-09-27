@@ -108,10 +108,12 @@ class ListInboxEmailsInput(BaseModel):
     scope: Literal["unread", "recent"] = Field(
         description="Which inbox view to list: unread messages or recent messages.",
     )
-    purpose: Literal["summary", "triage"] = Field(
+    purpose: Literal["overview", "attention", "triage"] = Field(
         description=(
-            "Why the listing is needed. Summary remains read-only; triage may be "
-            "followed by one apply_triage_batch call."
+            "The user's goal: overview for situational awareness, attention for "
+            "prioritizing likely next actions, or triage for a batch classification plan. "
+            "Overview and attention are read-only; triage may be followed by one "
+            "apply_triage_batch call."
         ),
     )
     limit: int = Field(
@@ -125,10 +127,10 @@ class ListInboxEmailsInput(BaseModel):
 @tool("list_inbox_emails", args_schema=ListInboxEmailsInput)
 def list_inbox_emails(
     scope: Literal["unread", "recent"],
-    purpose: Literal["summary", "triage"],
+    purpose: Literal["overview", "attention", "triage"],
     limit: int = 20,
 ) -> dict:
-    """List a bounded read-only inbox view for summaries or batch triage."""
+    """List a bounded inbox view for overview, attention finding, or batch triage."""
     rows = DatabaseService().get_inbox_emails(scope=scope, limit=limit)
     emails = [
         {

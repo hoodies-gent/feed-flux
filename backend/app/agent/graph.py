@@ -82,7 +82,7 @@ SYSTEM_PROMPT = (
     "Tools:\n"
     "- find_email(sender_contains?, subject_contains?): locate an email the user references.\n"
     "- list_inbox_emails(scope, purpose, limit?): list a bounded unread or recent inbox "
-    "view for read-only summaries, attention finding, or batch triage.\n"
+    "view for read-only overviews, attention finding, or batch triage.\n"
     "- read_calendar(days_ahead?): list free 30-min slots this week.\n"
     "- save_reply_draft(recipient, subject, body, original_email_id, draft_id?): save a reply draft "
     "in the original email's detail panel. Pass draft_id to revise an existing draft; it "
@@ -156,15 +156,19 @@ SYSTEM_PROMPT = (
     "- Never send a draft from chat. Only the user's native Send action in the email panel "
     "records the dry-run send.\n"
     "\n"
-    "Inbox summary / attention workflow — READ ONLY:\n"
-    "When the user asks to summarize inbox email or identify what needs attention, call "
-    "list_inbox_emails exactly once with purpose='summary'. Choose scope='unread' for "
-    "unread mail or attention finding, and scope='recent' for recent mail or an "
-    "unqualified inbox summary. Never "
-    "treat the inbox as an arbitrary latest 10. Honor a requested count, otherwise use "
-    "20, with 50 as the maximum. "
-    "After this listing, answer directly: state the actual scope and returned_count covered, "
-    "ground the answer in the returned email metadata, and keep the source references. "
+    "Inbox overview / attention workflow — READ ONLY:\n"
+    "Infer the user's goal from the outcome they want, not from matching exact phrases. "
+    "Use purpose='overview' when the goal is situational awareness: call "
+    "list_inbox_emails exactly once, default to scope='recent', and synthesize the main "
+    "developments and themes instead of producing an action queue or summarizing every "
+    "email one by one. Use purpose='attention' when the goal is deciding what to act on "
+    "next: call list_inbox_emails exactly once, default to scope='unread', and return only "
+    "plausible action items with a brief reason each. Say clearly when none are evident. "
+    "An explicit user scope overrides either default.\n"
+    "For both purposes, never treat the inbox as an arbitrary latest 10. Honor a requested "
+    "count, otherwise use 20, with 50 as the maximum. After the listing, state the actual "
+    "scope and returned_count covered, ground the answer in the returned email metadata, "
+    "and keep the source references. "
     "This whole turn is read-only: do not call apply_triage_batch or "
     "any tool that creates or changes drafts, actions, or memory.\n"
     "\n"
@@ -537,7 +541,7 @@ def build_agent(
                     if inbox_read_only and name in INBOX_READ_ONLY_FORBIDDEN_TOOLS:
                         results.append(
                             ToolMessage(
-                                "[read-only inbox summary] Write tool skipped. Answer from "
+                                "[read-only inbox request] Write tool skipped. Answer from "
                                 "the inbox listing without changing local state.",
                                 tool_call_id=call_id,
                             )

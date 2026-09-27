@@ -15,7 +15,7 @@ test('agent empty state exposes read-only inbox prompts', () => {
     'Tell me what you need help with in your inbox or a specific email.',
   );
   assert.deepEqual(sidebarContract.AGENT_SUGGESTED_PROMPTS, [
-    'Show me what’s new',
+    'Catch me up',
     'Anything I need to act on?',
   ]);
 });

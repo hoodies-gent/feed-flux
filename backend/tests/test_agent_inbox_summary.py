@@ -30,7 +30,7 @@ class _SummaryThenWriteModel:
                     "name": "list_inbox_emails",
                     "args": {
                         "scope": "unread",
-                        "purpose": "summary",
+                        "purpose": "overview",
                         "limit": 1,
                     },
                     "id": "summary-listing",
@@ -85,7 +85,7 @@ class _SummaryModel:
                     "name": "list_inbox_emails",
                     "args": {
                         "scope": "recent",
-                        "purpose": "summary",
+                        "purpose": "overview",
                         "limit": 2,
                     },
                     "id": "recent-summary-listing",
@@ -112,7 +112,7 @@ class _RepeatedSummaryModel:
                         "name": "list_inbox_emails",
                         "args": {
                             "scope": "unread",
-                            "purpose": "summary",
+                            "purpose": "overview",
                             "limit": 5,
                         },
                         "id": "summary-listing-first",
@@ -122,7 +122,7 @@ class _RepeatedSummaryModel:
                         "name": "list_inbox_emails",
                         "args": {
                             "scope": "unread",
-                            "purpose": "summary",
+                            "purpose": "overview",
                             "limit": 5,
                         },
                         "id": "summary-listing-duplicate",
@@ -212,7 +212,7 @@ class InboxListingToolTest(unittest.TestCase):
             with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
                 result = agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
                     "scope": "unread",
-                    "purpose": "summary",
+                    "purpose": "overview",
                     "limit": 1,
                 })
             database.engine.dispose()
@@ -220,7 +220,7 @@ class InboxListingToolTest(unittest.TestCase):
         self.assertEqual(
             {
                 "scope": "unread",
-                "purpose": "summary",
+                "purpose": "overview",
                 "limit": 1,
                 "returned_count": 1,
                 "emails": [{
@@ -259,7 +259,7 @@ class InboxListingToolTest(unittest.TestCase):
             with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
                 result = agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
                     "scope": "recent",
-                    "purpose": "summary",
+                    "purpose": "overview",
                     "limit": 10,
                 })
             database.engine.dispose()
@@ -271,6 +271,34 @@ class InboxListingToolTest(unittest.TestCase):
             [email["email_id"] for email in result["emails"]],
         )
 
+    def test_attention_purpose_returns_bounded_unread_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            database.insert_email({
+                "id": "attention-email",
+                "subject": "Decision needed",
+                "sender_name": "Fixture Sender",
+                "sender_email": "fixture@example.com",
+                "received_datetime": 100,
+                "body_preview": "Please confirm the launch date.",
+                "is_read": False,
+            })
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                result = agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
+                    "scope": "unread",
+                    "purpose": "attention",
+                    "limit": 1,
+                })
+            database.engine.dispose()
+
+        self.assertEqual("unread", result["scope"])
+        self.assertEqual("attention", result["purpose"])
+        self.assertEqual(1, result["limit"])
+        self.assertEqual(1, result["returned_count"])
+        self.assertEqual("attention-email", result["emails"][0]["email_id"])
+
     def test_empty_scope_returns_explicit_zero_coverage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "emails.db")
@@ -279,7 +307,7 @@ class InboxListingToolTest(unittest.TestCase):
             with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
                 result = agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
                     "scope": "unread",
-                    "purpose": "summary",
+                    "purpose": "overview",
                     "limit": 20,
                 })
             database.engine.dispose()
@@ -287,7 +315,7 @@ class InboxListingToolTest(unittest.TestCase):
         self.assertEqual(
             {
                 "scope": "unread",
-                "purpose": "summary",
+                "purpose": "overview",
                 "limit": 20,
                 "returned_count": 0,
                 "emails": [],
@@ -299,8 +327,16 @@ class InboxListingToolTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
                 "scope": "unread",
-                "purpose": "summary",
+                "purpose": "overview",
                 "limit": 51,
+            })
+
+    def test_legacy_summary_purpose_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            agent_tools.TOOLS_BY_NAME["list_inbox_emails"].invoke({
+                "scope": "recent",
+                "purpose": "summary",
+                "limit": 20,
             })
 
 
