@@ -15,6 +15,7 @@ import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -28,6 +29,7 @@ import {
 import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
 import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
+import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -1257,21 +1259,26 @@ export default function Home() {
   }
 
   const chatComposer = (
-    <div className="shrink-0 border-t border-border bg-card p-4">
-      <form onSubmit={handleSendChatMessage} className="relative flex items-center">
-        <Input
+    <div className="shrink-0 bg-card p-3">
+      <form onSubmit={handleSendChatMessage} className="relative">
+        <Textarea
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
+          onKeyDown={(event) => {
+            if (!shouldSubmitChatInput(event)) return;
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }}
           disabled={isSendingChat}
           placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
-          className="w-full rounded-full pr-12 shadow-sm"
+          className="min-h-11 max-h-40 resize-none rounded-md pb-9 pr-12 shadow-sm"
         />
         <Button
           type="submit"
           disabled={!chatInput.trim() || isSendingChat}
           size="icon"
           variant="ghost"
-          className="absolute right-1 h-8 w-8 rounded-full text-primary"
+          className="absolute bottom-2 right-2 h-8 w-8 rounded-md text-primary"
         >
           <Send className="h-4 w-4" />
         </Button>

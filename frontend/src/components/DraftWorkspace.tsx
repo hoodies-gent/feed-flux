@@ -781,7 +781,7 @@ export function DraftWorkspace({
                       onScroll={(event) => handleTextareaScroll(draft.id, event)}
                       rows={8}
                       disabled={busy}
-                      className="relative z-10 resize-y bg-transparent text-sm"
+                      className="relative z-10 resize-none bg-transparent text-sm"
                     />
                   </div>
                 ) : (
