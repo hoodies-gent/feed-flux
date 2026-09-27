@@ -116,7 +116,7 @@ export function AgentSidebar({
   return (
     <aside
       id="assistant-panel"
-      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm ${isOpen ? 'min-w-0' : 'w-9 shrink-0'}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm ${isOpen ? 'min-w-0' : 'w-9 shrink-0'}`}
     >
       {layout.showContent && (
         <div id="assistant-content" className="flex min-w-0 flex-1 flex-col">

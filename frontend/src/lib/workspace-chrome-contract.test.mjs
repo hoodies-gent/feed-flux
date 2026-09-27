@@ -39,6 +39,6 @@ test('email detail AI action retains an accessible contextual label', () => {
   assert.equal(workspaceChromeContract.EMAIL_AI_ACTION_LABEL, 'Ask AI about this email');
 });
 
-test('collapsed assistant uses the same eight-pixel gutter as resizable panels', () => {
-  assert.equal(workspaceChromeContract.WORKSPACE_PANEL_GAP_CLASS, 'gap-2');
+test('collapsed assistant uses the same six-pixel gutter as horizontal panels', () => {
+  assert.equal(workspaceChromeContract.WORKSPACE_PANEL_GAP_CLASS, 'gap-1.5');
 });

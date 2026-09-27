@@ -24,8 +24,8 @@ export function WorkspaceShell({
   onLayoutChanged,
 }: WorkspaceShellProps) {
   return (
-    <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
+    <div className="h-screen overflow-hidden bg-background p-1.5 font-[family-name:var(--font-geist-sans)]">
+      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-1.5">
         {header}
         <div className={`flex min-h-0 flex-1 ${WORKSPACE_PANEL_GAP_CLASS}`}>
           <ResizablePanelGroup

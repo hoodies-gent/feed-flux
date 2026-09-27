@@ -1435,7 +1435,7 @@ export default function Home() {
             minSize="22%"
             maxSize="50%"
           >
-            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
 
           {isRefreshingFeed && (
             <div className="shrink-0 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
@@ -1580,7 +1580,7 @@ export default function Home() {
           </div>
             </main>
           </ResizablePanel>
-          <ResizableHandle id="feed-detail-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
+          <ResizableHandle id="feed-detail-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
 
         {/* Right column: Email reading pane (master-detail) */}
         <ResizablePanel
@@ -1589,7 +1589,7 @@ export default function Home() {
           minSize="32%"
           maxSize="72%"
         >
-          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
             {emailDetailData || isLoadingDetail ? (
               <>
                 <EmailDetailHeader
@@ -1720,7 +1720,7 @@ export default function Home() {
             )}
           </section>
         </ResizablePanel>
-        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
+        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
         {isChatOpen && (
           <ResizablePanel
             id="chat-panel"
