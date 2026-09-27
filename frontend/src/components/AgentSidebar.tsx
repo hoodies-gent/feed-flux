@@ -119,7 +119,7 @@ export function AgentSidebar({
       className={`flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm ${isOpen ? 'min-w-0' : 'w-9 shrink-0'}`}
     >
       {layout.showContent && (
-        <div id="assistant-content" className="flex min-w-0 flex-1 flex-col">
+        <div id="assistant-content" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3">
             <div className="flex items-center gap-2">
               <div className="rounded-md bg-muted p-1.5">
@@ -176,7 +176,7 @@ export function AgentSidebar({
             </div>
           )}
 
-          <div className="relative flex-1 overflow-y-auto p-5">
+          <div className="relative min-h-0 flex-1 overflow-y-auto p-5">
             <div className="space-y-6 pb-2">
               {hasMessages ? children : (
                 <EmptyAgentState isSending={isSending} onSuggestion={onSuggestion} />
