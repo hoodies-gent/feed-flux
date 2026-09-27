@@ -26,6 +26,7 @@ import {
   saveWorkspacePreferences,
 } from '@/lib/workspace-preferences.mjs';
 import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
+import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -1136,27 +1137,6 @@ export default function Home() {
   };
 
   /**
-   * Format timestamp to precise datetime string
-   * Example: "2026-02-15 17:14:23"
-   */
-  const formatDateTime = (timestamp: number) => {
-    try {
-      const date = new Date(timestamp * 1000);
-      return date.toLocaleString('en-CA', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).replace(',', '');
-    } catch {
-      return new Date(timestamp * 1000).toLocaleString();
-    }
-  };
-
-  /**
    * Generate AI summary for a specific email
    */
   const handleSummarize = async (item: FeedItem) => {
@@ -1579,7 +1559,7 @@ export default function Home() {
                               )}
                               {summary.generated_at && (
                                 <span className="text-xs text-muted-foreground ml-auto">
-                                  Last generated: {formatDateTime(summary.generated_at)}
+                                  Last generated: {formatEmailDateTime(summary.generated_at)}
                                 </span>
                               )}
                             </div>
@@ -1611,7 +1591,7 @@ export default function Home() {
                   avatar={detailAvatar}
                   detail={emailDetailData}
                   isLoading={isLoadingDetail}
-                  receivedAt={emailDetailData ? formatDateTime(emailDetailData.received_datetime) : undefined}
+                  receivedAt={emailDetailData ? formatEmailDateTime(emailDetailData.received_datetime) : undefined}
                   onAskAI={() => {
                     if (emailDetailData) handleAskAiAboutEmail(emailDetailData);
                   }}
