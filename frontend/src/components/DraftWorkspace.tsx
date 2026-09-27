@@ -521,15 +521,15 @@ export function DraftWorkspace({
   };
 
   return (
-      <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full w-full min-w-0 flex-col gap-3 overflow-y-auto p-6">
+      <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full w-full min-w-0 flex-col gap-2.5 overflow-y-auto p-4">
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Pencil className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Reply</h3>
+          <Pencil className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Reply</h3>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           {drafts.length === 0 && !isDrafting && (
-            <Button size="sm" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
+            <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
               <Pencil className="h-3.5 w-3.5" /> Reply
             </Button>
           )}
@@ -538,7 +538,7 @@ export function DraftWorkspace({
             size="sm"
             onClick={() => setShowAiTools((visible) => !visible)}
             disabled={isDrafting}
-            className="transition-all hover:bg-accent hover:shadow-md"
+            className="h-7 px-2 text-xs transition-all hover:bg-accent hover:shadow-md"
           >
             <Sparkles className="h-3.5 w-3.5" /> {showAiTools ? 'Hide AI' : 'Help me write'}
           </Button>
@@ -546,26 +546,26 @@ export function DraftWorkspace({
       </div>
 
       {showAiTools && (
-        <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-2.5">
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Help me write
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {intents.map((intent) => (
-              <Button key={intent.prompt} variant="outline" size="sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
+              <Button key={intent.prompt} variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
                 {intent.label}
               </Button>
             ))}
-            <div className="flex min-w-[200px] flex-1 gap-2">
+            <div className="flex min-w-[200px] flex-1 gap-1.5">
               <Input
                 placeholder={editingDraftId ? 'Ask AI to revise this draft...' : 'Or type custom instructions...'}
                 value={customPrompt}
                 onChange={(event) => setCustomPrompt(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && void requestDraft('Follow custom instructions')}
-                className="h-9 bg-background"
+                className="h-8 bg-background text-xs"
                 disabled={isDrafting}
               />
-              <Button variant="outline" size="sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
+              <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
                 Generate
               </Button>
             </div>
@@ -574,7 +574,7 @@ export function DraftWorkspace({
       )}
 
       {isDrafting && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Drafting in the email workflow...
         </div>
       )}
@@ -584,9 +584,9 @@ export function DraftWorkspace({
           No active drafts for this email.
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {drafts.length > 0 && (
-            <div className="text-xs text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground">
               AI actions revise this saved draft instead of creating another version.
             </div>
           )}
@@ -599,14 +599,14 @@ export function DraftWorkspace({
                 ? { start: recentChange.start, end: recentChange.end, recent: true }
                 : null;
             return (
-              <div key={draft.id} className="rounded-lg border border-border bg-background p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">
+              <div key={draft.id} className="rounded-lg border border-border bg-background p-2.5 shadow-sm">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">
                     Edited {formatDraftTime(draft.updated_at)}
                   </span>
                   <div className="flex items-center gap-1">
                     {undoState?.draftId === draft.id && (
-                      <Button variant="ghost" size="sm" onClick={() => void handleUndo(draft.id)} disabled={busy}>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleUndo(draft.id)} disabled={busy}>
                         <Undo2 className="h-3.5 w-3.5" /> Undo
                       </Button>
                     )}
@@ -614,6 +614,7 @@ export function DraftWorkspace({
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="h-7 px-2 text-xs"
                         onClick={() => {
                           setEditingDraftId(draft.id);
                           onDraftFocus?.(draft.id);
@@ -623,10 +624,10 @@ export function DraftWorkspace({
                         <Pencil className="h-3.5 w-3.5" /> Edit
                       </Button>
                     )}
-                    <Button variant="ghost" size="sm" onClick={() => void handleDiscard(draft.id)} disabled={busy}>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleDiscard(draft.id)} disabled={busy}>
                       <Trash2 className="h-3.5 w-3.5" /> Discard
                     </Button>
-                    <Button size="sm" onClick={() => void handleSend(draft.id)} disabled={busy}>
+                    <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void handleSend(draft.id)} disabled={busy}>
                       <Send className="h-3.5 w-3.5" /> Send
                     </Button>
                   </div>
