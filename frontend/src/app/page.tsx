@@ -30,7 +30,7 @@ import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mj
 import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
-import { getReplyDraftId } from '@/lib/draft-reply-state.mjs';
+import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -746,6 +746,34 @@ export default function Home() {
   const detailAvatar = emailDetailData
     ? getAvatarPresentation(emailDetailData.sender || emailDetailData.sender_email)
     : null;
+  const activeDraftRefreshToken = activeEmailId
+    ? (draftRefreshByEmailId[activeEmailId] ?? 0)
+    : 0;
+  const showDraftPane = shouldShowDraftPane(draftsByEmailId);
+
+  useEffect(() => {
+    if (!activeEmailId) return;
+
+    let cancelled = false;
+    void getEmailDrafts(activeEmailId)
+      .then((drafts) => {
+        if (cancelled) return;
+        setDraftsByEmailId((current) => {
+          if (drafts.length > 0) return { ...current, [activeEmailId]: drafts };
+          if (!(activeEmailId in current)) return current;
+          const next = { ...current };
+          delete next[activeEmailId];
+          return next;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Failed to load reply drafts.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEmailId, activeDraftRefreshToken]);
 
   useEffect(() => {
     const preferences = loadWorkspacePreferences(window.localStorage);
@@ -1294,6 +1322,31 @@ export default function Home() {
     );
   }
 
+  const emailBodyContent = (
+    <div className="flex-1 overflow-y-auto w-full p-6">
+      {isLoadingDetail ? (
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-[95%]" />
+          <Skeleton className="h-4 w-[90%]" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-[85%]" />
+          <Skeleton className="h-4 w-[90%]" />
+        </div>
+      ) : emailDetailData ? (
+        <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
+          {emailDetailData.body_html ? (
+            <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
+          ) : (
+            <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
+          )}
+        </div>
+      ) : (
+        <div className="text-center text-destructive">Failed to load email content.</div>
+      )}
+    </div>
+  );
+
   const chatComposer = (
     <div className="shrink-0 bg-card p-3">
       <form onSubmit={handleSendChatMessage} className="relative">
@@ -1648,6 +1701,7 @@ export default function Home() {
                 />
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
+                  {showDraftPane ? (
                   <ResizablePanelGroup
                     id="email-detail-group"
                     orientation="vertical"
@@ -1663,28 +1717,7 @@ export default function Home() {
                 minSize="45%"
                 className="bg-background flex flex-col relative pb-4"
               >
-                <div className="flex-1 overflow-y-auto w-full p-6">
-                  {isLoadingDetail ? (
-                    <div className="space-y-4">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-[95%]" />
-                      <Skeleton className="h-4 w-[90%]" />
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-[85%]" />
-                      <Skeleton className="h-4 w-[90%]" />
-                    </div>
-                  ) : emailDetailData ? (
-                    <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
-                      {emailDetailData.body_html ? (
-                        <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
-                      ) : (
-                        <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center text-destructive">Failed to load email content.</div>
-                  )}
-                </div>
+                {emailBodyContent}
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
@@ -1750,6 +1783,11 @@ export default function Home() {
                 )}
               </ResizablePanel>
                   </ResizablePanelGroup>
+                  ) : (
+                    <div className="flex min-h-0 w-full flex-1 flex-col bg-background pb-4">
+                      {emailBodyContent}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (

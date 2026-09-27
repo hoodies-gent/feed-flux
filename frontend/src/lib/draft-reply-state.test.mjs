@@ -21,3 +21,9 @@ test('reply falls back to an existing draft instead of creating another', () => 
 test('reply requests creation only when no draft exists', () => {
   assert.equal(draftReplyState.getReplyDraftId([], null), null);
 });
+
+test('draft pane visibility follows whether any actionable draft exists', () => {
+  assert.equal(draftReplyState.shouldShowDraftPane({}), false);
+  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [] }), false);
+  assert.equal(draftReplyState.shouldShowDraftPane({ email1: [], email2: [{ id: 4 }] }), true);
+});
