@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { RecipientField } from '@/components/RecipientField';
 import {
   askAgentStream,
   createReplyDraft,
@@ -69,6 +70,7 @@ export function DraftWorkspace({
   const [isCreatingManualDraft, setIsCreatingManualDraft] = useState(false);
   const [showAiTools, setShowAiTools] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
+  const [pendingRecipients, setPendingRecipients] = useState<Record<number, boolean>>({});
   const workspaceRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -174,6 +176,7 @@ export function DraftWorkspace({
     setRecentChangeFading(false);
     clearUndo();
     setShowAiTools(false);
+    setPendingRecipients({});
     if (recentChangeTimerRef.current !== null) {
       window.clearTimeout(recentChangeTimerRef.current);
       recentChangeTimerRef.current = null;
@@ -235,6 +238,11 @@ export function DraftWorkspace({
     setIsDrafting(true);
     const target = senderEmail ? `${sender} <${senderEmail}>` : sender;
     const currentDraft = drafts.find((draft) => draft.id === editingDraftId) ?? drafts[0];
+    if (currentDraft && !currentDraft.recipient.trim()) {
+      setIsDrafting(false);
+      toast.error('A recipient is required.');
+      return;
+    }
     const prompt = currentDraft ? [
       `Revise existing draft ${currentDraft.id} for the email with id "${emailId}".`,
       `Find the email from ${target} with subject "${subject}" and use that exact email id when calling save_reply_draft.`,
@@ -267,6 +275,13 @@ export function DraftWorkspace({
     };
 
     try {
+      if (currentDraft) {
+        await updateDraft(currentDraft.id, {
+          body: currentDraft.body,
+          recipient: currentDraft.recipient,
+          subject: currentDraft.subject,
+        });
+      }
       await askAgentStream(crypto.randomUUID(), prompt, callbacks);
     } catch {
       setIsDrafting(false);
@@ -294,8 +309,34 @@ export function DraftWorkspace({
     const existing = saveTimers.current[draftId];
     if (existing) clearTimeout(existing);
     saveTimers.current[draftId] = setTimeout(() => {
-      void updateDraft(draftId, body).catch(() => toast.error('Draft autosave failed.'));
+      void updateDraft(draftId, { body }).catch(() => toast.error('Draft autosave failed.'));
     }, 600);
+  };
+
+  const handleMetadataChange = (
+    draftId: number,
+    field: 'recipient' | 'subject',
+    value: string,
+  ) => {
+    setDrafts((current) => current.map((draft) => draft.id === draftId ? {
+      ...draft,
+      [field]: value,
+    } : draft));
+  };
+
+  const persistDraftMetadata = async (
+    draftId: number,
+    updates: { recipient?: string; subject?: string },
+  ) => {
+    try {
+      const saved = await updateDraft(draftId, updates);
+      setDrafts((current) => current.map((item) => item.id === draftId ? {
+        ...item,
+        updated_at: saved.updated_at,
+      } : item));
+    } catch {
+      toast.error('Draft autosave failed.');
+    }
   };
 
   const handleManualReply = async () => {
@@ -379,10 +420,18 @@ export function DraftWorkspace({
 
   const requestSelectionRewrite = async (draft: DraftReply) => {
     if (!selection || selection.draftId !== draft.id || !selectionPrompt.trim()) return;
+    if (!draft.recipient.trim()) {
+      toast.error('A recipient is required.');
+      return;
+    }
     setBusyDraftId(draft.id);
     setSelectionNotice(null);
     try {
-      await updateDraft(draft.id, draft.body);
+      await updateDraft(draft.id, {
+        body: draft.body,
+        recipient: draft.recipient,
+        subject: draft.subject,
+      });
       const target = senderEmail ? `${sender} <${senderEmail}>` : sender;
       const prompt = [
         `Rewrite only the selected text in draft ${draft.id} for the email with id "${emailId}".`,
@@ -470,7 +519,7 @@ export function DraftWorkspace({
     if (!undoState || undoState.draftId !== draftId) return;
     setBusyDraftId(draftId);
     try {
-      const restored = await updateDraft(draftId, undoState.body);
+      const restored = await updateDraft(draftId, { body: undoState.body });
       setDrafts((current) => current.map((draft) => draft.id === draftId ? restored : draft));
       clearUndo();
       setRecentChange(null);
@@ -482,14 +531,23 @@ export function DraftWorkspace({
     }
   };
 
-  const handleSend = async (draftId: number) => {
-    setBusyDraftId(draftId);
+  const handleSend = async (draft: DraftReply) => {
+    if (!draft.recipient.trim()) {
+      toast.error('A recipient is required.');
+      return;
+    }
+    setBusyDraftId(draft.id);
     try {
-      await sendDraft(draftId);
-      if (undoState?.draftId === draftId) clearUndo();
-      setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
-      if (editingDraftId === draftId) {
+      await updateDraft(draft.id, {
+        body: draft.body,
+        recipient: draft.recipient.trim(),
+        subject: draft.subject,
+      });
+      await sendDraft(draft.id);
+      if (undoState?.draftId === draft.id) clearUndo();
+      setDrafts((current) => current.filter((item) => item.id !== draft.id));
+      onDraftsChange?.(drafts.filter((item) => item.id !== draft.id));
+      if (editingDraftId === draft.id) {
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
@@ -627,10 +685,38 @@ export function DraftWorkspace({
                     <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleDiscard(draft.id)} disabled={busy}>
                       <Trash2 className="h-3.5 w-3.5" /> Discard
                     </Button>
-                    <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void handleSend(draft.id)} disabled={busy}>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => void handleSend(draft)}
+                      disabled={busy || !draft.recipient.trim() || pendingRecipients[draft.id]}
+                    >
                       <Send className="h-3.5 w-3.5" /> Send
                     </Button>
                   </div>
+                </div>
+                <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-muted/30 px-2.5 py-2 text-xs">
+                  <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-recipient`}>To</label>
+                  <RecipientField
+                    id={`draft-${draft.id}-recipient`}
+                    value={draft.recipient}
+                    disabled={busy}
+                    onChange={(value) => handleMetadataChange(draft.id, 'recipient', value)}
+                    onCommit={(value) => void persistDraftMetadata(draft.id, { recipient: value })}
+                    onPendingChange={(pending) => setPendingRecipients((current) => ({
+                      ...current,
+                      [draft.id]: pending,
+                    }))}
+                  />
+                  <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-subject`}>Subject</label>
+                  <Input
+                    id={`draft-${draft.id}-subject`}
+                    value={draft.subject}
+                    onChange={(event) => handleMetadataChange(draft.id, 'subject', event.target.value)}
+                    onBlur={(event) => void persistDraftMetadata(draft.id, { subject: event.currentTarget.value })}
+                    disabled={busy}
+                    className="h-7 min-w-0 border-0 bg-transparent px-2 text-xs shadow-none focus-visible:ring-1"
+                  />
                 </div>
                 {editing ? (
                   <div className="relative rounded-md bg-muted/20">

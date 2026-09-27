@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 import json
 import logging
@@ -71,7 +71,15 @@ class DraftRequest(BaseModel):
     custom_prompt: Optional[str] = None
 
 class DraftUpdateRequest(BaseModel):
-    body: str
+    body: Optional[str] = None
+    recipient: Optional[str] = None
+    subject: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if self.body is None and self.recipient is None and self.subject is None:
+            raise ValueError("At least one draft field is required")
+        return self
 
 class ConfigSetupRequest(BaseModel):
     google_api_key: str
@@ -382,9 +390,9 @@ def _draft_mutation_error(error: ValueError) -> HTTPException:
 
 @app.patch("/api/drafts/{draft_id}")
 async def update_draft(draft_id: int, request: DraftUpdateRequest):
-    """Persist edits to an active draft body."""
+    """Persist partial edits to an active draft."""
     try:
-        return db.update_draft(draft_id, request.body)
+        return db.update_draft(draft_id, **request.model_dump(exclude_none=True))
     except ValueError as e:
         raise _draft_mutation_error(e)
     except Exception as e:

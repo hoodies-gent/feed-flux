@@ -251,11 +251,17 @@ export async function createReplyDraft(emailId: string): Promise<DraftReply> {
     return response.json();
 }
 
-export async function updateDraft(draftId: number, body: string): Promise<DraftReply> {
+export interface DraftUpdate {
+    body?: string;
+    recipient?: string;
+    subject?: string;
+}
+
+export async function updateDraft(draftId: number, updates: DraftUpdate): Promise<DraftReply> {
     const response = await fetch(`/api/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(updates),
     });
     if (!response.ok) {
         throw new Error(`Failed to update draft: ${response.statusText}`);

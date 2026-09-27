@@ -151,6 +151,18 @@ class DraftServiceTest(unittest.TestCase):
             session.close()
         self.assertEqual([], self.db.get_drafts_for_email("email-a"))
 
+    def test_send_draft_rejects_an_empty_recipient(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "",
+            "subject": "Re: Weekly sync",
+            "body": "Not ready to send.",
+        })
+
+        with self.assertRaisesRegex(ValueError, "recipient is required"):
+            self.db.send_draft(draft_id)
+
     def test_sent_draft_cannot_be_sent_twice(self):
         draft_id = self.db.create_draft({
             "thread_id": "thread-a",

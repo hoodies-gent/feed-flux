@@ -272,7 +272,13 @@ class DatabaseService:
         finally:
             session.close()
 
-    def update_draft(self, draft_id: int, body: str) -> dict:
+    def update_draft(
+        self,
+        draft_id: int,
+        body: str | None = None,
+        recipient: str | None = None,
+        subject: str | None = None,
+    ) -> dict:
         """Persist edits to an active draft."""
         session = self.Session()
         try:
@@ -281,7 +287,12 @@ class DatabaseService:
                 raise ValueError(f"draft not found: {draft_id!r}")
             if draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
-            draft.body = body
+            if body is not None:
+                draft.body = body
+            if recipient is not None:
+                draft.recipient = recipient
+            if subject is not None:
+                draft.subject = subject
             session.commit()
             session.refresh(draft)
             return self._draft_to_dict(draft)
@@ -353,6 +364,8 @@ class DatabaseService:
                 raise ValueError(f"draft not found: {draft_id!r}")
             if draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
+            if not draft.recipient.strip():
+                raise ValueError("draft recipient is required")
             action = SentAction(
                 thread_id=draft.thread_id,
                 original_email_id=draft.email_id,
