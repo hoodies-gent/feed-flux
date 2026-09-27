@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { RecipientField } from '@/components/RecipientField';
+import { getDraftDiscardMode } from '@/lib/draft-discard-state.mjs';
 import {
   askAgentStream,
   createReplyDraft,
@@ -70,6 +71,7 @@ export function DraftWorkspace({
   const [isCreatingManualDraft, setIsCreatingManualDraft] = useState(false);
   const [showAiTools, setShowAiTools] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
+  const [confirmingDiscardId, setConfirmingDiscardId] = useState<number | null>(null);
   const [pendingRecipients, setPendingRecipients] = useState<Record<number, boolean>>({});
   const workspaceRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -176,6 +178,7 @@ export function DraftWorkspace({
     setRecentChangeFading(false);
     clearUndo();
     setShowAiTools(false);
+    setConfirmingDiscardId(null);
     setPendingRecipients({});
     if (recentChangeTimerRef.current !== null) {
       window.clearTimeout(recentChangeTimerRef.current);
@@ -566,11 +569,11 @@ export function DraftWorkspace({
       if (undoState?.draftId === draftId) clearUndo();
       setDrafts((current) => current.filter((draft) => draft.id !== draftId));
       onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
+      setConfirmingDiscardId(null);
       if (editingDraftId === draftId) {
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
-      toast.success('Draft discarded.');
     } catch {
       toast.error('Failed to discard draft.');
     } finally {
@@ -651,6 +654,7 @@ export function DraftWorkspace({
           {drafts.map((draft) => {
             const editing = editingDraftId === draft.id;
             const busy = busyDraftId === draft.id;
+            const discardMode = getDraftDiscardMode(confirmingDiscardId, draft.id);
             const highlight = selection?.draftId === draft.id
               ? { start: selection.start, end: selection.end, recent: false }
               : recentChange?.draftId === draft.id
@@ -662,38 +666,60 @@ export function DraftWorkspace({
                   <span className="text-[11px] font-medium text-muted-foreground">
                     Edited {formatDraftTime(draft.updated_at)}
                   </span>
-                  <div className="flex items-center gap-1">
-                    {undoState?.draftId === draft.id && (
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleUndo(draft.id)} disabled={busy}>
-                        <Undo2 className="h-3.5 w-3.5" /> Undo
-                      </Button>
-                    )}
-                    {!editing && (
+                  {discardMode === 'confirm' ? (
+                    <div className="flex items-center gap-1">
+                      <span className="px-1 text-[11px] font-medium text-muted-foreground">Discard this draft?</span>
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
-                          setEditingDraftId(draft.id);
-                          onDraftFocus?.(draft.id);
-                        }}
+                        size="xs"
+                        onClick={() => setConfirmingDiscardId(null)}
                         disabled={busy}
                       >
-                        <Pencil className="h-3.5 w-3.5" /> Edit
+                        Cancel
                       </Button>
-                    )}
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleDiscard(draft.id)} disabled={busy}>
-                      <Trash2 className="h-3.5 w-3.5" /> Discard
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => void handleSend(draft)}
-                      disabled={busy || !draft.recipient.trim() || pendingRecipients[draft.id]}
-                    >
-                      <Send className="h-3.5 w-3.5" /> Send
-                    </Button>
-                  </div>
+                      <Button
+                        variant="destructive"
+                        size="xs"
+                        onClick={() => void handleDiscard(draft.id)}
+                        disabled={busy}
+                      >
+                        Discard
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      {undoState?.draftId === draft.id && (
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleUndo(draft.id)} disabled={busy}>
+                          <Undo2 className="h-3.5 w-3.5" /> Undo
+                        </Button>
+                      )}
+                      {!editing && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => {
+                            setEditingDraftId(draft.id);
+                            onDraftFocus?.(draft.id);
+                          }}
+                          disabled={busy}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmingDiscardId(draft.id)} disabled={busy}>
+                        <Trash2 className="h-3.5 w-3.5" /> Discard
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => void handleSend(draft)}
+                        disabled={busy || !draft.recipient.trim() || pendingRecipients[draft.id]}
+                      >
+                        <Send className="h-3.5 w-3.5" /> Send
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-muted/30 px-2.5 py-2 text-xs">
                   <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-recipient`}>To</label>
