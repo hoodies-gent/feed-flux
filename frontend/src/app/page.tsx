@@ -1376,7 +1376,7 @@ export default function Home() {
                         <button
                           key={i}
                           onClick={() => handleOpenEmailDetail(source.id)}
-                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
                           title={source.snippet}
                         >
                           <span className="whitespace-nowrap font-semibold text-primary">Source {i + 1}</span>
@@ -1393,11 +1393,11 @@ export default function Home() {
                           key={reference.email_id}
                           type="button"
                           onClick={() => handleOpenEmailDetail(reference.email_id)}
-                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
                           title={`${reference.sender} · ${reference.subject}`}
                         >
                           <Mail className="h-3 w-3 shrink-0 text-primary" />
-                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Source</span>
+                          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-primary">Source</span>
                           <span className="max-w-[180px] truncate">{reference.subject}</span>
                         </button>
                       ))}
@@ -1438,7 +1438,7 @@ export default function Home() {
             <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
 
           {isRefreshingFeed && (
-            <div className="shrink-0 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+            <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
               Updating local feed…
             </div>
           )}
@@ -1654,7 +1654,7 @@ export default function Home() {
               >
                 {draftTabs.length > 0 && (
                   <div className="scrollbar-none flex min-h-9 shrink-0 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border/60 bg-background/70 px-2 py-1">
-                    <span className="shrink-0 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                    <span className="shrink-0 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
                       Drafts
                     </span>
                     {draftTabs.map(({ emailId, draft, subject }) => {
@@ -1664,12 +1664,12 @@ export default function Home() {
                           key={`${emailId}-${draft.id}`}
                           type="button"
                           onClick={() => handleDraftTabSelect(emailId, draft.id)}
-                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-[11px] transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
+                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-xs transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
                           title={`${subject} · Edited ${new Date(draft.updated_at * 1000).toLocaleString()}`}
                         >
                           <Pencil className="h-3 w-3 shrink-0" />
                           <span className="max-w-[140px] truncate">{subject}</span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                          <span className="shrink-0 text-xs text-muted-foreground/70">
                             {new Date(draft.updated_at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                           </span>
                         </button>

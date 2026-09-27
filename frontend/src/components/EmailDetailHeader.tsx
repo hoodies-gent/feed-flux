@@ -58,7 +58,7 @@ export function EmailDetailHeader({
               From: <span className="font-medium text-foreground">{detail.sender}</span>
             </span>
           </div>
-          <span className="shrink-0 whitespace-nowrap text-[11px]">{receivedAt}</span>
+          <span className="shrink-0 whitespace-nowrap text-xs">{receivedAt}</span>
         </div>
       )}
     </div>

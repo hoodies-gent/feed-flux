@@ -89,7 +89,7 @@ export function RecipientField({
       {recipients.map((recipient) => (
         <span
           key={recipient.toLowerCase()}
-          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-foreground"
+          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-sm text-foreground"
         >
           <span className="truncate">{recipient}</span>
           <button
@@ -114,7 +114,7 @@ export function RecipientField({
         onBlur={handleBlur}
         disabled={disabled}
         aria-label="Add recipient"
-        className="h-5 min-w-28 flex-1 bg-transparent px-1 text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        className="h-5 min-w-28 flex-1 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
       />
     </div>
   );

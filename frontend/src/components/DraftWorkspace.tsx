@@ -586,11 +586,11 @@ export function DraftWorkspace({
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Pencil className="h-4 w-4 text-primary" />
-          <h3 className="text-sm font-semibold text-foreground">Reply</h3>
+          <h3 className="text-base font-semibold text-foreground">Reply</h3>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           {drafts.length === 0 && !isDrafting && (
-            <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
+            <Button size="sm" className="h-7 px-2 text-sm" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
               <Pencil className="h-3.5 w-3.5" /> Reply
             </Button>
           )}
@@ -599,7 +599,7 @@ export function DraftWorkspace({
             size="sm"
             onClick={() => setShowAiTools((visible) => !visible)}
             disabled={isDrafting}
-            className="h-7 px-2 text-xs transition-all hover:bg-accent hover:shadow-md"
+            className="h-7 px-2 text-sm transition-all hover:bg-accent hover:shadow-md"
           >
             <Sparkles className="h-3.5 w-3.5" /> {showAiTools ? 'Hide AI' : 'Help me write'}
           </Button>
@@ -608,12 +608,12 @@ export function DraftWorkspace({
 
       {showAiTools && (
         <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-2.5">
-          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Help me write
           </div>
           <div className="flex flex-wrap gap-1.5">
             {intents.map((intent) => (
-              <Button key={intent.prompt} variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
+              <Button key={intent.prompt} variant="outline" size="sm" className="h-8 px-2 text-sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
                 {intent.label}
               </Button>
             ))}
@@ -623,10 +623,10 @@ export function DraftWorkspace({
                 value={customPrompt}
                 onChange={(event) => setCustomPrompt(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && void requestDraft('Follow custom instructions')}
-                className="h-8 bg-background text-xs"
+                className="h-8 bg-background text-sm"
                 disabled={isDrafting}
               />
-              <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
+              <Button variant="outline" size="sm" className="h-8 px-2 text-sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
                 Generate
               </Button>
             </div>
@@ -647,7 +647,7 @@ export function DraftWorkspace({
       ) : (
         <div className="space-y-2">
           {drafts.length > 0 && (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-xs text-muted-foreground">
               AI actions revise this saved draft instead of creating another version.
             </div>
           )}
@@ -663,12 +663,12 @@ export function DraftWorkspace({
             return (
               <div key={draft.id} className="rounded-lg border border-border bg-background p-2.5 shadow-sm">
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                  <span className="text-xs font-medium text-muted-foreground">
                     Edited {formatDraftTime(draft.updated_at)}
                   </span>
                   {discardMode === 'confirm' ? (
                     <div className="flex items-center gap-1">
-                      <span className="px-1 text-[11px] font-medium text-muted-foreground">Discard this draft?</span>
+                      <span className="px-1 text-xs font-medium text-muted-foreground">Discard this draft?</span>
                       <Button
                         variant="ghost"
                         size="xs"
@@ -689,7 +689,7 @@ export function DraftWorkspace({
                   ) : (
                     <div className="flex items-center gap-1">
                       {undoState?.draftId === draft.id && (
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => void handleUndo(draft.id)} disabled={busy}>
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => void handleUndo(draft.id)} disabled={busy}>
                           <Undo2 className="h-3.5 w-3.5" /> Undo
                         </Button>
                       )}
@@ -697,7 +697,7 @@ export function DraftWorkspace({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 px-2 text-xs"
+                          className="h-7 px-2 text-sm"
                           onClick={() => {
                             setEditingDraftId(draft.id);
                             onDraftFocus?.(draft.id);
@@ -707,12 +707,12 @@ export function DraftWorkspace({
                           <Pencil className="h-3.5 w-3.5" /> Edit
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmingDiscardId(draft.id)} disabled={busy}>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => setConfirmingDiscardId(draft.id)} disabled={busy}>
                         <Trash2 className="h-3.5 w-3.5" /> Discard
                       </Button>
                       <Button
                         size="sm"
-                        className="h-7 px-2 text-xs"
+                        className="h-7 px-2 text-sm"
                         onClick={() => void handleSend(draft)}
                         disabled={busy || !draft.recipient.trim() || pendingRecipients[draft.id]}
                       >
@@ -721,7 +721,7 @@ export function DraftWorkspace({
                     </div>
                   )}
                 </div>
-                <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-muted/30 px-2.5 py-2 text-xs">
+                <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-muted/30 px-2.5 py-2 text-sm">
                   <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-recipient`}>To</label>
                   <RecipientField
                     id={`draft-${draft.id}-recipient`}
@@ -741,7 +741,7 @@ export function DraftWorkspace({
                     onChange={(event) => handleMetadataChange(draft.id, 'subject', event.target.value)}
                     onBlur={(event) => void persistDraftMetadata(draft.id, { subject: event.currentTarget.value })}
                     disabled={busy}
-                    className="h-7 min-w-0 border-0 bg-transparent px-2 text-xs shadow-none focus-visible:ring-1"
+                    className="h-7 min-w-0 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-1"
                   />
                 </div>
                 {editing ? (
@@ -808,7 +808,7 @@ export function DraftWorkspace({
             value={selectionPrompt}
             onChange={(event) => setSelectionPrompt(event.target.value)}
             placeholder="How should AI rewrite it?"
-            className="h-8 min-w-0 flex-1 text-xs"
+            className="h-8 min-w-0 flex-1 text-sm"
             disabled={busyDraftId === selection.draftId}
           />
           {selectionNotice && (

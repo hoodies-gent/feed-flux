@@ -125,7 +125,7 @@ export function AgentSidebar({
               <div className="rounded-md bg-muted p-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-foreground" />
               </div>
-              <h2 className="text-sm font-semibold text-foreground">{AI_PANEL_LABEL}</h2>
+              <h2 className="text-base font-semibold text-foreground">{AI_PANEL_LABEL}</h2>
             </div>
             <div className="flex items-center gap-1">
               {hasMessages && (
@@ -153,13 +153,13 @@ export function AgentSidebar({
               >
                 <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
                 <span className="min-w-0 leading-tight">
-                  <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Focused email
                   </span>
                   <span className="block truncate text-xs font-medium text-foreground">
                     {focusedEmailContext.subject}
                   </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
+                  <span className="block truncate text-xs text-muted-foreground">
                     {focusedEmailContext.sender}
                   </span>
                 </span>
@@ -167,7 +167,7 @@ export function AgentSidebar({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 shrink-0 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onClearFocus}
                 title="Stop treating this email as the conversational focus"
               >
