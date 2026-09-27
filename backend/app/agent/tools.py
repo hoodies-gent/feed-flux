@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from langchain_core.tools import tool
@@ -104,44 +104,51 @@ def find_email(
         session.close()
 
 
-class ListUnreadEmailsInput(BaseModel):
+class ListInboxEmailsInput(BaseModel):
+    scope: Literal["unread", "recent"] = Field(
+        description="Which inbox view to list: unread messages or recent messages.",
+    )
+    purpose: Literal["summary", "triage"] = Field(
+        description=(
+            "Why the listing is needed. Summary remains read-only; triage may be "
+            "followed by one apply_triage_batch call."
+        ),
+    )
     limit: int = Field(
         default=20,
-        description=(
-            "Maximum number of unread emails to return (hard cap 50). Choose based "
-            "on the user's ask: they name a number ('top 5', '10 封') → use that; "
-            "they say 'all' / 'everything' / '所有' / '全部' → pass 50 to sweep the "
-            "whole inbox; unspecified vague request ('handle my unreads') → 20."
-        ),
+        ge=1,
+        le=50,
+        description="Maximum number of emails to return. Hard limit: 50.",
     )
 
 
-@tool("list_unread_emails", args_schema=ListUnreadEmailsInput)
-def list_unread_emails(limit: int = 20) -> list[dict]:
-    """Fetch the user's unread emails, newest first.
-
-    Use at the start of a batch triage workflow when the user asks to
-    process, clear, or review a batch of unread email. Read the returned
-    summaries and decide a proposed action per email (mark_read / archive /
-    delete / needs_reply), then submit them together via apply_triage_batch.
-
-    Pick `limit` from the user's phrasing — see the argument description.
-
-    Returns compact summaries (id, subject, sender, received, body_preview).
-    """
-    db = DatabaseService()
-    rows = db.get_unread_emails(limit=limit)
-    return [
+@tool("list_inbox_emails", args_schema=ListInboxEmailsInput)
+def list_inbox_emails(
+    scope: Literal["unread", "recent"],
+    purpose: Literal["summary", "triage"],
+    limit: int = 20,
+) -> dict:
+    """List a bounded read-only inbox view for summaries or batch triage."""
+    rows = DatabaseService().get_inbox_emails(scope=scope, limit=limit)
+    emails = [
         {
-            "id": r["id"],
-            "subject": r["subject"],
-            "sender": r["sender"] or r["sender_email"],
-            "sender_email": r["sender_email"],
-            "received": datetime.utcfromtimestamp(r["received_datetime"]).isoformat() + "Z",
-            "body_preview": r["body_preview"],
+            "email_id": row["id"],
+            "subject": row["subject"],
+            "sender": row["sender"] or row["sender_email"],
+            "received_time": datetime.fromtimestamp(
+                row["received_datetime"], timezone.utc
+            ).isoformat().replace("+00:00", "Z"),
+            "preview": row["body_preview"],
         }
-        for r in rows
+        for row in rows
     ]
+    return {
+        "scope": scope,
+        "purpose": purpose,
+        "limit": limit,
+        "returned_count": len(emails),
+        "emails": emails,
+    }
 
 
 class ReadCalendarInput(BaseModel):
@@ -349,7 +356,7 @@ def read_original_email_context(
 
 
 class TriageActionItem(BaseModel):
-    email_id: str = Field(description="ID of the email this action applies to (from list_unread_emails).")
+    email_id: str = Field(description="ID of the email this action applies to (from list_inbox_emails).")
     action: Literal["mark_read", "archive", "delete"] = Field(
         description=(
             "Bulk-safe action for low-signal email. Choose per email: "
@@ -408,7 +415,8 @@ class ApplyTriageBatchInput(BaseModel):
 def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
     """Submit a triage plan — the review card renders it and the user acts per row.
 
-    Use after list_unread_emails once you've classified each email into either
+    Use after list_inbox_emails(scope='unread', purpose='triage') once you've
+    classified each email into either
     (a) bulk-safe: mark_read / archive / delete — goes into `actions`, or
     (b) needs a human reply — goes into `needs_reply` (id + short reason, no draft).
 
@@ -437,7 +445,7 @@ def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
 TOOLS = [
     send_test_email,
     find_email,
-    list_unread_emails,
+    list_inbox_emails,
     read_calendar,
     save_reply_draft,
     read_draft_context,

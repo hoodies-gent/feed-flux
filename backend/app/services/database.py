@@ -391,23 +391,26 @@ class DatabaseService:
         finally:
             session.close()
 
-    def get_unread_emails(self, limit: int = 20):
-        """Get unread emails, newest first. Used by the triage workflow.
-        Excludes archived and deleted — those are already 'processed' from the
-        user's perspective and should not resurface in the next triage pass.
-        """
+    def get_inbox_emails(self, scope: str, limit: int):
+        """Get a bounded inbox listing, newest first."""
+        if scope not in {"unread", "recent"}:
+            raise ValueError(f"Unsupported inbox scope: {scope}")
+
         session = self.Session()
         try:
-            emails = (
+            query = (
                 session.query(Email)
-                .filter(Email.is_read == False)  # noqa: E712
                 .filter(Email.is_archived == False)
                 .filter(Email.is_deleted == False)
-                .order_by(desc(Email.received_datetime))
+            )
+            if scope == "unread":
+                query = query.filter(Email.is_read == False)  # noqa: E712
+            emails = (
+                query.order_by(desc(Email.received_datetime))
                 .limit(max(1, min(limit, 50)))
                 .all()
             )
-            return [self._email_to_dict(e) for e in emails]
+            return [self._email_to_dict(email) for email in emails]
         finally:
             session.close()
 

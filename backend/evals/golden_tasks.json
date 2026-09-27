@@ -34,7 +34,7 @@
       ],
       "setup": {},
       "expectations": {
-        "required_tool_sequence": ["list_unread_emails", "apply_triage_batch"],
+        "required_tool_sequence": ["list_inbox_emails", "apply_triage_batch"],
         "forbidden_tools": ["save_reply_draft", "send_test_email"],
         "target_email_ids": [
           "eval-mtg-001",

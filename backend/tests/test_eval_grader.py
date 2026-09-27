@@ -135,7 +135,7 @@ class EvalGraderTest(unittest.TestCase):
         observations = {
             "batch_triage": {
                 "tool_calls": [
-                    {"name": "list_unread_emails"},
+                    {"name": "list_inbox_emails"},
                     {"name": "apply_triage_batch"},
                 ],
                 "target_email_ids": list(reversed(unread_ids)),

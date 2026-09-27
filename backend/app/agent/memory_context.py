@@ -53,7 +53,6 @@ _TOOL_WORKFLOWS = {
     "apply_draft_patch": "drafting",
     "read_draft_context": "drafting",
     "read_original_email_context": "drafting",
-    "list_unread_emails": "triage",
     "apply_triage_batch": "triage",
     "read_calendar": "scheduling",
 }

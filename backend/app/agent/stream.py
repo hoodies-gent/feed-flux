@@ -165,6 +165,20 @@ def _count_list_result(output: Any, output_text: str) -> int | None:
     return None
 
 
+def _inbox_listing_result(output: Any, output_text: str) -> dict | None:
+    if isinstance(output, dict):
+        result = output
+    else:
+        try:
+            import ast
+            result = ast.literal_eval(output_text.strip())
+        except Exception:
+            return None
+    if not isinstance(result, dict) or not isinstance(result.get("emails"), list):
+        return None
+    return result
+
+
 def _load_email_meta(email_ids: set[str]) -> dict[str, dict]:
     """Fetch subject/sender/body_preview for the given email ids in one query."""
     if not email_ids:
@@ -326,6 +340,11 @@ async def stream_agent(
         elif kind == "on_tool_end":
             output = data.get("output")
             output_text = output.content if hasattr(output, "content") else str(output)
+            inbox_listing = (
+                _inbox_listing_result(output, output_text)
+                if name == "list_inbox_emails"
+                else None
+            )
             tool_call_id = (ev.get("metadata") or {}).get("tool_call_id")
             if tool_call_id is None:
                 tool_call_id = getattr(output, "tool_call_id", None)
@@ -344,7 +363,11 @@ async def stream_agent(
             count = (
                 safe_output.get("result_count")
                 if is_memory_tool(name)
-                else _count_list_result(output, output_text)
+                else (
+                    inbox_listing.get("returned_count")
+                    if inbox_listing is not None
+                    else _count_list_result(output, output_text)
+                )
             )
             if count is not None:
                 event["result_count"] = count
@@ -370,6 +393,19 @@ async def stream_agent(
                         ),
                     }
             yield event
+
+            if inbox_listing is not None:
+                references = [
+                    {
+                        "email_id": email.get("email_id"),
+                        "subject": email.get("subject") or "",
+                        "sender": email.get("sender") or "",
+                    }
+                    for email in inbox_listing["emails"]
+                    if email.get("email_id")
+                ]
+                if references:
+                    yield {"type": "references", "references": references}
 
             if name == "apply_triage_batch":
                 yield _build_plan_event(tool_input)
