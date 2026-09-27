@@ -24,6 +24,7 @@ import {
   loadWorkspacePreferences,
   saveWorkspacePreferences,
 } from '@/lib/workspace-preferences.mjs';
+import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -651,11 +652,13 @@ export default function Home() {
   const [debouncedQuery] = useDebounce(searchQuery, 500);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SummaryResponse>>({});
   const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const hasLoadedFeedRef = useRef(false);
 
   // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -1013,21 +1016,28 @@ export default function Home() {
     setActiveEmailId(null);
   };
 
-  const loadFeed = async (query: string = '', silent: boolean = false) => {
-    setLoading(true);
+  const loadFeed = async (query: string = '') => {
+    const loadMode = getFeedLoadMode(hasLoadedFeedRef.current);
+    if (loadMode === 'initial') {
+      setLoading(true);
+    } else {
+      setIsRefreshingFeed(true);
+    }
     setError(null);
     try {
       const data = await getFeed(20, query);
       setFeed(data);
-      if (!query && !silent) {
-        toast.success(`Loaded ${data.length} emails`);
-      }
+      hasLoadedFeedRef.current = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       setError(message);
       toast.error(message);
     } finally {
-      setLoading(false);
+      if (loadMode === 'initial') {
+        setLoading(false);
+      } else {
+        setIsRefreshingFeed(false);
+      }
     }
   };
 
@@ -1036,8 +1046,8 @@ export default function Home() {
     try {
       const result = await syncEmails();
       toast.success(`Successfully synced ${result.synced} new emails from Outlook`);
-      // Reload feed silently to show new emails
-      await loadFeed(debouncedQuery, true);
+      // Reload the local feed to show new emails
+      await loadFeed(debouncedQuery);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to sync emails';
       toast.error(message);
@@ -1530,10 +1540,10 @@ export default function Home() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
                   onClick={() => loadFeed(debouncedQuery)}
-                  disabled={loading || isSyncing}
+                  disabled={loading || isRefreshingFeed || isSyncing}
                 >
                   <RefreshCw className="w-4 h-4" />
-                  {loading ? 'Loading...' : 'Reload Local Data'}
+                  {loading || isRefreshingFeed ? 'Updating...' : 'Reload Local Data'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1550,6 +1560,11 @@ export default function Home() {
           >
             <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
 
+          {isRefreshingFeed && (
+            <div className="shrink-0 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+              Updating local feed…
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {/* Feed List */}
           <div className="overflow-hidden bg-transparent">
@@ -1567,7 +1582,7 @@ export default function Home() {
                   </CardContent>
                 </Card>
               ))
-            ) : error ? (
+            ) : shouldRenderFeedError({ feedCount: feed.length, error }) ? (
               // Error State
               <Card className="border-destructive/50 bg-destructive/10">
                 <CardHeader>
