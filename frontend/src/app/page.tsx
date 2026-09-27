@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { AppHeader } from '@/components/AppHeader';
+import { AgentSidebar } from '@/components/AgentSidebar';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
 import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
@@ -863,11 +864,11 @@ export default function Home() {
     };
   };
 
-  const handleSendChatMessage = async (e?: React.FormEvent) => {
+  const handleSendChatMessage = async (e?: React.FormEvent, prompt?: string) => {
     e?.preventDefault();
-    if (!chatInput.trim() || isSendingChat) return;
+    const query = (prompt ?? chatInput).trim();
+    if (!query || isSendingChat) return;
 
-    const query = chatInput.trim();
     const contextEmailIds = focusedEmailContext ? [focusedEmailContext.email_id] : [];
     setChatInput('');
     setIsSendingChat(true);
@@ -1281,74 +1282,43 @@ export default function Home() {
     );
   }
 
+  const chatComposer = (
+    <div className="shrink-0 border-t border-border bg-card p-4">
+      <form onSubmit={handleSendChatMessage} className="relative flex items-center">
+        <Input
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          disabled={isSendingChat}
+          placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
+          className="w-full rounded-full pr-12 shadow-sm"
+        />
+        <Button
+          type="submit"
+          disabled={!chatInput.trim() || isSendingChat}
+          size="icon"
+          variant="ghost"
+          className="absolute right-1 h-8 w-8 rounded-full text-primary"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </form>
+    </div>
+  );
+
   const chatSidebar = isChatOpen ? (
-    <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
-          <div className="flex items-center gap-2">
-            <div className="rounded-md bg-muted p-1.5">
-              <Sparkles className="h-4 w-4 text-foreground" />
-            </div>
-            <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            {chatMessages.length > 0 && (
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" onClick={handleNewChat} title="New chat (clears history and resets thread)">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="icon" className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        {focusedEmailContext && (
-          <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => handleOpenEmailDetail(focusedEmailContext.email_id)}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
-            >
-              <Mail className="h-4 w-4 shrink-0 text-primary" />
-              <span className="min-w-0">
-                <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Focused email
-                </span>
-                <span className="block truncate text-xs font-medium text-foreground">
-                  {focusedEmailContext.subject}
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {focusedEmailContext.sender}
-                </span>
-              </span>
-            </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={handleClearEmailFocus}
-              title="Stop treating this email as the conversational focus"
-            >
-              Clear focus
-            </Button>
-          </div>
-        )}
-
-        <div className="relative flex-1 overflow-y-auto p-5">
-          <div className="space-y-6 pb-2">
-            {chatMessages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center space-y-4 pt-20 text-center">
-                <div className="rounded-full bg-muted p-4">
-                  <Sparkles className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="mb-1 text-sm font-medium text-foreground">How can I help you today?</h3>
-                  <p className="mx-auto max-w-[250px] text-sm text-muted-foreground">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
-                </div>
-              </div>
-            ) : (
-              chatMessages.map(msg => (
+    <AgentSidebar
+      composer={chatComposer}
+      focusedEmailContext={focusedEmailContext}
+      hasMessages={chatMessages.length > 0}
+      isSending={isSendingChat}
+      messagesEnd={<div ref={messagesEndRef} />}
+      onClearFocus={handleClearEmailFocus}
+      onClose={() => setIsChatOpen(false)}
+      onNewChat={handleNewChat}
+      onOpenFocusedEmail={(emailId) => void handleOpenEmailDetail(emailId)}
+      onSuggestion={(prompt) => void handleSendChatMessage(undefined, prompt)}
+    >
+      {chatMessages.map(msg => (
                 msg.role === 'context' ? (
                   <ChatContextEventLine
                     key={msg.id}
@@ -1458,33 +1428,8 @@ export default function Home() {
                   )}
                 </div>
                 )
-              ))
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        <div className="shrink-0 border-t border-border bg-card p-4">
-          <form onSubmit={handleSendChatMessage} className="relative flex items-center">
-            <Input
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              disabled={isSendingChat}
-              placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
-              className="w-full rounded-full pr-12 shadow-sm"
-            />
-            <Button
-              type="submit"
-              disabled={!chatInput.trim() || isSendingChat}
-              size="icon"
-              variant="ghost"
-              className="absolute right-1 h-8 w-8 rounded-full text-primary"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </div>
-    </aside>
+      ))}
+    </AgentSidebar>
   ) : null;
 
   return (
