@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
+import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { Layout } from "react-resizable-panels";
@@ -35,6 +35,7 @@ import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
 import { restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
+import { getToolActivityPresentation } from '@/lib/tool-activity-presentation.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -59,54 +60,6 @@ interface ChatMessage {
   triagePlan?: TriagePlan;
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  send_test_email: 'Send test',
-  find_email: 'Find email',
-  list_unread_emails: 'List unread',
-  read_calendar: 'Check calendar',
-  save_reply_draft: 'Save draft',
-  apply_draft_patch: 'Update draft',
-  read_draft_context: 'Read draft',
-  read_original_email_context: 'Read email',
-  apply_triage_batch: 'Plan inbox',
-};
-
-function argsPreview(args: unknown): string {
-  if (args === undefined || args === null) return '';
-  if (typeof args !== 'object') return String(args);
-  const entries = Object.entries(args as Record<string, unknown>);
-  if (entries.length === 0) return '';
-  return entries
-    .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
-    .join(', ');
-}
-
-function outputSummary(tool: string, output: string | undefined, resultCount?: number): string {
-  if (tool === 'find_email' || tool === 'list_unread_emails') {
-    if (typeof resultCount === 'number') {
-      return resultCount === 0 ? 'no matches' : `${resultCount} email${resultCount === 1 ? '' : 's'}`;
-    }
-    if (!output) return '';
-    if (output.startsWith('[]')) return 'no matches';
-    const count = (output.match(/'id':/g) || []).length;
-    return count > 0 ? `${count}+ emails` : 'ok';
-  }
-  if (!output) return '';
-  if (tool === 'read_calendar') {
-    const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
-    return slots > 0 ? `${slots} free slots` : 'ok';
-  }
-  if (tool === 'save_reply_draft') {
-    return output.startsWith('DRAFT UPDATED') ? 'draft updated locally' : 'draft saved locally';
-  }
-  if (tool === 'apply_triage_batch') {
-    const m = output.match(/PLAN READY: (\d+) bulk items \+ (\d+) needs-reply/);
-    if (m) return `${m[1]} bulk · ${m[2]} needs reply`;
-    return 'plan ready';
-  }
-  return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
-}
-
 function ToolCallLine({
   tool,
   args,
@@ -121,30 +74,39 @@ function ToolCallLine({
   running: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const preview = argsPreview(args);
+  const presentation = getToolActivityPresentation({
+    tool,
+    running,
+    args,
+    resultCount,
+  });
   return (
-    <div className="my-1.5 pl-2 border-l-2 border-border/60 font-mono text-[11px] text-muted-foreground">
+    <div className="my-1.5 text-xs text-muted-foreground">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 hover:text-foreground transition-colors text-left"
+        className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/60 hover:text-foreground"
       >
         {running ? (
-          <Wrench className="w-3 h-3 shrink-0 animate-pulse" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
         ) : (
-          <Check className="w-3 h-3 shrink-0 text-emerald-600 dark:text-emerald-500" />
+          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
         )}
         <span className="flex-1 truncate">
-          <span className="text-foreground">{TOOL_LABELS[tool] ?? tool}</span>
-          {preview && <span>({preview})</span>}
-          {!running && output !== undefined && (
-            <span className="text-muted-foreground/70"> · {outputSummary(tool, output, resultCount)}</span>
+          <span>{presentation.label}</span>
+          {presentation.summary && (
+            <span className="text-muted-foreground/70"> · {presentation.summary}</span>
           )}
         </span>
-        <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
-        <div className="pl-5 pt-1 pb-0.5 space-y-1 text-[10px] whitespace-pre-wrap break-all">
+        <div className="ml-5 mt-1 space-y-1 border-l border-border/70 pl-2 font-mono text-[10px] whitespace-pre-wrap break-all">
+          <div>
+            <span className="text-muted-foreground">tool: </span>
+            <span>{tool}</span>
+          </div>
           {args !== undefined && args !== null && (
             <div>
               <span className="text-muted-foreground">args: </span>
