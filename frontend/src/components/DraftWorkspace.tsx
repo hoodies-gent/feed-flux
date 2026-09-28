@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { RecipientField } from '@/components/RecipientField';
 import { getDraftDiscardMode } from '@/lib/draft-discard-state.mjs';
+import { DRAFT_SELECTION_PROMPT_INPUT_PROPS } from '@/lib/draft-selection-input-contract.mjs';
 import {
   askAgentStream,
   discardDraft,
@@ -796,6 +797,7 @@ export function DraftWorkspace({
           style={{ left: selectionPosition.left, top: selectionPosition.top }}
         >
           <Input
+            {...DRAFT_SELECTION_PROMPT_INPUT_PROPS}
             value={selectionPrompt}
             onChange={(event) => setSelectionPrompt(event.target.value)}
             placeholder="How should AI rewrite it?"
