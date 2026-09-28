@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown';
 import type { AgentReference } from '@/lib/api';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
 import {
-  getInlineCitationVerticalAlignment,
   linkifyInlineEmailCitations,
   resolveInlineEmailCitation,
 } from '@/lib/inline-email-citations.mjs';
@@ -31,7 +30,7 @@ function InlineEmailCitation({
       type="button"
       aria-label={`Open email: ${reference.subject}`}
       onClick={() => onOpenEmail(reference.email_id)}
-      style={{ verticalAlign: getInlineCitationVerticalAlignment() }}
+      style={{ verticalAlign: 'text-bottom' }}
       className={cn(
         'not-prose group relative mx-0.5 inline-flex h-[18px] w-[18px]',
         'items-center justify-center rounded-full outline-none ring-offset-background',
@@ -100,7 +99,7 @@ export function AgentMessageMarkdown({
             return (
               <span
                 aria-hidden="true"
-                style={{ verticalAlign: getInlineCitationVerticalAlignment() }}
+                style={{ verticalAlign: 'text-bottom' }}
                 className="not-prose mx-0.5 inline-block h-[18px] w-[18px] animate-pulse rounded-full bg-muted"
               />
             );

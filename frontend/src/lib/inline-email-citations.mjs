@@ -2,10 +2,6 @@ const INLINE_CITATION_PATTERN = /<!--feedflux_ref:([A-Za-z0-9_-]+)-->/g;
 const TRAILING_PARTIAL_CITATION_PATTERN = /<!--feedflux_ref:[^<>]*$/;
 const CITATION_HREF_PREFIX = '#feedflux-citation=';
 
-export function getInlineCitationVerticalAlignment() {
-  return 'text-bottom';
-}
-
 export function linkifyInlineEmailCitations(markdown) {
   return markdown
     .replace(
