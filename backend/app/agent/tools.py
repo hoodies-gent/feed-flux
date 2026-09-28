@@ -134,6 +134,7 @@ def list_inbox_emails(
     rows = DatabaseService().get_inbox_emails(scope=scope, limit=limit)
     emails = [
         {
+            "citation_key": f"inbox-{index}",
             "email_id": row["id"],
             "subject": row["subject"],
             "sender": row["sender"] or row["sender_email"],
@@ -142,7 +143,7 @@ def list_inbox_emails(
             ).isoformat().replace("+00:00", "Z"),
             "preview": row["body_preview"],
         }
-        for row in rows
+        for index, row in enumerate(rows, start=1)
     ]
     return {
         "scope": scope,

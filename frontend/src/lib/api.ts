@@ -363,6 +363,7 @@ export interface TraceEvent {
 }
 
 export interface AgentReference {
+    citation_key?: string;
     email_id: string;
     subject: string;
     sender: string;

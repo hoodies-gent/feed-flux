@@ -224,6 +224,7 @@ class InboxListingToolTest(unittest.TestCase):
                 "limit": 1,
                 "returned_count": 1,
                 "emails": [{
+                    "citation_key": "inbox-1",
                     "email_id": "newer-unread",
                     "subject": "Newer unread",
                     "sender": "newer@example.com",
@@ -494,11 +495,13 @@ class InboxSummaryAgentTest(unittest.TestCase):
                 "type": "references",
                 "references": [
                     {
+                        "citation_key": "inbox-1",
                         "email_id": "source-2",
                         "subject": "Second source",
                         "sender": "Second Sender",
                     },
                     {
+                        "citation_key": "inbox-2",
                         "email_id": "source-1",
                         "subject": "First source",
                         "sender": "First Sender",

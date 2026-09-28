@@ -37,6 +37,7 @@ DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
 REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
 TRUNCATED_REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:[^<>]*$")
+INLINE_REFERENCE_PATTERN = re.compile(r"<!--feedflux_ref:([A-Za-z0-9_-]+)-->")
 MEMORY_MUTATION_TOOLS = {
     "remember_memory",
     "update_memory",
@@ -168,7 +169,10 @@ SYSTEM_PROMPT = (
     "For both purposes, never treat the inbox as an arbitrary latest 10. Honor a requested "
     "count, otherwise use 20, with 50 as the maximum. After the listing, state the actual "
     "scope and returned_count covered, ground the answer in the returned email metadata, "
-    "and keep the source references. "
+    "and keep the source references. Immediately after each sentence or list item that "
+    "makes a concrete claim from a returned email, append its exact citation marker in "
+    "the form <!--feedflux_ref:CITATION_KEY-->, using only citation_key values returned "
+    "by list_inbox_emails. Do not display or explain the marker. "
     "This whole turn is read-only: do not call apply_triage_batch or "
     "any tool that creates or changes drafts, actions, or memory.\n"
     "\n"
@@ -242,10 +246,10 @@ EMAIL_CONTEXT_INSTRUCTIONS = (
     "connection; continue with the appropriate inbox tools. If it is relevant, treat "
     "it as the exact email selected by the user. When the user refers to that focused "
     "email, do not search the mailbox to replace, expand, or infer missing context. "
-    "If the final answer actually uses one or more focused emails, append exactly one "
-    "hidden footer immediately after the answer using their citation_key values: "
-    "<!--feedflux_refs:context-1,context-2-->. Include only keys you actually used, "
-    "omit the footer when none were used, and never discuss this footer.\n\n"
+    "If the final answer actually uses a focused email, append its exact inline citation "
+    "marker immediately after the sentence or list item it supports, in the form "
+    "<!--feedflux_ref:context-1-->. Use only the supplied citation_key values, omit "
+    "markers for unused context, and never display or explain a marker.\n\n"
 )
 
 
@@ -263,23 +267,34 @@ def _strip_reference_footer(
             return text[:truncated_match.start()].rstrip(), []
         return text, []
 
-    citation_keys: list[str] = []
+    inline_citation_keys: list[str] = []
+    content_blocks = [content] if isinstance(content, str) else content
+    if isinstance(content_blocks, list):
+        for block in content_blocks:
+            if isinstance(block, str):
+                inline_citation_keys.extend(INLINE_REFERENCE_PATTERN.findall(block))
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                inline_citation_keys.extend(
+                    INLINE_REFERENCE_PATTERN.findall(block["text"])
+                )
+
+    footer_citation_keys: list[str] = []
     cleaned_content = content
     if isinstance(content, str):
-        cleaned_content, citation_keys = strip_text(content)
+        cleaned_content, footer_citation_keys = strip_text(content)
     elif isinstance(content, list):
         cleaned_blocks = list(content)
         for index in range(len(cleaned_blocks) - 1, -1, -1):
             block = cleaned_blocks[index]
             if isinstance(block, str):
-                cleaned_text, citation_keys = strip_text(block)
-                if citation_keys or cleaned_text != block:
+                cleaned_text, footer_citation_keys = strip_text(block)
+                if footer_citation_keys or cleaned_text != block:
                     cleaned_blocks[index] = cleaned_text
                     cleaned_content = cleaned_blocks
                     break
             elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                cleaned_text, citation_keys = strip_text(block["text"])
-                if citation_keys or cleaned_text != block["text"]:
+                cleaned_text, footer_citation_keys = strip_text(block["text"])
+                if footer_citation_keys or cleaned_text != block["text"]:
                     cleaned_blocks[index] = {**block, "text": cleaned_text}
                     cleaned_content = cleaned_blocks
                     break
@@ -291,7 +306,7 @@ def _strip_reference_footer(
     }
     used_references = []
     seen = set()
-    for citation_key in citation_keys:
+    for citation_key in [*inline_citation_keys, *footer_citation_keys]:
         if citation_key in allowed and citation_key not in seen:
             used_references.append(allowed[citation_key])
             seen.add(citation_key)

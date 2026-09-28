@@ -294,15 +294,18 @@ async def stream_agent(
             }
 
         elif kind == "on_custom_event" and name == "email_context_references":
-            references = [
-                {
+            references = []
+            for reference in data.get("references") or []:
+                if not reference.get("email_id"):
+                    continue
+                item = {
                     "email_id": reference.get("email_id"),
                     "subject": reference.get("subject") or "",
                     "sender": reference.get("sender") or "",
                 }
-                for reference in data.get("references") or []
-                if reference.get("email_id")
-            ]
+                if reference.get("citation_key"):
+                    item["citation_key"] = reference["citation_key"]
+                references.append(item)
             if references:
                 yield {"type": "references", "references": references}
 
@@ -397,6 +400,7 @@ async def stream_agent(
             if inbox_listing is not None:
                 references = [
                     {
+                        "citation_key": email.get("citation_key"),
                         "email_id": email.get("email_id"),
                         "subject": email.get("subject") or "",
                         "sender": email.get("sender") or "",
