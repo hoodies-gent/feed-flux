@@ -33,7 +33,7 @@ import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
-import { restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
+import { getInlineCitationReferences, restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
 import { getToolActivityPresentation } from '@/lib/tool-activity-presentation.mjs';
 
@@ -1353,7 +1353,7 @@ export default function Home() {
       onSuggestion={(prompt) => void handleSendChatMessage(undefined, prompt)}
       onToggle={() => setIsChatOpen((current) => !current)}
     >
-      {chatMessages.map(msg => (
+      {chatMessages.map((msg, messageIndex) => (
                 msg.role === 'context' ? (
                   <ChatContextEventLine
                     key={msg.id}
@@ -1381,7 +1381,7 @@ export default function Home() {
                               <AgentMessageMarkdown
                                 content={item.text}
                                 isStreaming={Boolean(msg.isStreaming)}
-                                references={msg.references ?? []}
+                                references={getInlineCitationReferences(chatMessages, messageIndex)}
                                 onOpenEmail={handleOpenEmailDetail}
                               />
                             </div>

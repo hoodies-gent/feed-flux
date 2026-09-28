@@ -45,3 +45,52 @@ test('restored chat messages clear stream state that cannot resume after refresh
   }]);
   assert.equal(persisted[0].isStreaming, true);
 });
+
+test('current message references remain the first choice for inline citations', () => {
+  const currentReferences = [{
+    citation_key: 'inbox-1',
+    email_id: 'current-email',
+    sender: 'Current Sender',
+    subject: 'Current subject',
+  }];
+  const messages = [
+    { role: 'assistant', references: [{ email_id: 'older-email' }] },
+    { role: 'assistant', references: currentReferences },
+  ];
+
+  assert.deepEqual(
+    agentMessageState.getInlineCitationReferences(messages, 1),
+    currentReferences,
+  );
+});
+
+test('a follow-up without sources reuses the nearest prior reference set with its citation keys', () => {
+  const priorReference = {
+    citation_key: 'inbox-1',
+    email_id: 'prior-email',
+    sender: 'Marcus Patel',
+    subject: 'Re: shadow-write flag design — any thoughts?',
+  };
+  const messages = [
+    { role: 'assistant', references: [{ email_id: 'older-email' }] },
+    { role: 'assistant', references: [priorReference] },
+    { role: 'user', content: 'Which one needs a reply?' },
+    { role: 'assistant', content: 'The shadow-write email.' },
+  ];
+
+  assert.deepEqual(
+    agentMessageState.getInlineCitationReferences(messages, 3),
+    [priorReference],
+  );
+  assert.equal(priorReference.citation_key, 'inbox-1');
+});
+
+test('a message without current or prior references has no citation candidates', () => {
+  assert.deepEqual(
+    agentMessageState.getInlineCitationReferences([
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi' },
+    ], 1),
+    [],
+  );
+});

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import type { AgentReference } from '@/lib/api';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
 import {
+  addMissingInlineEmailCitations,
   linkifyInlineEmailCitations,
   resolveInlineEmailCitation,
 } from '@/lib/inline-email-citations.mjs';
@@ -78,6 +79,12 @@ export function AgentMessageMarkdown({
   references,
   onOpenEmail,
 }: AgentMessageMarkdownProps) {
+  const citedContent = addMissingInlineEmailCitations(
+    content,
+    references,
+    isStreaming,
+  );
+
   return (
     <ReactMarkdown
       components={{
@@ -109,7 +116,7 @@ export function AgentMessageMarkdown({
         },
       }}
     >
-      {linkifyInlineEmailCitations(content)}
+      {linkifyInlineEmailCitations(citedContent)}
     </ReactMarkdown>
   );
 }

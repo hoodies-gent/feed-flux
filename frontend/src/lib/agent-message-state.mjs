@@ -12,3 +12,20 @@ export function restoreChatMessageState(messages) {
       : message
   ));
 }
+
+export function getInlineCitationReferences(messages, messageIndex) {
+  const currentReferences = (messages[messageIndex]?.references ?? []).filter(
+    (reference) => reference?.email_id,
+  );
+  if (currentReferences.length > 0) return currentReferences;
+
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    const priorReferences = (messages[index]?.references ?? []).filter(
+      (reference) => reference?.email_id,
+    );
+    if (priorReferences.length === 0) continue;
+    return priorReferences;
+  }
+
+  return [];
+}
