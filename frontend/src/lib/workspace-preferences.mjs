@@ -32,8 +32,8 @@ const layoutRules = {
     'detail-panel': [32, 72],
   },
   detailLayout: {
-    'email-body-panel': [45, 88],
-    'email-action-panel': [12, 55],
+    'email-body-panel': [20, 88],
+    'email-action-panel': [12, 80],
   },
 };
 

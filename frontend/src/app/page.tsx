@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import type { Layout } from "react-resizable-panels";
+import type { GroupImperativeHandle, Layout } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_WORKSPACE_PREFERENCES,
@@ -33,6 +33,7 @@ import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
 import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
+import { enterDraftFocus, isDraftFocusLayout } from '@/lib/draft-layout-state.mjs';
 import { getInlineCitationReferences, restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
 import { getToolActivityPresentation } from '@/lib/tool-activity-presentation.mjs';
@@ -625,6 +626,9 @@ export default function Home() {
   const [detailLayout, setDetailLayout] = useState<Layout>(() => ({
     ...DEFAULT_WORKSPACE_PREFERENCES.detailLayout,
   }));
+  const detailGroupRef = useRef<GroupImperativeHandle | null>(null);
+  const detailLayoutRef = useRef<Layout>({ ...DEFAULT_WORKSPACE_PREFERENCES.detailLayout });
+  const isDraftFocusMode = isDraftFocusLayout(detailLayout);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoaded, setIsChatLoaded] = useState(false);
   const [chatInput, setChatInput] = useState('');
@@ -632,6 +636,23 @@ export default function Home() {
   const [threadId, setThreadId] = useState<string>('');
   const [focusedEmailContext, setFocusedEmailContext] = useState<AgentReference | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const applyDetailLayout = useCallback((layout: Layout) => {
+    detailLayoutRef.current = layout;
+    setDetailLayout(layout);
+    detailGroupRef.current?.setLayout(layout);
+  }, []);
+
+  const focusDraftWorkspace = useCallback(() => {
+    const currentLayout = detailGroupRef.current?.getLayout() ?? detailLayoutRef.current;
+    if (isDraftFocusLayout(currentLayout)) return;
+    applyDetailLayout(enterDraftFocus());
+  }, [applyDetailLayout]);
+
+  const handleDetailLayoutChanged = useCallback((layout: Layout) => {
+    detailLayoutRef.current = layout;
+    setDetailLayout(layout);
+  }, []);
 
   // Load chat history + thread id from LocalStorage strictly on client-side mount
   useEffect(() => {
@@ -716,6 +737,9 @@ export default function Home() {
           delete next[activeEmailId];
           return next;
         });
+        if (drafts.length > 0 && isDraftPaneOpen) {
+          focusDraftWorkspace();
+        }
       })
       .catch(() => {
         if (!cancelled) toast.error('Failed to load reply drafts.');
@@ -724,7 +748,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [activeEmailId, activeDraftRefreshToken]);
+  }, [activeEmailId, activeDraftRefreshToken, focusDraftWorkspace, isDraftPaneOpen]);
 
   useEffect(() => {
     const preferences = loadWorkspacePreferences(window.localStorage);
@@ -734,6 +758,7 @@ export default function Home() {
     setIsDraftPaneOpen(preferences.isDraftPaneOpen);
     setMainLayoutOpen(preferences.mainLayoutOpen);
     setMainLayoutClosed(preferences.mainLayoutClosed);
+    detailLayoutRef.current = preferences.detailLayout;
     setDetailLayout(preferences.detailLayout);
     setWorkspacePreferencesLoaded(true);
 
@@ -830,6 +855,7 @@ export default function Home() {
       },
       onDraft: (event) => {
         setIsDraftPaneOpen(true);
+        focusDraftWorkspace();
         setDraftRefreshByEmailId((current) => ({
           ...current,
           [event.email_id]: (current[event.email_id] ?? 0) + 1,
@@ -942,6 +968,7 @@ export default function Home() {
 
     setAutoDraftOnOpen(false);
     setIsDraftPaneOpen(true);
+    focusDraftWorkspace();
     setReplyingEmailIds((current) => ({ ...current, [emailId]: true }));
     try {
       let drafts = draftsByEmailId[emailId] ?? [];
@@ -974,6 +1001,7 @@ export default function Home() {
 
   const handleDraftTabSelect = (emailId: string, draftId: number) => {
     setIsDraftPaneOpen(true);
+    focusDraftWorkspace();
     handleDraftFocus(emailId, draftId);
     void handleOpenEmailDetail(emailId);
   };
@@ -1032,7 +1060,10 @@ export default function Home() {
       setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
     }
     setAutoDraftOnOpen(autoDraft);
-    if (autoDraft) setIsDraftPaneOpen(true);
+    if (autoDraft) {
+      setIsDraftPaneOpen(true);
+      focusDraftWorkspace();
+    }
     setActiveEmailId(id);
     setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
     if (emailDetailsById[id]) {
@@ -1666,28 +1697,29 @@ export default function Home() {
                     orientation="vertical"
                     resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}
                     defaultLayout={detailLayout}
-                    onLayoutChanged={setDetailLayout}
+                    groupRef={detailGroupRef}
+                    onLayoutChanged={handleDetailLayoutChanged}
                   >
 
               {/* TOP PANEL: Original Email */}
               <ResizablePanel
                 id="email-body-panel"
                 defaultSize={`${detailLayout['email-body-panel']}%`}
-                minSize="45%"
-                className="bg-background flex flex-col relative pb-4"
+                minSize="20%"
+                className="bg-background flex flex-col relative"
               >
                 {emailBodyContent}
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" className="h-2 shrink-0 cursor-row-resize bg-transparent after:h-full after:bg-transparent hover:bg-transparent outline-none" />
+              <ResizableHandle id="email-divider" className="h-px shrink-0 cursor-row-resize bg-border/70 after:bg-transparent hover:bg-border outline-none" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
                 defaultSize={`${detailLayout['email-action-panel']}%`}
                 minSize="12%"
-                className="bg-muted/30 flex flex-col relative border-t border-border"
+                className="bg-muted/30 flex flex-col relative"
               >
                 {draftTabs.length > 0 && (
                   <div className="scrollbar-none flex min-h-9 shrink-0 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border/60 bg-background/70 px-2 py-1">
@@ -1728,6 +1760,7 @@ export default function Home() {
                         autoDraft={active && autoDraftOnOpen}
                         focusDraftId={focusedDraftByEmailId[id]}
                         refreshToken={draftRefreshByEmailId[id] ?? 0}
+                        isFocusMode={isDraftFocusMode}
                         onCollapse={() => {
                           setAutoDraftOnOpen(false);
                           setIsDraftPaneOpen(false);

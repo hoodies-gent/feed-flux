@@ -80,6 +80,26 @@ test('valid preferences restore presentation state', () => {
   );
 });
 
+test('focused draft layout restores as presentation state', () => {
+  const stored = {
+    version: 1,
+    savedAt: now - 1_000,
+    preferences: {
+      ...defaults,
+      activeEmailId: 'dev-email-12',
+      detailLayout: {
+        'email-body-panel': 25,
+        'email-action-panel': 75,
+      },
+    },
+  };
+
+  assert.deepEqual(
+    preferences.parseWorkspacePreferences(JSON.stringify(stored), now),
+    stored.preferences,
+  );
+});
+
 test('out-of-range panel layouts fall back to defaults', () => {
   const stored = {
     version: 1,

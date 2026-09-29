@@ -32,6 +32,7 @@ interface DraftWorkspaceProps {
   autoDraft?: boolean;
   focusDraftId?: number | null;
   refreshToken?: number;
+  isFocusMode?: boolean;
   onCollapse?: () => void;
   onDraftsChange?: (drafts: DraftReply[]) => void;
   onDraftFocus?: (draftId: number | null) => void;
@@ -60,6 +61,7 @@ export function DraftWorkspace({
   autoDraft = false,
   focusDraftId = null,
   refreshToken = 0,
+  isFocusMode = false,
   onCollapse,
   onDraftsChange,
   onDraftFocus,
@@ -810,7 +812,7 @@ export function DraftWorkspace({
                       onScroll={(event) => handleTextareaScroll(draft.id, event)}
                       rows={8}
                       disabled={busy}
-                      className="relative z-10 resize-none bg-transparent text-sm"
+                      className={`relative z-10 resize-none bg-transparent text-sm ${isFocusMode ? 'min-h-[min(40vh,28rem)]' : ''}`}
                     />
                   </div>
                 ) : (
