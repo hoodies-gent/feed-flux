@@ -36,6 +36,7 @@ import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mj
 import { getInlineCitationReferences, restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
 import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
 import { getToolActivityPresentation } from '@/lib/tool-activity-presentation.mjs';
+import { formatTriageActionToast } from '@/lib/notification-policy.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -451,9 +452,9 @@ function BatchTriageReviewCard({
     try {
       const { row_id } = await triageAction(item.email_id, chosenKind, threadId);
       setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'done', appliedKind: chosenKind, rowId: row_id } }));
-      const past = BULK_KIND_META[chosenKind].pastTense;
       const title = item.subject ?? item.email_id;
-      toast.success(`${past} · ${title.length > 30 ? title.slice(0, 30) + '…' : title}`, {
+      const toastTitle = title.length > 30 ? `${title.slice(0, 30)}…` : title;
+      toast.success(formatTriageActionToast(chosenKind, toastTitle), {
         duration: 6000,
         action: {
           label: 'Undo',
