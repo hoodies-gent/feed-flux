@@ -7,12 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { RecipientField } from '@/components/RecipientField';
-import { getDraftDiscardMode } from '@/lib/draft-discard-state.mjs';
+import {
+  getDraftDiscardMode,
+  removeDraftForDiscard,
+  restoreDraftAfterDiscard,
+} from '@/lib/draft-discard-state.mjs';
 import { DRAFT_SELECTION_PROMPT_INPUT_PROPS } from '@/lib/draft-selection-input-contract.mjs';
 import {
   askAgentStream,
   discardDraft,
   getEmailDrafts,
+  restoreDraft,
   sendDraft,
   updateDraft,
   type AgentStreamCallbacks,
@@ -60,6 +65,7 @@ export function DraftWorkspace({
   onDraftFocus,
 }: DraftWorkspaceProps) {
   const [drafts, setDrafts] = useState<DraftReply[]>([]);
+  const draftsRef = useRef<DraftReply[]>([]);
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectionPrompt, setSelectionPrompt] = useState('');
@@ -158,6 +164,7 @@ export function DraftWorkspace({
   const loadDrafts = async (selectId?: number): Promise<DraftReply[]> => {
     try {
       const nextDrafts = await getEmailDrafts(emailId);
+      draftsRef.current = nextDrafts;
       setDrafts(nextDrafts);
       onDraftsChange?.(nextDrafts);
       if (selectId && nextDrafts.some((draft) => draft.id === selectId)) {
@@ -172,6 +179,7 @@ export function DraftWorkspace({
   };
 
   useEffect(() => {
+    draftsRef.current = [];
     setDrafts([]);
     setEditingDraftId(null);
     clearSelection();
@@ -195,6 +203,10 @@ export function DraftWorkspace({
       saveTimers.current = {};
     };
   }, [emailId, refreshToken]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   useEffect(() => {
     if (focusDraftId && drafts.some((draft) => draft.id === focusDraftId)) {
@@ -556,13 +568,38 @@ export function DraftWorkspace({
     try {
       await discardDraft(draftId);
       if (undoState?.draftId === draftId) clearUndo();
-      setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
+      const removal = removeDraftForDiscard(draftsRef.current, draftId);
+      draftsRef.current = removal.drafts;
+      setDrafts(removal.drafts);
+      onDraftsChange?.(removal.drafts);
       setConfirmingDiscardId(null);
       if (editingDraftId === draftId) {
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
+      toast.success('Draft deleted', {
+        duration: 6000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              const restoredDraft = await restoreDraft(draftId);
+              const nextDrafts = restoreDraftAfterDiscard(
+                draftsRef.current,
+                restoredDraft,
+                removal.discardedIndex,
+              );
+              draftsRef.current = nextDrafts;
+              setDrafts(nextDrafts);
+              onDraftsChange?.(nextDrafts);
+              setEditingDraftId(restoredDraft.id);
+              onDraftFocus?.(restoredDraft.id);
+            } catch {
+              toast.error('Failed to restore draft.');
+            }
+          },
+        },
+      });
     } catch {
       toast.error('Failed to discard draft.');
     } finally {

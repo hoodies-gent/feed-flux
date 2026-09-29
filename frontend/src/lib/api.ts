@@ -277,6 +277,14 @@ export async function discardDraft(draftId: number): Promise<DraftReply> {
     return response.json();
 }
 
+export async function restoreDraft(draftId: number): Promise<DraftReply> {
+    const response = await fetch(`/api/drafts/${draftId}/restore`, { method: 'POST' });
+    if (!response.ok) {
+        throw new Error(`Failed to restore draft: ${response.statusText}`);
+    }
+    return response.json();
+}
+
 export async function sendDraft(draftId: number): Promise<{ ok: boolean; draft_id: number; sent_action_id: number }> {
     const response = await fetch(`/api/drafts/${draftId}/send`, { method: 'POST' });
     if (!response.ok) {
