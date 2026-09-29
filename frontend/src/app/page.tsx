@@ -30,7 +30,7 @@ import {
 } from '@/lib/workspace-preferences.mjs';
 import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
 import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
-import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
+import { getFeedItemStateClassName, getFeedItemSubjectClassName, getFeedItemSenderClassName, getFeedItemTimeClassName } from '@/lib/feed-item-presentation.mjs';
 import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
 import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
 import { enterDraftFocus, isDraftFocusLayout } from '@/lib/draft-layout-state.mjs';
@@ -438,11 +438,13 @@ function BatchTriageReviewCard({
   threadId,
   onView,
   onDraft,
+  onFeedItemReadStateChange,
 }: {
   plan: TriagePlan;
   threadId: string;
   onView: (emailId: string) => void;
   onDraft: (item: NeedsReplyItem) => void;
+  onFeedItemReadStateChange: (emailId: string, isRead: boolean) => void;
 }) {
   const bulk = plan.bulk ?? [];
   const needsReply = plan.needs_reply ?? [];
@@ -453,6 +455,9 @@ function BatchTriageReviewCard({
     try {
       const { row_id } = await triageAction(item.email_id, chosenKind, threadId);
       setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'done', appliedKind: chosenKind, rowId: row_id } }));
+      if (chosenKind === 'mark_read' || chosenKind === 'archive') {
+        onFeedItemReadStateChange(item.email_id, true);
+      }
       const title = item.subject ?? item.email_id;
       const toastTitle = title.length > 30 ? `${title.slice(0, 30)}…` : title;
       toast.success(formatTriageActionToast(chosenKind, toastTitle), {
@@ -461,12 +466,15 @@ function BatchTriageReviewCard({
           label: 'Undo',
           onClick: async () => {
             try {
-              await triageUndo(row_id);
+              const undone = await triageUndo(row_id);
               setItemStates(prev => {
                 const next = { ...prev };
                 delete next[item.email_id];
                 return next;
               });
+              if (undone.kind === 'mark_read' || undone.kind === 'archive') {
+                onFeedItemReadStateChange(item.email_id, false);
+              }
               toast.success('Undone');
             } catch (err) {
               toast.error('Undo failed');
@@ -1055,9 +1063,23 @@ export default function Home() {
     ]);
   };
 
+  const updateFeedItemReadState = (emailId: string, isRead: boolean) => {
+    setFeed((current) => current.map((item) => item.id === emailId ? { ...item, is_read: isRead } : item));
+  };
+
   const handleOpenEmailDetail = async (id: string, autoDraft = false) => {
-    if (activeEmailId && activeEmailId !== id && !(draftsByEmailId[activeEmailId]?.length)) {
-      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
+    const previousActiveId = activeEmailId;
+    if (previousActiveId && previousActiveId !== id) {
+      const previousItem = feed.find((item) => item.id === previousActiveId);
+      if (previousItem && !previousItem.is_read) {
+        updateFeedItemReadState(previousActiveId, true);
+        markEmailReadOnOpen(previousActiveId).catch(() => {
+          updateFeedItemReadState(previousActiveId, false);
+        });
+      }
+    }
+    if (previousActiveId && previousActiveId !== id && !(draftsByEmailId[previousActiveId]?.length)) {
+      setMountedEmailIds((current) => current.filter((emailId) => emailId !== previousActiveId));
     }
     setAutoDraftOnOpen(autoDraft);
     if (autoDraft) {
@@ -1066,13 +1088,6 @@ export default function Home() {
     }
     setActiveEmailId(id);
     setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
-    const currentFeedItem = feed.find((item) => item.id === id);
-    if (currentFeedItem && !currentFeedItem.is_read) {
-      setFeed((current) => current.map((item) => item.id === id ? { ...item, is_read: true } : item));
-      markEmailReadOnOpen(id).catch(() => {
-        setFeed((current) => current.map((item) => item.id === id ? { ...item, is_read: false } : item));
-      });
-    }
     if (emailDetailsById[id]) {
       setLoadingEmailIds((current) => ({ ...current, [id]: false }));
       return;
@@ -1460,6 +1475,7 @@ export default function Home() {
                       threadId={threadId}
                       onView={handleOpenEmailDetail}
                       onDraft={handleDraftFromTriage}
+                      onFeedItemReadStateChange={updateFeedItemReadState}
                     />
                   )}
 
@@ -1578,6 +1594,7 @@ export default function Home() {
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
                 const isActive = activeEmailId === item.id;
+                const isRead = item.is_read;
                 const senderLabel = item.sender || 'Unknown sender';
                 const avatar = getAvatarPresentation(senderLabel);
 
@@ -1590,26 +1607,26 @@ export default function Home() {
                       getFeedItemStateClassName(isActive),
                     )}
                   >
-                    <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
+                    <CardHeader className="relative flex flex-row items-start gap-3 px-3 py-2.5">
                       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatar.background} ${avatar.foreground}`}>
                         {avatar.initials}
                       </div>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex min-w-0 items-center gap-2">
-                          <CardDescription className="max-w-[30%] shrink-0 truncate text-xs font-medium text-foreground">
+                          <CardDescription className={getFeedItemSenderClassName(isRead)}>
                             {senderLabel}
                           </CardDescription>
-                          <CardTitle className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                            {item.subject}
-                          </CardTitle>
+                          <span className={getFeedItemTimeClassName(isRead)}>
+                            {formatTime(item.received_datetime)}
+                          </span>
                         </div>
-                        <CardDescription className="mt-0.5 truncate text-xs text-muted-foreground">
+                        <CardTitle className={getFeedItemSubjectClassName(isRead)}>
+                          {item.subject}
+                        </CardTitle>
+                        <CardDescription className="truncate text-xs text-muted-foreground">
                           {item.body_preview}
                         </CardDescription>
                       </div>
-                      <span className="shrink-0 text-xs text-muted-foreground transition-opacity group-hover:opacity-0">
-                        {formatTime(item.received_datetime)}
-                      </span>
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-card opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
