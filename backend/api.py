@@ -42,6 +42,7 @@ class FeedItem(BaseModel):
     sender: str
     received_datetime: int  # Unix timestamp
     body_preview: str
+    is_read: bool
 
 class SummaryRequest(BaseModel):
     text: str
@@ -242,7 +243,8 @@ async def get_feed(limit: int = 5, q: Optional[str] = None):
                 "subject": email["subject"],
                 "sender": email["sender"] or email["sender_email"],  # Use name or fallback to email
                 "received_datetime": email["received_datetime"],
-                "body_preview": email["body_preview"]
+                "body_preview": email["body_preview"],
+                "is_read": bool(email.get("is_read", False)),
             })
         return feed
     except Exception as e:
