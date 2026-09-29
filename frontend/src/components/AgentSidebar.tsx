@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Mail, PanelRightClose, PanelRightOpen, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Mail, PanelRightClose, PanelRightOpen, Plus, Send, Sparkles } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { AgentReference } from '@/lib/api';
@@ -12,6 +12,7 @@ import {
 } from '@/lib/agent-sidebar-contract.mjs';
 import {
   AI_PANEL_LABEL,
+  ASSISTANT_NEW_CHAT_ACTION,
   getAssistantSidebarLayout,
   getAssistantSidebarToggle,
 } from '@/lib/workspace-chrome-contract.mjs';
@@ -112,6 +113,9 @@ export function AgentSidebar({
   onToggle,
 }: AgentSidebarProps) {
   const layout = getAssistantSidebarLayout(isOpen);
+  const NewChatIcon = {
+    plus: Plus,
+  }[ASSISTANT_NEW_CHAT_ACTION.icon] ?? Plus;
 
   return (
     <aside
@@ -120,7 +124,10 @@ export function AgentSidebar({
     >
       {layout.showContent && (
         <div id="assistant-content" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-muted/30 px-3">
+          <div
+            className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-muted/30 pl-3"
+            style={{ paddingRight: layout.toggleEdgeInset }}
+          >
             <div className="flex items-center gap-2">
               <div className="rounded-md bg-muted p-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-foreground" />
@@ -128,15 +135,16 @@ export function AgentSidebar({
               <h2 className="text-base font-semibold text-foreground">{AI_PANEL_LABEL}</h2>
             </div>
             <div className="flex items-center gap-1">
-              {hasMessages && (
+              {(hasMessages || ASSISTANT_NEW_CHAT_ACTION.visibleWhenEmpty) && (
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  className="h-7 w-7 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   onClick={onNewChat}
-                  title="New chat (clears history and resets thread)"
+                  aria-label={ASSISTANT_NEW_CHAT_ACTION.label}
+                  title={ASSISTANT_NEW_CHAT_ACTION.label}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <NewChatIcon className="h-4 w-4" />
                 </Button>
               )}
               <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
@@ -189,7 +197,10 @@ export function AgentSidebar({
         </div>
       )}
       {!layout.showContent && (
-        <div className="flex h-12 w-full shrink-0 items-center justify-center bg-muted/10">
+        <div
+          className="flex h-12 w-full shrink-0 items-center justify-end bg-muted/10"
+          style={{ paddingRight: layout.toggleEdgeInset }}
+        >
           <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
         </div>
       )}

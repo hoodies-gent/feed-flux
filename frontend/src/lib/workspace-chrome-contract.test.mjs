@@ -24,14 +24,24 @@ test('assistant sidebar toggle changes action and icon with panel state', () => 
   });
 });
 
+test('assistant new chat action uses additive presentation', () => {
+  assert.deepEqual(workspaceChromeContract.ASSISTANT_NEW_CHAT_ACTION, {
+    label: 'New chat',
+    icon: 'plus',
+    visibleWhenEmpty: true,
+  });
+});
+
 test('assistant toggle moves into the header only while expanded', () => {
   assert.deepEqual(workspaceChromeContract.getAssistantSidebarLayout(false), {
     showContent: false,
     togglePlacement: 'collapsed-sidebar',
+    toggleEdgeInset: 4,
   });
   assert.deepEqual(workspaceChromeContract.getAssistantSidebarLayout(true), {
     showContent: true,
     togglePlacement: 'header',
+    toggleEdgeInset: 4,
   });
 });
 
