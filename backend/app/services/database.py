@@ -355,6 +355,25 @@ class DatabaseService:
         finally:
             session.close()
 
+    def restore_draft(self, draft_id: int) -> dict:
+        """Restore a discarded draft to active status."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "discarded":
+                raise ValueError(f"draft is not discarded: {draft_id!r}")
+            draft.status = "draft"
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def send_draft(self, draft_id: int) -> dict:
         """Record a dry-run send and close the draft in one transaction."""
         session = self.Session()

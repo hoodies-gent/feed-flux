@@ -111,6 +111,17 @@ class DraftApiTest(unittest.TestCase):
         self.assertEqual(draft_id, discarded["id"])
         self.assertEqual("discarded", discarded["status"])
 
+    def test_restore_draft_marks_discarded_draft_active(self):
+        draft_id = self._draft()
+        self.db.discard_draft(draft_id)
+        restore_draft = getattr(api, "restore_draft", None)
+        self.assertIsNotNone(restore_draft, "restore draft endpoint is required")
+
+        restored = asyncio.run(restore_draft(draft_id))
+
+        self.assertEqual(draft_id, restored["id"])
+        self.assertEqual("draft", restored["status"])
+
     def test_send_draft_records_dry_run_and_marks_sent(self):
         draft_id = self._draft()
 

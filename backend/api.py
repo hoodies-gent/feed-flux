@@ -412,6 +412,18 @@ async def discard_draft(draft_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/drafts/{draft_id}/restore")
+async def restore_draft(draft_id: int):
+    """Restore a locally discarded draft without touching Microsoft Graph."""
+    try:
+        return db.restore_draft(draft_id)
+    except ValueError as e:
+        raise _draft_mutation_error(e)
+    except Exception as e:
+        logger.error(f"Draft restore failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/drafts/{draft_id}/send")
 async def send_draft(draft_id: int):
     """Record a dry-run send and close the draft locally."""
