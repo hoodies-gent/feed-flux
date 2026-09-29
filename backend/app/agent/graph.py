@@ -37,11 +37,23 @@ DEFAULT_MAX_TOOL_CALLS = 8
 DEFAULT_MAX_TOTAL_TOKENS = 64_000
 REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:([^<>]*)-->\s*$")
 TRUNCATED_REFERENCE_FOOTER_PATTERN = re.compile(r"<!--feedflux_refs:[^<>]*$")
+INLINE_REFERENCE_PATTERN = re.compile(r"<!--feedflux_ref:([A-Za-z0-9_-]+)-->")
 MEMORY_MUTATION_TOOLS = {
     "remember_memory",
     "update_memory",
     "forget_memory",
     "reset_memories",
+}
+INBOX_READ_ONLY_FORBIDDEN_TOOLS = {
+    "send_test_email",
+    "save_reply_draft",
+    "apply_draft_patch",
+    "apply_triage_batch",
+    "remember_memory",
+    "update_memory",
+    "forget_memory",
+    "reset_memories",
+    "record_memory_candidate",
 }
 
 
@@ -70,6 +82,8 @@ SYSTEM_PROMPT = (
     "\n"
     "Tools:\n"
     "- find_email(sender_contains?, subject_contains?): locate an email the user references.\n"
+    "- list_inbox_emails(scope, purpose, limit?): list a bounded unread or recent inbox "
+    "view for read-only overviews, attention finding, or batch triage.\n"
     "- read_calendar(days_ahead?): list free 30-min slots this week.\n"
     "- save_reply_draft(recipient, subject, body, original_email_id, draft_id?): save a reply draft "
     "in the original email's detail panel. Pass draft_id to revise an existing draft; it "
@@ -143,6 +157,25 @@ SYSTEM_PROMPT = (
     "- Never send a draft from chat. Only the user's native Send action in the email panel "
     "records the dry-run send.\n"
     "\n"
+    "Inbox overview / attention workflow — READ ONLY:\n"
+    "Infer the user's goal from the outcome they want, not from matching exact phrases. "
+    "Use purpose='overview' when the goal is situational awareness: call "
+    "list_inbox_emails exactly once, default to scope='recent', and synthesize the main "
+    "developments and themes instead of producing an action queue or summarizing every "
+    "email one by one. Use purpose='attention' when the goal is deciding what to act on "
+    "next: call list_inbox_emails exactly once, default to scope='unread', and return only "
+    "plausible action items with a brief reason each. Say clearly when none are evident. "
+    "An explicit user scope overrides either default.\n"
+    "For both purposes, never treat the inbox as an arbitrary latest 10. Honor a requested "
+    "count, otherwise use 20, with 50 as the maximum. After the listing, state the actual "
+    "scope and returned_count covered, ground the answer in the returned email metadata, "
+    "and keep the source references. Immediately after each sentence or list item that "
+    "makes a concrete claim from a returned email, append its exact citation marker in "
+    "the form <!--feedflux_ref:CITATION_KEY-->, using only citation_key values returned "
+    "by list_inbox_emails. Do not display or explain the marker. "
+    "This whole turn is read-only: do not call apply_triage_batch or "
+    "any tool that creates or changes drafts, actions, or memory.\n"
+    "\n"
     "Batch triage workflow — CLASSIFY, DON'T EXECUTE:\n"
     "Your role in this flow is to classify unread email into buckets. The USER acts on\n"
     "the classification via native per-row buttons on the review card (mark-read /\n"
@@ -158,7 +191,8 @@ SYSTEM_PROMPT = (
     "When the user asks to process, triage, clear, or review a BATCH of unread email "
     "(any language — 'process today's unreads', 'clean up my inbox', or the "
     "equivalent request in their language):\n"
-    "  (1) list_unread_emails(limit=?) — pick a limit matching the user's ask.\n"
+    "  (1) list_inbox_emails(scope='unread', purpose='triage', limit=?) — pick a limit "
+    "matching the user's ask.\n"
     "  (2) For EACH returned email, classify into ONE of two buckets:\n"
     "      BULK-SAFE (target ~70-80% of the batch): pick action 'mark_read' (low-signal "
     "informational — FYI threads, status updates you were cc'd on), 'archive' "
@@ -178,7 +212,7 @@ SYSTEM_PROMPT = (
     "\n"
     "Across the entire triage flow, chat text before apply_triage_batch fires must "
     "be AT MOST one short sentence total, IN THE USER'S LANGUAGE — a brief 'analysing "
-    "N unread' style acknowledgement before list_unread_emails, OR silent between the "
+    "N unread' style acknowledgement before list_inbox_emails, OR silent between the "
     "two tools, NEVER both. Do not narrate the transition. All per-email reasoning "
     "goes into the tool args' `reason` fields — the card renders them next to each "
     "email. A wall of 'Email 1: ..., Email 2: ...' analysis in chat before the tool "
@@ -212,10 +246,10 @@ EMAIL_CONTEXT_INSTRUCTIONS = (
     "connection; continue with the appropriate inbox tools. If it is relevant, treat "
     "it as the exact email selected by the user. When the user refers to that focused "
     "email, do not search the mailbox to replace, expand, or infer missing context. "
-    "If the final answer actually uses one or more focused emails, append exactly one "
-    "hidden footer immediately after the answer using their citation_key values: "
-    "<!--feedflux_refs:context-1,context-2-->. Include only keys you actually used, "
-    "omit the footer when none were used, and never discuss this footer.\n\n"
+    "If the final answer actually uses a focused email, append its exact inline citation "
+    "marker immediately after the sentence or list item it supports, in the form "
+    "<!--feedflux_ref:context-1-->. Use only the supplied citation_key values, omit "
+    "markers for unused context, and never display or explain a marker.\n\n"
 )
 
 
@@ -233,23 +267,34 @@ def _strip_reference_footer(
             return text[:truncated_match.start()].rstrip(), []
         return text, []
 
-    citation_keys: list[str] = []
+    inline_citation_keys: list[str] = []
+    content_blocks = [content] if isinstance(content, str) else content
+    if isinstance(content_blocks, list):
+        for block in content_blocks:
+            if isinstance(block, str):
+                inline_citation_keys.extend(INLINE_REFERENCE_PATTERN.findall(block))
+            elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                inline_citation_keys.extend(
+                    INLINE_REFERENCE_PATTERN.findall(block["text"])
+                )
+
+    footer_citation_keys: list[str] = []
     cleaned_content = content
     if isinstance(content, str):
-        cleaned_content, citation_keys = strip_text(content)
+        cleaned_content, footer_citation_keys = strip_text(content)
     elif isinstance(content, list):
         cleaned_blocks = list(content)
         for index in range(len(cleaned_blocks) - 1, -1, -1):
             block = cleaned_blocks[index]
             if isinstance(block, str):
-                cleaned_text, citation_keys = strip_text(block)
-                if citation_keys or cleaned_text != block:
+                cleaned_text, footer_citation_keys = strip_text(block)
+                if footer_citation_keys or cleaned_text != block:
                     cleaned_blocks[index] = cleaned_text
                     cleaned_content = cleaned_blocks
                     break
             elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                cleaned_text, citation_keys = strip_text(block["text"])
-                if citation_keys or cleaned_text != block["text"]:
+                cleaned_text, footer_citation_keys = strip_text(block["text"])
+                if footer_citation_keys or cleaned_text != block["text"]:
                     cleaned_blocks[index] = {**block, "text": cleaned_text}
                     cleaned_content = cleaned_blocks
                     break
@@ -261,7 +306,7 @@ def _strip_reference_footer(
     }
     used_references = []
     seen = set()
-    for citation_key in citation_keys:
+    for citation_key in [*inline_citation_keys, *footer_citation_keys]:
         if citation_key in allowed and citation_key not in seen:
             used_references.append(allowed[citation_key])
             seen.add(citation_key)
@@ -298,6 +343,19 @@ def _latest_user_message(messages: list) -> str:
 
 def _user_turn_number(messages: list) -> int:
     return sum(isinstance(message, HumanMessage) for message in messages)
+
+
+def _first_tool_call_in_current_turn(messages: list, tool_name: str) -> dict | None:
+    turn_start = -1
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], HumanMessage):
+            turn_start = index
+            break
+    for message in messages[turn_start + 1:]:
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            if tool_call.get("name") == tool_name:
+                return tool_call
+    return None
 
 
 def _memory_mutation_fingerprint(tool_name: str, tool_args: dict) -> str:
@@ -474,10 +532,42 @@ def build_agent(
             tool_error = None
             user_turn = _user_turn_number(state["messages"])
             memory_page_consumed = state.get("memory_listed_turn") == user_turn
+            inbox_listing = _first_tool_call_in_current_turn(
+                state["messages"], "list_inbox_emails"
+            )
+            inbox_read_only = (
+                inbox_listing is not None
+                and inbox_listing.get("args", {}).get("purpose") != "triage"
+            )
+            inbox_listing_consumed = _first_tool_call_in_current_turn(
+                state["messages"][:-1], "list_inbox_emails"
+            ) is not None
             for tc in last.tool_calls:
                 name, args, call_id = tc["name"], tc["args"], tc["id"]
                 call_token = current_tool_call_id.set(call_id)
                 try:
+                    if name == "list_inbox_emails":
+                        if inbox_listing_consumed:
+                            results.append(
+                                ToolMessage(
+                                    "[inbox listing limit] Reuse the listing already "
+                                    "returned in this user turn.",
+                                    tool_call_id=call_id,
+                                )
+                            )
+                            continue
+                        inbox_listing_consumed = True
+
+                    if inbox_read_only and name in INBOX_READ_ONLY_FORBIDDEN_TOOLS:
+                        results.append(
+                            ToolMessage(
+                                "[read-only inbox request] Write tool skipped. Answer from "
+                                "the inbox listing without changing local state.",
+                                tool_call_id=call_id,
+                            )
+                        )
+                        continue
+
                     if name == "list_memories" and memory_page_consumed:
                         results.append(
                             ToolMessage(
@@ -570,7 +660,16 @@ def build_agent(
     def route_after_agent(state: AgentState) -> str:
         last = state["messages"][-1]
         if getattr(last, "tool_calls", None):
-            if any(tc["name"] in MEMORY_MUTATION_TOOLS for tc in last.tool_calls):
+            inbox_listing = _first_tool_call_in_current_turn(
+                state["messages"], "list_inbox_emails"
+            )
+            inbox_read_only = (
+                inbox_listing is not None
+                and inbox_listing.get("args", {}).get("purpose") != "triage"
+            )
+            if not inbox_read_only and any(
+                tc["name"] in MEMORY_MUTATION_TOOLS for tc in last.tool_calls
+            ):
                 return "memory_consent"
             return "tools"
         return END

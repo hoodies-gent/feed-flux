@@ -1,0 +1,209 @@
+'use client';
+
+import type { ReactNode } from 'react';
+import { Mail, PanelRightClose, PanelRightOpen, Plus, Send, Sparkles } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import type { AgentReference } from '@/lib/api';
+import {
+  AGENT_EMPTY_STATE_DESCRIPTION,
+  AGENT_EMPTY_STATE_TITLE,
+  AGENT_SUGGESTED_PROMPTS,
+} from '@/lib/agent-sidebar-contract.mjs';
+import {
+  AI_PANEL_LABEL,
+  ASSISTANT_NEW_CHAT_ACTION,
+  getAssistantSidebarLayout,
+  getAssistantSidebarToggle,
+} from '@/lib/workspace-chrome-contract.mjs';
+
+interface AgentSidebarProps {
+  children: ReactNode;
+  composer: ReactNode;
+  focusedEmailContext: AgentReference | null;
+  hasMessages: boolean;
+  isOpen: boolean;
+  isSending: boolean;
+  messagesEnd: ReactNode;
+  onClearFocus: () => void;
+  onNewChat: () => void;
+  onOpenFocusedEmail: (emailId: string) => void;
+  onSuggestion: (prompt: string) => void;
+  onToggle: () => void;
+}
+
+function EmptyAgentState({
+  isSending,
+  onSuggestion,
+}: Pick<AgentSidebarProps, 'isSending' | 'onSuggestion'>) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center space-y-4 pt-16 text-center">
+      <div className="rounded-full bg-muted p-4">
+        <Sparkles className="h-8 w-8 text-muted-foreground" />
+      </div>
+      <div>
+        <h3 className="mb-1 text-lg font-semibold text-foreground">{AGENT_EMPTY_STATE_TITLE}</h3>
+        <p className="mx-auto max-w-[280px] text-sm text-muted-foreground">
+          {AGENT_EMPTY_STATE_DESCRIPTION}
+        </p>
+      </div>
+      <div className="relative mt-2 flex w-fit max-w-full flex-col items-center gap-1 rounded-xl border border-border/70 px-3 py-2.5">
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-card px-2 text-sm text-muted-foreground">
+          For example
+        </span>
+        {AGENT_SUGGESTED_PROMPTS.map((prompt) => (
+          <Button
+            key={prompt}
+            type="button"
+            variant="ghost"
+            className="group h-auto max-w-full cursor-pointer justify-center whitespace-normal px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            disabled={isSending}
+            onClick={() => onSuggestion(prompt)}
+          >
+            <span className="flex max-w-full items-center gap-1.5">
+              <span className="relative inline-flex h-3 w-3 shrink-0 items-center justify-center" aria-hidden="true">
+                <span className="absolute delay-100 transition-all duration-100 ease-in group-hover:delay-0 group-hover:translate-y-1.5 group-hover:opacity-0 group-focus-visible:delay-0 group-focus-visible:translate-y-1.5 group-focus-visible:opacity-0">&gt;</span>
+                <Send className="absolute size-3 translate-y-1.5 scale-90 opacity-0 delay-0 transition-all duration-100 ease-out group-hover:delay-100 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 group-focus-visible:delay-100 group-focus-visible:translate-y-0 group-focus-visible:scale-100 group-focus-visible:opacity-100" />
+              </span>
+              <span className="min-w-0">{prompt}</span>
+            </span>
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AssistantSidebarToggle({
+  isOpen,
+  onToggle,
+}: Pick<AgentSidebarProps, 'isOpen' | 'onToggle'>) {
+  const toggle = getAssistantSidebarToggle(isOpen);
+  const ToggleIcon = toggle.icon === 'panel-right-close' ? PanelRightClose : PanelRightOpen;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+      onClick={onToggle}
+      aria-controls="assistant-content"
+      aria-expanded={isOpen}
+      aria-label={toggle.label}
+      title={toggle.label}
+    >
+      <ToggleIcon className="h-4 w-4" />
+    </Button>
+  );
+}
+
+export function AgentSidebar({
+  children,
+  composer,
+  focusedEmailContext,
+  hasMessages,
+  isOpen,
+  isSending,
+  messagesEnd,
+  onClearFocus,
+  onNewChat,
+  onOpenFocusedEmail,
+  onSuggestion,
+  onToggle,
+}: AgentSidebarProps) {
+  const layout = getAssistantSidebarLayout(isOpen);
+  const NewChatIcon = {
+    plus: Plus,
+  }[ASSISTANT_NEW_CHAT_ACTION.icon] ?? Plus;
+
+  return (
+    <aside
+      id="assistant-panel"
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm ${isOpen ? 'min-w-0' : 'w-9 shrink-0'}`}
+    >
+      {layout.showContent && (
+        <div id="assistant-content" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div
+            className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-muted/30 pl-3"
+            style={{ paddingRight: layout.toggleEdgeInset }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="rounded-md bg-muted p-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-foreground" />
+              </div>
+              <h2 className="text-base font-semibold text-foreground">{AI_PANEL_LABEL}</h2>
+            </div>
+            <div className="flex items-center gap-1">
+              {(hasMessages || ASSISTANT_NEW_CHAT_ACTION.visibleWhenEmpty) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  onClick={onNewChat}
+                  aria-label={ASSISTANT_NEW_CHAT_ACTION.label}
+                  title={ASSISTANT_NEW_CHAT_ACTION.label}
+                >
+                  <NewChatIcon className="h-4 w-4" />
+                </Button>
+              )}
+              <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
+            </div>
+          </div>
+
+          {focusedEmailContext && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-primary/5 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => onOpenFocusedEmail(focusedEmailContext.email_id)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
+              >
+                <Mail className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 leading-tight">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Focused email
+                  </span>
+                  <span className="block truncate text-xs font-medium text-foreground">
+                    {focusedEmailContext.subject}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {focusedEmailContext.sender}
+                  </span>
+                </span>
+              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                onClick={onClearFocus}
+                title="Stop treating this email as the conversational focus"
+              >
+                Clear focus
+              </Button>
+            </div>
+          )}
+
+          <div className="relative min-h-0 flex-1 overflow-y-auto p-5">
+            <div className="space-y-6 pb-2">
+              {hasMessages ? children : (
+                <EmptyAgentState isSending={isSending} onSuggestion={onSuggestion} />
+              )}
+              {messagesEnd}
+            </div>
+          </div>
+
+          {composer}
+        </div>
+      )}
+      {!layout.showContent && (
+        <div
+          className="flex h-12 w-full shrink-0 items-center justify-end bg-muted/10"
+          style={{ paddingRight: layout.toggleEdgeInset }}
+        >
+          <AssistantSidebarToggle isOpen={isOpen} onToggle={onToggle} />
+        </div>
+      )}
+    </aside>
+  );
+}

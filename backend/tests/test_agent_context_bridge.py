@@ -290,6 +290,7 @@ class AgentContextBridgeTest(unittest.TestCase):
             [{
                 "type": "references",
                 "references": [{
+                    "citation_key": "context-2",
                     "email_id": "email-2",
                     "subject": "Project update 2",
                     "sender": "Marcus Patel",
@@ -299,6 +300,52 @@ class AgentContextBridgeTest(unittest.TestCase):
         )
         self.assertNotIn("feedflux_refs", json.dumps(events))
         self.assertEqual("The second update changed.", state.values["messages"][-1].content)
+
+    def test_inline_context_reference_emits_metadata_and_remains_in_answer(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = str(Path(temp_dir) / "emails.db")
+            database = DatabaseService(db_path)
+            database.insert_email({
+                "id": "email-1",
+                "subject": "Project update",
+                "sender_name": "Marcus Patel",
+                "sender_email": "marcus@example.com",
+                "received_datetime": 1,
+                "body_content": "private fixture body",
+            })
+            content = "The launch date changed.<!--feedflux_ref:context-1-->"
+            agent = build_agent(llm=_CapturingLLM(content))
+            thread_id = "stream-inline-context-reference-thread"
+
+            async def exercise():
+                events = [
+                    event
+                    async for event in stream_agent(
+                        new_turn_input("What changed?", ["email-1"]),
+                        thread_id,
+                        agent=agent,
+                    )
+                ]
+                state = await agent.aget_state({"configurable": {"thread_id": thread_id}})
+                return events, state
+
+            with patch.dict(os.environ, {"FEEDFLUX_DB_PATH": db_path}):
+                events, state = asyncio.run(exercise())
+            database.engine.dispose()
+
+        self.assertEqual(
+            [{
+                "type": "references",
+                "references": [{
+                    "citation_key": "context-1",
+                    "email_id": "email-1",
+                    "subject": "Project update",
+                    "sender": "Marcus Patel",
+                }],
+            }],
+            [event for event in events if event.get("type") == "references"],
+        )
+        self.assertEqual(content, state.values["messages"][-1].content)
 
     def test_unknown_context_reference_key_is_removed_and_ignored(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,23 +1,43 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getDailyBriefing, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type BriefingResponse, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, createReplyDraft, getEmailDrafts, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { AppHeader } from '@/components/AppHeader';
+import { AgentSidebar } from '@/components/AgentSidebar';
+import { AgentMessageMarkdown } from '@/components/AgentMessageMarkdown';
+import { AgentSources } from '@/components/AgentSources';
 import { DraftWorkspace } from '@/components/DraftWorkspace';
-import { MemoryManager } from '@/components/MemoryManager';
+import { EmailDetailHeader } from '@/components/EmailDetailHeader';
+import { WorkspaceShell } from '@/components/WorkspaceShell';
 import { toast } from 'sonner';
 import { useDebounce } from 'use-debounce';
 import { Input } from "@/components/ui/input";
-import { Trash2, Send, RefreshCw, X, Sparkles, Search, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, User, Wrench, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
+import { Trash2, Send, RefreshCw, Sparkles, Copy, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, Hand, Mail, BookOpen, Archive, MessageSquare, Loader2, Pencil } from 'lucide-react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { type PanelImperativeHandle } from "react-resizable-panels";
+import type { GroupImperativeHandle, Layout } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_WORKSPACE_PREFERENCES,
+  loadWorkspacePreferences,
+  saveWorkspacePreferences,
+} from '@/lib/workspace-preferences.mjs';
+import { getFeedLoadMode, shouldRenderFeedError } from '@/lib/feed-load-state.mjs';
+import { formatEmailDateTime } from '@/lib/email-time-format.mjs';
+import { getFeedItemStateClassName } from '@/lib/feed-item-presentation.mjs';
+import { shouldSubmitChatInput } from '@/lib/chat-composer-contract.mjs';
+import { getReplyDraftId, shouldShowDraftPane } from '@/lib/draft-reply-state.mjs';
+import { enterDraftFocus, isDraftFocusLayout } from '@/lib/draft-layout-state.mjs';
+import { getInlineCitationReferences, restoreChatMessageState, shouldShowMessageReferences } from '@/lib/agent-message-state.mjs';
+import { getAvatarPresentation } from '@/lib/email-avatar-presentation.mjs';
+import { getToolActivityPresentation } from '@/lib/tool-activity-presentation.mjs';
+import { formatTriageActionToast } from '@/lib/notification-policy.mjs';
 
 type MessageSegment =
   | { kind: 'text'; text: string }
@@ -36,81 +56,10 @@ interface ChatMessage {
   references?: AgentReference[];
   contextEvent?: ChatContextEvent;
   isLoading?: boolean;
+  isStreaming?: boolean;
   segments?: MessageSegment[];
   pendingInterrupt?: InterruptEvent;
   triagePlan?: TriagePlan;
-}
-
-const TOOL_LABELS: Record<string, string> = {
-  send_test_email: 'Send test',
-  find_email: 'Find email',
-  list_unread_emails: 'List unread',
-  read_calendar: 'Check calendar',
-  save_reply_draft: 'Save draft',
-  apply_draft_patch: 'Update draft',
-  read_draft_context: 'Read draft',
-  read_original_email_context: 'Read email',
-  apply_triage_batch: 'Plan inbox',
-};
-
-function argsPreview(args: unknown): string {
-  if (args === undefined || args === null) return '';
-  if (typeof args !== 'object') return String(args);
-  const entries = Object.entries(args as Record<string, unknown>);
-  if (entries.length === 0) return '';
-  return entries
-    .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
-    .join(', ');
-}
-
-function outputSummary(tool: string, output: string | undefined, resultCount?: number): string {
-  if (tool === 'find_email' || tool === 'list_unread_emails') {
-    if (typeof resultCount === 'number') {
-      return resultCount === 0 ? 'no matches' : `${resultCount} email${resultCount === 1 ? '' : 's'}`;
-    }
-    if (!output) return '';
-    if (output.startsWith('[]')) return 'no matches';
-    const count = (output.match(/'id':/g) || []).length;
-    return count > 0 ? `${count}+ emails` : 'ok';
-  }
-  if (!output) return '';
-  if (tool === 'read_calendar') {
-    const slots = (output.match(/'[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}'/g) || []).length;
-    return slots > 0 ? `${slots} free slots` : 'ok';
-  }
-  if (tool === 'save_reply_draft') {
-    return output.startsWith('DRAFT UPDATED') ? 'draft updated locally' : 'draft saved locally';
-  }
-  if (tool === 'apply_triage_batch') {
-    const m = output.match(/PLAN READY: (\d+) bulk items \+ (\d+) needs-reply/);
-    if (m) return `${m[1]} bulk · ${m[2]} needs reply`;
-    return 'plan ready';
-  }
-  return output.length > 40 ? output.slice(0, 40).replace(/\s+/g, ' ') + '…' : output;
-}
-
-const avatarPalettes = [
-  { background: 'bg-blue-100 dark:bg-blue-900/40', foreground: 'text-blue-700 dark:text-blue-300' },
-  { background: 'bg-indigo-100 dark:bg-indigo-900/40', foreground: 'text-indigo-700 dark:text-indigo-300' },
-  { background: 'bg-teal-100 dark:bg-teal-900/40', foreground: 'text-teal-700 dark:text-teal-300' },
-  { background: 'bg-emerald-100 dark:bg-emerald-900/40', foreground: 'text-emerald-700 dark:text-emerald-300' },
-  { background: 'bg-violet-100 dark:bg-violet-900/40', foreground: 'text-violet-700 dark:text-violet-300' },
-  { background: 'bg-amber-100 dark:bg-amber-900/40', foreground: 'text-amber-700 dark:text-amber-300' },
-];
-
-function getAvatarPresentation(label: string) {
-  const normalized = label.trim() || '?';
-  const words = normalized.split(/\s+/).filter(Boolean);
-  const initials = words.length > 1
-    ? `${words[0][0]}${words[words.length - 1][0]}`
-    : normalized.slice(0, 1);
-  const hash = Array.from(normalized).reduce((value, character) => (
-    (value * 31 + character.charCodeAt(0)) >>> 0
-  ), 0);
-  return {
-    initials: initials.toUpperCase(),
-    ...avatarPalettes[hash % avatarPalettes.length],
-  };
 }
 
 function ToolCallLine({
@@ -127,30 +76,39 @@ function ToolCallLine({
   running: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const preview = argsPreview(args);
+  const presentation = getToolActivityPresentation({
+    tool,
+    running,
+    args,
+    resultCount,
+  });
   return (
-    <div className="my-1.5 pl-2 border-l-2 border-border/60 font-mono text-[11px] text-muted-foreground">
+    <div className="my-1.5 text-xs text-muted-foreground">
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 hover:text-foreground transition-colors text-left"
+        className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-muted/60 hover:text-foreground"
       >
         {running ? (
-          <Wrench className="w-3 h-3 shrink-0 animate-pulse" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
         ) : (
-          <Check className="w-3 h-3 shrink-0 text-emerald-600 dark:text-emerald-500" />
+          <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
         )}
         <span className="flex-1 truncate">
-          <span className="text-foreground">{TOOL_LABELS[tool] ?? tool}</span>
-          {preview && <span>({preview})</span>}
-          {!running && output !== undefined && (
-            <span className="text-muted-foreground/70"> · {outputSummary(tool, output, resultCount)}</span>
+          <span>{presentation.label}</span>
+          {presentation.summary && (
+            <span className="text-muted-foreground/70"> · {presentation.summary}</span>
           )}
         </span>
-        <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <ChevronRight className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       {open && (
-        <div className="pl-5 pt-1 pb-0.5 space-y-1 text-[10px] whitespace-pre-wrap break-all">
+        <div className="ml-5 mt-1 space-y-1 border-l border-border/70 pl-2 font-mono text-[10px] whitespace-pre-wrap break-all">
+          <div>
+            <span className="text-muted-foreground">tool: </span>
+            <span>{tool}</span>
+          </div>
           {args !== undefined && args !== null && (
             <div>
               <span className="text-muted-foreground">args: </span>
@@ -495,9 +453,9 @@ function BatchTriageReviewCard({
     try {
       const { row_id } = await triageAction(item.email_id, chosenKind, threadId);
       setItemStates(prev => ({ ...prev, [item.email_id]: { status: 'done', appliedKind: chosenKind, rowId: row_id } }));
-      const past = BULK_KIND_META[chosenKind].pastTense;
       const title = item.subject ?? item.email_id;
-      toast.success(`${past} · ${title.length > 30 ? title.slice(0, 30) + '…' : title}`, {
+      const toastTitle = title.length > 30 ? `${title.slice(0, 30)}…` : title;
+      toast.success(formatTriageActionToast(chosenKind, toastTitle), {
         duration: 6000,
         action: {
           label: 'Undo',
@@ -645,33 +603,63 @@ export default function Home() {
   const [debouncedQuery] = useDebounce(searchQuery, 500);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshingFeed, setIsRefreshingFeed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SummaryResponse>>({});
   const [summarizing, setSummarizing] = useState<Record<string, boolean>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const hasLoadedFeedRef = useRef(false);
 
   // Chat/RAG UI State
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isDraftPaneOpen, setIsDraftPaneOpen] = useState(
+    DEFAULT_WORKSPACE_PREFERENCES.isDraftPaneOpen,
+  );
+  const [workspacePreferencesLoaded, setWorkspacePreferencesLoaded] = useState(false);
+  const [mainLayoutOpen, setMainLayoutOpen] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.mainLayoutOpen,
+  }));
+  const [mainLayoutClosed, setMainLayoutClosed] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.mainLayoutClosed,
+  }));
+  const [detailLayout, setDetailLayout] = useState<Layout>(() => ({
+    ...DEFAULT_WORKSPACE_PREFERENCES.detailLayout,
+  }));
+  const detailGroupRef = useRef<GroupImperativeHandle | null>(null);
+  const detailLayoutRef = useRef<Layout>({ ...DEFAULT_WORKSPACE_PREFERENCES.detailLayout });
+  const isDraftFocusMode = isDraftFocusLayout(detailLayout);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoaded, setIsChatLoaded] = useState(false);
-  // Daily Briefing State
-  const [briefing, setBriefing] = useState<string | null>(null);
-  const [isBriefingLoading, setIsBriefingLoading] = useState(true);
-  const [briefingError, setBriefingError] = useState<string | null>(null);
-  const [isBriefingCollapsed, setIsBriefingCollapsed] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [threadId, setThreadId] = useState<string>('');
   const [focusedEmailContext, setFocusedEmailContext] = useState<AgentReference | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const applyDetailLayout = useCallback((layout: Layout) => {
+    detailLayoutRef.current = layout;
+    setDetailLayout(layout);
+    detailGroupRef.current?.setLayout(layout);
+  }, []);
+
+  const focusDraftWorkspace = useCallback(() => {
+    const currentLayout = detailGroupRef.current?.getLayout() ?? detailLayoutRef.current;
+    if (isDraftFocusLayout(currentLayout)) return;
+    applyDetailLayout(enterDraftFocus());
+  }, [applyDetailLayout]);
+
+  const handleDetailLayoutChanged = useCallback((layout: Layout) => {
+    detailLayoutRef.current = layout;
+    setDetailLayout(layout);
+  }, []);
+
   // Load chat history + thread id from LocalStorage strictly on client-side mount
   useEffect(() => {
     const saved = localStorage.getItem('feedflux_chat_history');
     if (saved) {
       try {
-        const savedMessages = JSON.parse(saved) as ChatMessage[];
+        const savedMessages = restoreChatMessageState(JSON.parse(saved)) as ChatMessage[];
         setChatMessages(savedMessages);
         const latestContextMessage = [...savedMessages]
           .reverse()
@@ -709,6 +697,7 @@ export default function Home() {
   const [draftsByEmailId, setDraftsByEmailId] = useState<Record<string, DraftReply[]>>({});
   const [focusedDraftByEmailId, setFocusedDraftByEmailId] = useState<Record<string, number | null>>({});
   const [draftRefreshByEmailId, setDraftRefreshByEmailId] = useState<Record<string, number>>({});
+  const [replyingEmailIds, setReplyingEmailIds] = useState<Record<string, boolean>>({});
   const [activeEmailId, setActiveEmailId] = useState<string | null>(null);
   const [loadingEmailIds, setLoadingEmailIds] = useState<Record<string, boolean>>({});
 
@@ -725,6 +714,102 @@ export default function Home() {
   const detailAvatar = emailDetailData
     ? getAvatarPresentation(emailDetailData.sender || emailDetailData.sender_email)
     : null;
+  const activeDraftRefreshToken = activeEmailId
+    ? (draftRefreshByEmailId[activeEmailId] ?? 0)
+    : 0;
+  const showDraftPane = shouldShowDraftPane(
+    draftsByEmailId,
+    isDraftPaneOpen,
+    autoDraftOnOpen,
+  );
+
+  useEffect(() => {
+    if (!activeEmailId) return;
+
+    let cancelled = false;
+    void getEmailDrafts(activeEmailId)
+      .then((drafts) => {
+        if (cancelled) return;
+        setDraftsByEmailId((current) => {
+          if (drafts.length > 0) return { ...current, [activeEmailId]: drafts };
+          if (!(activeEmailId in current)) return current;
+          const next = { ...current };
+          delete next[activeEmailId];
+          return next;
+        });
+        if (drafts.length > 0 && isDraftPaneOpen) {
+          focusDraftWorkspace();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Failed to load reply drafts.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeEmailId, activeDraftRefreshToken, focusDraftWorkspace, isDraftPaneOpen]);
+
+  useEffect(() => {
+    const preferences = loadWorkspacePreferences(window.localStorage);
+    let cancelled = false;
+
+    setIsChatOpen(preferences.isAgentOpen);
+    setIsDraftPaneOpen(preferences.isDraftPaneOpen);
+    setMainLayoutOpen(preferences.mainLayoutOpen);
+    setMainLayoutClosed(preferences.mainLayoutClosed);
+    detailLayoutRef.current = preferences.detailLayout;
+    setDetailLayout(preferences.detailLayout);
+    setWorkspacePreferencesLoaded(true);
+
+    if (preferences.activeEmailId) {
+      const emailId = preferences.activeEmailId;
+      setActiveEmailId(emailId);
+      setMountedEmailIds([emailId]);
+      setLoadingEmailIds({ [emailId]: true });
+      void getEmailDetail(emailId)
+        .then((detail) => {
+          if (!cancelled) {
+            setEmailDetailsById({ [emailId]: detail });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setActiveEmailId(null);
+            setMountedEmailIds([]);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingEmailIds({ [emailId]: false });
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!workspacePreferencesLoaded) return;
+    saveWorkspacePreferences(window.localStorage, {
+      activeEmailId,
+      isAgentOpen: isChatOpen,
+      isDraftPaneOpen,
+      mainLayoutOpen,
+      mainLayoutClosed,
+      detailLayout,
+    });
+  }, [
+    activeEmailId,
+    detailLayout,
+    isChatOpen,
+    isDraftPaneOpen,
+    mainLayoutClosed,
+    mainLayoutOpen,
+    workspacePreferencesLoaded,
+  ]);
 
   const buildStreamCallbacks = (targetMsgId: string): AgentStreamCallbacks => {
     return {
@@ -769,6 +854,8 @@ export default function Home() {
         ));
       },
       onDraft: (event) => {
+        setIsDraftPaneOpen(true);
+        focusDraftWorkspace();
         setDraftRefreshByEmailId((current) => ({
           ...current,
           [event.email_id]: (current[event.email_id] ?? 0) + 1,
@@ -778,7 +865,7 @@ export default function Home() {
       },
       onDone: () => {
         setChatMessages(prev => prev.map(msg =>
-          msg.id === targetMsgId ? { ...msg, isLoading: false } : msg
+          msg.id === targetMsgId ? { ...msg, isLoading: false, isStreaming: false } : msg
         ));
       },
       onError: (msg) => {
@@ -787,17 +874,17 @@ export default function Home() {
           if (m.id !== targetMsgId) return m;
           const errText = `\n\n_Error: ${msg}_`;
           const segments = [...(m.segments ?? []), { kind: 'text' as const, text: errText }];
-          return { ...m, content: (m.content || '') + errText, segments, isLoading: false };
+          return { ...m, content: (m.content || '') + errText, segments, isLoading: false, isStreaming: false };
         }));
       },
     };
   };
 
-  const handleSendChatMessage = async (e?: React.FormEvent) => {
+  const handleSendChatMessage = async (e?: React.FormEvent, prompt?: string) => {
     e?.preventDefault();
-    if (!chatInput.trim() || isSendingChat) return;
+    const query = (prompt ?? chatInput).trim();
+    if (!query || isSendingChat) return;
 
-    const query = chatInput.trim();
     const contextEmailIds = focusedEmailContext ? [focusedEmailContext.email_id] : [];
     setChatInput('');
     setIsSendingChat(true);
@@ -811,7 +898,7 @@ export default function Home() {
         role: 'user',
         content: query,
       },
-      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, segments: [] },
+      { id: aiMsgId, role: 'assistant', content: '', isLoading: true, isStreaming: true, segments: [] },
     ]);
 
     try {
@@ -825,7 +912,7 @@ export default function Home() {
       toast.error('Failed to reach agent');
       setChatMessages(prev => prev.map(msg =>
         msg.id === aiMsgId
-          ? { ...msg, content: 'Sorry, I could not reach the agent.', isLoading: false }
+          ? { ...msg, content: 'Sorry, I could not reach the agent.', isLoading: false, isStreaming: false }
           : msg
       ));
     } finally {
@@ -837,12 +924,15 @@ export default function Home() {
     if (isSendingChat) return;
     setIsSendingChat(true);
     setChatMessages(prev => prev.map(msg =>
-      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true } : msg
+      msg.id === msgId ? { ...msg, pendingInterrupt: undefined, isLoading: true, isStreaming: true } : msg
     ));
     try {
       await resumeAgent(threadId, approve, note, buildStreamCallbacks(msgId), editedBody);
     } catch (err) {
       toast.error('Failed to resume agent');
+      setChatMessages(prev => prev.map(msg =>
+        msg.id === msgId ? { ...msg, isLoading: false, isStreaming: false } : msg
+      ));
     } finally {
       setIsSendingChat(false);
     }
@@ -863,13 +953,55 @@ export default function Home() {
     if (drafts.length === 0 && emailId !== activeEmailId) {
       setMountedEmailIds((current) => current.filter((id) => id !== emailId));
     }
+    if (drafts.length > 0 && emailId === activeEmailId && autoDraftOnOpen) {
+      setAutoDraftOnOpen(false);
+    }
   };
 
   const handleDraftFocus = (emailId: string, draftId: number | null) => {
     setFocusedDraftByEmailId((current) => ({ ...current, [emailId]: draftId }));
   };
 
+  const handleStartReply = async () => {
+    const emailId = activeEmailId;
+    if (!emailId || replyingEmailIds[emailId]) return;
+
+    setAutoDraftOnOpen(false);
+    setIsDraftPaneOpen(true);
+    focusDraftWorkspace();
+    setReplyingEmailIds((current) => ({ ...current, [emailId]: true }));
+    try {
+      let drafts = draftsByEmailId[emailId] ?? [];
+      let draftId = getReplyDraftId(drafts, focusedDraftByEmailId[emailId]);
+
+      if (draftId === null) {
+        drafts = await getEmailDrafts(emailId);
+        handleDraftsChange(emailId, drafts);
+        draftId = getReplyDraftId(drafts, focusedDraftByEmailId[emailId]);
+      }
+
+      if (draftId === null) {
+        const draft = await createReplyDraft(emailId);
+        drafts = [draft];
+        handleDraftsChange(emailId, drafts);
+        draftId = draft.id;
+      }
+
+      handleDraftFocus(emailId, draftId);
+      setDraftRefreshByEmailId((current) => ({
+        ...current,
+        [emailId]: (current[emailId] ?? 0) + 1,
+      }));
+    } catch {
+      toast.error('Failed to start a reply draft.');
+    } finally {
+      setReplyingEmailIds((current) => ({ ...current, [emailId]: false }));
+    }
+  };
+
   const handleDraftTabSelect = (emailId: string, draftId: number) => {
+    setIsDraftPaneOpen(true);
+    focusDraftWorkspace();
     handleDraftFocus(emailId, draftId);
     void handleOpenEmailDetail(emailId);
   };
@@ -880,7 +1012,15 @@ export default function Home() {
     setFocusedEmailContext(null);
   };
 
-  const handleAskAgentAboutEmail = (detail: EmailDetail) => {
+  const handleAskAi = (prompt: string) => {
+    setIsChatOpen(true);
+    if (prompt) {
+      setChatInput(prompt);
+      setSearchQuery('');
+    }
+  };
+
+  const handleAskAiAboutEmail = (detail: EmailDetail) => {
     const nextContext = {
       email_id: detail.id,
       subject: detail.subject,
@@ -920,6 +1060,10 @@ export default function Home() {
       setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
     }
     setAutoDraftOnOpen(autoDraft);
+    if (autoDraft) {
+      setIsDraftPaneOpen(true);
+      focusDraftWorkspace();
+    }
     setActiveEmailId(id);
     setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
     if (emailDetailsById[id]) {
@@ -937,29 +1081,28 @@ export default function Home() {
     }
   };
 
-  const handleCloseEmailDetail = () => {
-    if (activeEmailId && !(draftsByEmailId[activeEmailId]?.length)) {
-      setMountedEmailIds((current) => current.filter((emailId) => emailId !== activeEmailId));
+  const loadFeed = async (query: string = '') => {
+    const loadMode = getFeedLoadMode(hasLoadedFeedRef.current);
+    if (loadMode === 'initial') {
+      setLoading(true);
+    } else {
+      setIsRefreshingFeed(true);
     }
-    setAutoDraftOnOpen(false);
-    setActiveEmailId(null);
-  };
-
-  const loadFeed = async (query: string = '', silent: boolean = false) => {
-    setLoading(true);
     setError(null);
     try {
       const data = await getFeed(20, query);
       setFeed(data);
-      if (!query && !silent) {
-        toast.success(`Loaded ${data.length} emails`);
-      }
+      hasLoadedFeedRef.current = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       setError(message);
       toast.error(message);
     } finally {
-      setLoading(false);
+      if (loadMode === 'initial') {
+        setLoading(false);
+      } else {
+        setIsRefreshingFeed(false);
+      }
     }
   };
 
@@ -968,8 +1111,8 @@ export default function Home() {
     try {
       const result = await syncEmails();
       toast.success(`Successfully synced ${result.synced} new emails from Outlook`);
-      // Reload feed silently to show new emails
-      await loadFeed(debouncedQuery, true);
+      // Reload the local feed to show new emails
+      await loadFeed(debouncedQuery);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to sync emails';
       toast.error(message);
@@ -1036,28 +1179,6 @@ export default function Home() {
       }
   };
 
-  // Load briefing on mount if in feed
-  useEffect(() => {
-    const fetchBriefing = async () => {
-      try {
-        setIsBriefingLoading(true);
-        setBriefingError(null);
-        const res = await getDailyBriefing();
-        if (res.error) {
-          setBriefingError(res.error);
-        } else {
-          setBriefing(res.briefing);
-        }
-      } catch (e) {
-        console.error("Failed to load briefing", e);
-        setBriefingError("Failed to connect to the intelligence server.");
-      } finally {
-        setIsBriefingLoading(false);
-      }
-    };
-    fetchBriefing();
-  }, []);
-
   /**
    * Format timestamps like a mail client: relative day labels for recent mail,
    * calendar dates for older messages.
@@ -1075,27 +1196,6 @@ export default function Home() {
       return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     } catch {
       return new Date(timestamp * 1000).toLocaleDateString();
-    }
-  };
-
-  /**
-   * Format timestamp to precise datetime string
-   * Example: "2026-02-15 17:14:23"
-   */
-  const formatDateTime = (timestamp: number) => {
-    try {
-      const date = new Date(timestamp * 1000);
-      return date.toLocaleString('en-CA', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).replace(',', '');
-    } catch {
-      return new Date(timestamp * 1000).toLocaleString();
     }
   };
 
@@ -1210,7 +1310,7 @@ export default function Home() {
     );
   }
 
-  if (appState !== 'feed') {
+  if (appState !== 'feed' || !workspacePreferencesLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center">
          <p className="text-muted-foreground font-mono">Loading MVP State: [{appState}]...</p>
@@ -1218,75 +1318,74 @@ export default function Home() {
     );
   }
 
-  const chatSidebar = isChatOpen ? (
-    <ResizablePanel id="chat-panel" defaultSize="20%" minSize="18%" maxSize="38%">
-      <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 p-4">
-          <div className="flex items-center gap-2">
-            <div className="rounded-md bg-muted p-1.5">
-              <Sparkles className="h-4 w-4 text-foreground" />
-            </div>
-            <h2 className="text-sm font-semibold text-foreground">Inbox QA Assistant</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            {chatMessages.length > 0 && (
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" onClick={handleNewChat} title="New chat (clears history and resets thread)">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="icon" className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground" onClick={() => setIsChatOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+  const emailBodyContent = (
+    <div className="flex-1 overflow-y-auto w-full p-6">
+      {isLoadingDetail ? (
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-[95%]" />
+          <Skeleton className="h-4 w-[90%]" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-[85%]" />
+          <Skeleton className="h-4 w-[90%]" />
         </div>
+      ) : emailDetailData ? (
+        <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
+          {emailDetailData.body_html ? (
+            <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
+          ) : (
+            <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
+          )}
+        </div>
+      ) : (
+        <div className="text-center text-destructive">Failed to load email content.</div>
+      )}
+    </div>
+  );
 
-        {focusedEmailContext && (
-          <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => handleOpenEmailDetail(focusedEmailContext.email_id)}
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              title={`${focusedEmailContext.sender} · ${focusedEmailContext.subject}`}
-            >
-              <Mail className="h-4 w-4 shrink-0 text-primary" />
-              <span className="min-w-0">
-                <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Focused email
-                </span>
-                <span className="block truncate text-xs font-medium text-foreground">
-                  {focusedEmailContext.subject}
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {focusedEmailContext.sender}
-                </span>
-              </span>
-            </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
-              onClick={handleClearEmailFocus}
-              title="Stop treating this email as the conversational focus"
-            >
-              Clear focus
-            </Button>
-          </div>
-        )}
+  const chatComposer = (
+    <div className="shrink-0 bg-card p-3">
+      <form onSubmit={handleSendChatMessage} className="relative">
+        <Textarea
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          onKeyDown={(event) => {
+            if (!shouldSubmitChatInput(event)) return;
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }}
+          disabled={isSendingChat}
+          placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
+          className="min-h-11 max-h-40 resize-none rounded-md pb-9 pr-12 shadow-sm"
+        />
+        <Button
+          type="submit"
+          disabled={!chatInput.trim() || isSendingChat}
+          size="icon"
+          variant="ghost"
+          className="absolute bottom-2 right-2 h-8 w-8 rounded-md text-primary"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </form>
+    </div>
+  );
 
-        <div className="relative flex-1 overflow-y-auto p-5">
-          <div className="space-y-6 pb-2">
-            {chatMessages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center space-y-4 pt-20 text-center">
-                <div className="rounded-full bg-muted p-4">
-                  <Sparkles className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <div>
-                  <h3 className="mb-1 text-sm font-medium text-foreground">How can I help you today?</h3>
-                  <p className="mx-auto max-w-[250px] text-sm text-muted-foreground">Ask me to find specific emails, summarize threads, or extract information from your inbox.</p>
-                </div>
-              </div>
-            ) : (
-              chatMessages.map(msg => (
+  const chatSidebar = (
+    <AgentSidebar
+      composer={chatComposer}
+      focusedEmailContext={focusedEmailContext}
+      hasMessages={chatMessages.length > 0}
+      isOpen={isChatOpen}
+      isSending={isSendingChat}
+      messagesEnd={<div ref={messagesEndRef} />}
+      onClearFocus={handleClearEmailFocus}
+      onNewChat={handleNewChat}
+      onOpenFocusedEmail={(emailId) => void handleOpenEmailDetail(emailId)}
+      onSuggestion={(prompt) => void handleSendChatMessage(undefined, prompt)}
+      onToggle={() => setIsChatOpen((current) => !current)}
+    >
+      {chatMessages.map((msg, messageIndex) => (
                 msg.role === 'context' ? (
                   <ChatContextEventLine
                     key={msg.id}
@@ -1294,11 +1393,13 @@ export default function Home() {
                     onOpenEmail={(emailId) => void handleOpenEmailDetail(emailId)}
                   />
                 ) : (
-                <div key={msg.id} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}>
-                  <span className="px-1 text-[11px] font-medium text-muted-foreground">{msg.role === 'user' ? 'You' : 'AI Assistant'}</span>
-
+                <div
+                  key={msg.id}
+                  aria-label={msg.role === 'user' ? 'Your message' : 'Assistant message'}
+                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} gap-1.5`}
+                >
                   {msg.role === 'user' ? (
-                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-4 py-3 text-sm text-primary-foreground">
+                    <div className="max-w-[90%] rounded-2xl rounded-tr-sm bg-primary px-3 py-2 text-sm text-primary-foreground">
                       <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-snug">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
                       </div>
@@ -1309,7 +1410,12 @@ export default function Home() {
                         {pairSegments(msg.segments ?? []).map((item) =>
                           item.kind === 'text' ? (
                             <div key={item.key} className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-p:leading-snug">
-                              <ReactMarkdown>{item.text}</ReactMarkdown>
+                              <AgentMessageMarkdown
+                                content={item.text}
+                                isStreaming={Boolean(msg.isStreaming)}
+                                references={getInlineCitationReferences(chatMessages, messageIndex)}
+                                onOpenEmail={handleOpenEmailDetail}
+                              />
                             </div>
                           ) : (
                             <ToolCallLine
@@ -1361,13 +1467,13 @@ export default function Home() {
                     />
                   )}
 
-                  {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                  {shouldShowMessageReferences(msg) && msg.sources && msg.sources.length > 0 && (
                     <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
                       {msg.sources.map((source, i) => (
                         <button
                           key={i}
                           onClick={() => handleOpenEmailDetail(source.id)}
-                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
+                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
                           title={source.snippet}
                         >
                           <span className="whitespace-nowrap font-semibold text-primary">Source {i + 1}</span>
@@ -1377,167 +1483,52 @@ export default function Home() {
                     </div>
                   )}
 
-                  {msg.role === 'assistant' && msg.references && msg.references.length > 0 && (
-                    <div className="mt-2 flex w-[90%] flex-wrap gap-1.5">
-                      {msg.references.map((reference) => (
-                        <button
-                          key={reference.email_id}
-                          type="button"
-                          onClick={() => handleOpenEmailDetail(reference.email_id)}
-                          className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-left text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:border-primary hover:bg-accent hover:text-accent-foreground"
-                          title={`${reference.sender} · ${reference.subject}`}
-                        >
-                          <Mail className="h-3 w-3 shrink-0 text-primary" />
-                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Source</span>
-                          <span className="max-w-[180px] truncate">{reference.subject}</span>
-                        </button>
-                      ))}
-                    </div>
+                  {shouldShowMessageReferences(msg) && msg.references && msg.references.length > 0 && (
+                    <AgentSources
+                      references={msg.references}
+                      onOpenEmail={handleOpenEmailDetail}
+                    />
                   )}
                 </div>
                 )
-              ))
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </div>
-
-        <div className="shrink-0 border-t border-border bg-card p-4">
-          <form onSubmit={handleSendChatMessage} className="relative flex items-center">
-            <Input
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              disabled={isSendingChat}
-              placeholder={focusedEmailContext ? "Ask about this email or your inbox..." : "Ask about your inbox..."}
-              className="w-full rounded-full pr-12 shadow-sm"
-            />
-            <Button
-              type="submit"
-              disabled={!chatInput.trim() || isSendingChat}
-              size="icon"
-              variant="ghost"
-              className="absolute right-1 h-8 w-8 rounded-full text-primary"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </div>
-      </aside>
-    </ResizablePanel>
-  ) : null;
+      ))}
+    </AgentSidebar>
+  );
 
   return (
-    <div className="h-screen overflow-hidden bg-background px-4 py-2 font-[family-name:var(--font-geist-sans)]">
-      <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3">
-        <header className="shrink-0 rounded-xl border border-border bg-card px-4 py-2 shadow-sm">
-          <div className="flex w-full items-center gap-3">
-            <h1 className="shrink-0 text-2xl font-bold tracking-tight text-foreground">FeedFlux</h1>
-
-            <div className="relative min-w-0 flex-1 rounded-full shadow-sm">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-                <Search className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <Input
-                type="text"
-                placeholder="Search by keyword or ask anything to your inbox (e.g. 'What was the Q1 roadmap?')"
-                className="w-full rounded-full border-0 bg-muted/50 py-2 pl-11 pr-4 text-sm shadow-none focus-visible:ring-1"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-
-            <Button
-              variant="outline"
-              className="shrink-0 whitespace-nowrap px-4"
-              onClick={() => {
-                setIsChatOpen(true);
-                if (searchQuery.trim()) {
-                  setChatInput(searchQuery);
-                  setSearchQuery('');
-                }
-              }}
-            >
-              <Sparkles className="w-4 h-4 mr-1.5" />
-              Ask AI
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={handleSync}
-              disabled={isSyncing}
-            >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Sync'}
-            </Button>
-            <MemoryManager />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  title="Dev menu"
-                >
-                  <User className="w-4 h-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => loadFeed(debouncedQuery)}
-                  disabled={loading || isSyncing}
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  {loading ? 'Loading...' : 'Reload Local Data'}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
-
-        <ResizablePanelGroup id="mail-layout-group" orientation="horizontal" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }} className="min-h-0 flex-1">
+    <WorkspaceShell
+      isAgentOpen={isChatOpen}
+      layout={isChatOpen ? mainLayoutOpen : mainLayoutClosed}
+      onLayoutChanged={isChatOpen ? setMainLayoutOpen : setMainLayoutClosed}
+      collapsedAssistant={isChatOpen ? null : chatSidebar}
+      header={(
+        <AppHeader
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onAskAi={handleAskAi}
+          onSync={handleSync}
+          isSyncing={isSyncing}
+          onReloadLocalData={() => loadFeed(debouncedQuery)}
+          isLoading={loading}
+          isRefreshing={isRefreshingFeed}
+        />
+      )}
+    >
           {/* Left column: Feed */}
-          <ResizablePanel id="feed-panel" defaultSize="30%" minSize="22%" maxSize="50%">
-            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+          <ResizablePanel
+            id="feed-panel"
+            defaultSize={`${(isChatOpen ? mainLayoutOpen : mainLayoutClosed)['feed-panel']}%`}
+            minSize="22%"
+            maxSize="50%"
+          >
+            <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
 
-          <div className="min-h-0 flex-1 overflow-y-auto pb-3">
-          {/* Daily Briefing Banner */}
-          {!debouncedQuery && (
-            <div className="rounded-none border-0 border-b border-border bg-muted text-foreground">
-              <div className="flex items-center gap-2 p-4 pb-3">
-                <Sparkles className="h-5 w-5 text-foreground shrink-0" />
-                <h2 className="text-base font-semibold tracking-tight flex-1">Morning Intelligence Briefing</h2>
-                <button
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                  onClick={() => setIsBriefingCollapsed(c => !c)}
-                  title={isBriefingCollapsed ? 'Expand' : 'Collapse'}
-                >
-                  {isBriefingCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-                </button>
-              </div>
-
-              {!isBriefingCollapsed && (
-                <div className="px-4 pb-4">
-                  {isBriefingLoading ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-3/4 bg-foreground/10" />
-                      <Skeleton className="h-4 w-full bg-foreground/10" />
-                      <Skeleton className="h-4 w-5/6 bg-foreground/10" />
-                    </div>
-                  ) : briefingError ? (
-                    <div className="bg-destructive/10 p-3 rounded-lg">
-                      <div className="text-destructive text-sm">{briefingError}</div>
-                    </div>
-                  ) : briefing ? (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown>{briefing}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">No briefing available today.</p>
-                  )}
-                </div>
-              )}
+          {isRefreshingFeed && (
+            <div className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+              Updating local feed…
             </div>
           )}
-
+          <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {/* Feed List */}
           <div className="overflow-hidden bg-transparent">
             {loading ? (
@@ -1554,7 +1545,7 @@ export default function Home() {
                   </CardContent>
                 </Card>
               ))
-            ) : error ? (
+            ) : shouldRenderFeedError({ feedCount: feed.length, error }) ? (
               // Error State
               <Card className="border-destructive/50 bg-destructive/10">
                 <CardHeader>
@@ -1579,6 +1570,7 @@ export default function Home() {
                 const isSummarizing = summarizing[item.id];
                 const summary = summaries[item.id];
                 const isExpanded = expandedId === item.id;
+                const isActive = activeEmailId === item.id;
                 const senderLabel = item.sender || 'Unknown sender';
                 const avatar = getAvatarPresentation(senderLabel);
 
@@ -1586,7 +1578,10 @@ export default function Home() {
                   <Card
                     key={item.id}
                     onClick={() => handleOpenEmailDetail(item.id)}
-                    className="group cursor-pointer rounded-none border-0 border-b border-border last:border-b-0 border-l-2 border-l-transparent gap-0 py-0 shadow-none transition-colors hover:border-l-primary hover:bg-accent/40"
+                    className={cn(
+                      'group cursor-pointer rounded-none border-0 last:border-b-0 gap-0 py-0 shadow-none transition-colors',
+                      getFeedItemStateClassName(isActive),
+                    )}
                   >
                     <CardHeader className="relative flex flex-row items-center gap-3 px-3 py-2.5">
                       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${avatar.background} ${avatar.foreground}`}>
@@ -1655,7 +1650,7 @@ export default function Home() {
                               )}
                               {summary.generated_at && (
                                 <span className="text-xs text-muted-foreground ml-auto">
-                                  Last generated: {formatDateTime(summary.generated_at)}
+                                  Last generated: {formatEmailDateTime(summary.generated_at)}
                                 </span>
                               )}
                             </div>
@@ -1671,96 +1666,64 @@ export default function Home() {
           </div>
             </main>
           </ResizablePanel>
-          <ResizableHandle id="feed-detail-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
+          <ResizableHandle id="feed-detail-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
 
         {/* Right column: Email reading pane (master-detail) */}
-        <ResizablePanel id="detail-panel" defaultSize={isChatOpen ? "50%" : "70%"} minSize="32%" maxSize="72%">
-          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <ResizablePanel
+          id="detail-panel"
+          defaultSize={`${(isChatOpen ? mainLayoutOpen : mainLayoutClosed)['detail-panel']}%`}
+          minSize="32%"
+          maxSize="72%"
+        >
+          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm">
             {emailDetailData || isLoadingDetail ? (
               <>
-                <div className="shrink-0 border-b border-border bg-muted/30 p-6">
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-xl font-semibold text-foreground">
-                      {emailDetailData?.subject || "Loading..."}
-                    </h2>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {emailDetailData && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={() => handleAskAgentAboutEmail(emailDetailData)}
-                        >
-                          <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-                          Ask Agent
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="-mr-2 h-8 w-8 text-muted-foreground hover:text-foreground"
-                        onClick={handleCloseEmailDetail}
-                        title="Close"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  {emailDetailData && (
-                    <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${detailAvatar?.background} ${detailAvatar?.foreground}`}>
-                          {detailAvatar?.initials}
-                        </div>
-                        <span className="truncate">From: <span className="font-medium text-foreground">{emailDetailData.sender}</span></span>
-                      </div>
-                      <span>{formatDateTime(emailDetailData.received_datetime)}</span>
-                    </div>
-                  )}
-                </div>
+                <EmailDetailHeader
+                  avatar={detailAvatar}
+                  detail={emailDetailData}
+                  isLoading={isLoadingDetail}
+                  isReplying={activeEmailId ? Boolean(replyingEmailIds[activeEmailId]) : false}
+                  receivedAt={emailDetailData ? formatEmailDateTime(emailDetailData.received_datetime) : undefined}
+                  onReply={() => void handleStartReply()}
+                  onAskAI={() => {
+                    if (emailDetailData) handleAskAiAboutEmail(emailDetailData);
+                  }}
+                />
                 {/* Resizable Container wrapping Body & Action Panel */}
                 <div className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden bg-muted">
-                  <ResizablePanelGroup id="email-detail-group" orientation="vertical" resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}>
+                  {showDraftPane ? (
+                  <ResizablePanelGroup
+                    id="email-detail-group"
+                    orientation="vertical"
+                    resizeTargetMinimumSize={{ coarse: 20, fine: 20 }}
+                    defaultLayout={detailLayout}
+                    groupRef={detailGroupRef}
+                    onLayoutChanged={handleDetailLayoutChanged}
+                  >
 
               {/* TOP PANEL: Original Email */}
-              <ResizablePanel id="email-body-panel" defaultSize="78%" minSize="45%" className="bg-background flex flex-col relative pb-4">
-                <div className="flex-1 overflow-y-auto w-full p-6">
-                  {isLoadingDetail ? (
-                    <div className="space-y-4">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-[95%]" />
-                      <Skeleton className="h-4 w-[90%]" />
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-[85%]" />
-                      <Skeleton className="h-4 w-[90%]" />
-                    </div>
-                  ) : emailDetailData ? (
-                    <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
-                      {emailDetailData.body_html ? (
-                        <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
-                      ) : (
-                        <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center text-destructive">Failed to load email content.</div>
-                  )}
-                </div>
+              <ResizablePanel
+                id="email-body-panel"
+                defaultSize={`${detailLayout['email-body-panel']}%`}
+                minSize="20%"
+                className="bg-background flex flex-col relative"
+              >
+                {emailBodyContent}
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" className="h-2 shrink-0 cursor-row-resize bg-transparent after:h-full after:bg-transparent hover:bg-transparent outline-none" />
+              <ResizableHandle id="email-divider" className="h-px shrink-0 cursor-row-resize bg-border/70 after:bg-transparent hover:bg-border outline-none" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
                 id="email-action-panel"
-                defaultSize="22%"
+                defaultSize={`${detailLayout['email-action-panel']}%`}
                 minSize="12%"
-                className="bg-muted/30 flex flex-col relative border-t border-border"
+                className="bg-muted/30 flex flex-col relative"
               >
                 {draftTabs.length > 0 && (
                   <div className="scrollbar-none flex min-h-9 shrink-0 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain border-b border-border/60 bg-background/70 px-2 py-1">
-                    <span className="shrink-0 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                    <span className="shrink-0 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
                       Drafts
                     </span>
                     {draftTabs.map(({ emailId, draft, subject }) => {
@@ -1770,12 +1733,12 @@ export default function Home() {
                           key={`${emailId}-${draft.id}`}
                           type="button"
                           onClick={() => handleDraftTabSelect(emailId, draft.id)}
-                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-[11px] transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
+                          className={`flex h-7 max-w-[220px] shrink-0 select-none items-center gap-1 rounded-md px-2.5 text-xs transition-colors ${active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'}`}
                           title={`${subject} · Edited ${new Date(draft.updated_at * 1000).toLocaleString()}`}
                         >
                           <Pencil className="h-3 w-3 shrink-0" />
                           <span className="max-w-[140px] truncate">{subject}</span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                          <span className="shrink-0 text-xs text-muted-foreground/70">
                             {new Date(draft.updated_at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                           </span>
                         </button>
@@ -1797,6 +1760,11 @@ export default function Home() {
                         autoDraft={active && autoDraftOnOpen}
                         focusDraftId={focusedDraftByEmailId[id]}
                         refreshToken={draftRefreshByEmailId[id] ?? 0}
+                        isFocusMode={isDraftFocusMode}
+                        onCollapse={() => {
+                          setAutoDraftOnOpen(false);
+                          setIsDraftPaneOpen(false);
+                        }}
                         onDraftsChange={(drafts) => handleDraftsChange(id, drafts)}
                         onDraftFocus={(draftId) => handleDraftFocus(id, draftId)}
                       />
@@ -1811,6 +1779,11 @@ export default function Home() {
                 )}
               </ResizablePanel>
                   </ResizablePanelGroup>
+                  ) : (
+                    <div className="flex min-h-0 w-full flex-1 flex-col bg-background pb-4">
+                      {emailBodyContent}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -1826,10 +1799,17 @@ export default function Home() {
             )}
           </section>
         </ResizablePanel>
-        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-2 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
-        {chatSidebar}
-        </ResizablePanelGroup>
-      </div>
-    </div >
+        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
+        {isChatOpen && (
+          <ResizablePanel
+            id="chat-panel"
+            defaultSize={`${mainLayoutOpen['chat-panel']}%`}
+            minSize="18%"
+            maxSize="38%"
+          >
+            {chatSidebar}
+          </ResizablePanel>
+        )}
+    </WorkspaceShell>
   );
 }

@@ -78,6 +78,31 @@ class DraftApiTest(unittest.TestCase):
         self.assertEqual(draft_id, updated["id"])
         self.assertEqual("Edited", updated["body"])
 
+    def test_update_draft_edits_recipient_and_subject_without_overwriting_body(self):
+        draft_id = self._draft()
+
+        updated = asyncio.run(api.update_draft(
+            draft_id,
+            api.DraftUpdateRequest(
+                recipient="team@example.com",
+                subject="Updated subject",
+            ),
+        ))
+
+        self.assertEqual("team@example.com", updated["recipient"])
+        self.assertEqual("Updated subject", updated["subject"])
+        self.assertEqual("Initial body", updated["body"])
+
+    def test_update_draft_allows_recipient_to_be_cleared_while_editing(self):
+        draft_id = self._draft()
+
+        updated = asyncio.run(api.update_draft(
+            draft_id,
+            api.DraftUpdateRequest(recipient=""),
+        ))
+
+        self.assertEqual("", updated["recipient"])
+
     def test_discard_draft_marks_it_discarded(self):
         draft_id = self._draft()
 
@@ -85,6 +110,17 @@ class DraftApiTest(unittest.TestCase):
 
         self.assertEqual(draft_id, discarded["id"])
         self.assertEqual("discarded", discarded["status"])
+
+    def test_restore_draft_marks_discarded_draft_active(self):
+        draft_id = self._draft()
+        self.db.discard_draft(draft_id)
+        restore_draft = getattr(api, "restore_draft", None)
+        self.assertIsNotNone(restore_draft, "restore draft endpoint is required")
+
+        restored = asyncio.run(restore_draft(draft_id))
+
+        self.assertEqual(draft_id, restored["id"])
+        self.assertEqual("draft", restored["status"])
 
     def test_send_draft_records_dry_run_and_marks_sent(self):
         draft_id = self._draft()

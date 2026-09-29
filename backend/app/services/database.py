@@ -272,7 +272,13 @@ class DatabaseService:
         finally:
             session.close()
 
-    def update_draft(self, draft_id: int, body: str) -> dict:
+    def update_draft(
+        self,
+        draft_id: int,
+        body: str | None = None,
+        recipient: str | None = None,
+        subject: str | None = None,
+    ) -> dict:
         """Persist edits to an active draft."""
         session = self.Session()
         try:
@@ -281,7 +287,12 @@ class DatabaseService:
                 raise ValueError(f"draft not found: {draft_id!r}")
             if draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
-            draft.body = body
+            if body is not None:
+                draft.body = body
+            if recipient is not None:
+                draft.recipient = recipient
+            if subject is not None:
+                draft.subject = subject
             session.commit()
             session.refresh(draft)
             return self._draft_to_dict(draft)
@@ -344,6 +355,25 @@ class DatabaseService:
         finally:
             session.close()
 
+    def restore_draft(self, draft_id: int) -> dict:
+        """Restore a discarded draft to active status."""
+        session = self.Session()
+        try:
+            draft = session.query(DraftReply).filter_by(id=draft_id).first()
+            if not draft:
+                raise ValueError(f"draft not found: {draft_id!r}")
+            if draft.status != "discarded":
+                raise ValueError(f"draft is not discarded: {draft_id!r}")
+            draft.status = "draft"
+            session.commit()
+            session.refresh(draft)
+            return self._draft_to_dict(draft)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def send_draft(self, draft_id: int) -> dict:
         """Record a dry-run send and close the draft in one transaction."""
         session = self.Session()
@@ -353,6 +383,8 @@ class DatabaseService:
                 raise ValueError(f"draft not found: {draft_id!r}")
             if draft.status != "draft":
                 raise ValueError(f"draft is not active: {draft_id!r}")
+            if not draft.recipient.strip():
+                raise ValueError("draft recipient is required")
             action = SentAction(
                 thread_id=draft.thread_id,
                 original_email_id=draft.email_id,
@@ -391,23 +423,26 @@ class DatabaseService:
         finally:
             session.close()
 
-    def get_unread_emails(self, limit: int = 20):
-        """Get unread emails, newest first. Used by the triage workflow.
-        Excludes archived and deleted — those are already 'processed' from the
-        user's perspective and should not resurface in the next triage pass.
-        """
+    def get_inbox_emails(self, scope: str, limit: int):
+        """Get a bounded inbox listing, newest first."""
+        if scope not in {"unread", "recent"}:
+            raise ValueError(f"Unsupported inbox scope: {scope}")
+
         session = self.Session()
         try:
-            emails = (
+            query = (
                 session.query(Email)
-                .filter(Email.is_read == False)  # noqa: E712
                 .filter(Email.is_archived == False)
                 .filter(Email.is_deleted == False)
-                .order_by(desc(Email.received_datetime))
+            )
+            if scope == "unread":
+                query = query.filter(Email.is_read == False)  # noqa: E712
+            emails = (
+                query.order_by(desc(Email.received_datetime))
                 .limit(max(1, min(limit, 50)))
                 .all()
             )
-            return [self._email_to_dict(e) for e in emails]
+            return [self._email_to_dict(email) for email in emails]
         finally:
             session.close()
 

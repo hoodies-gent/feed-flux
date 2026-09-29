@@ -124,6 +124,40 @@ class DraftServiceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.update_draft(draft_id, "Edited after discard")
 
+    def test_restore_discarded_draft_returns_it_to_active_drafts(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Restore this draft",
+        })
+        self.db.discard_draft(draft_id)
+        restore_draft = getattr(self.db, "restore_draft", None)
+        self.assertIsNotNone(restore_draft, "DatabaseService.restore_draft is required")
+
+        restored = restore_draft(draft_id)
+
+        self.assertEqual("draft", restored["status"])
+        self.assertEqual([draft_id], [
+            draft["id"] for draft in self.db.get_drafts_for_email("email-a")
+        ])
+
+    def test_sent_draft_cannot_be_restored(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "sarah@example.com",
+            "subject": "Re: Weekly sync",
+            "body": "Already sent",
+        })
+        self.db.send_draft(draft_id)
+        restore_draft = getattr(self.db, "restore_draft", None)
+        self.assertIsNotNone(restore_draft, "DatabaseService.restore_draft is required")
+
+        with self.assertRaises(ValueError):
+            restore_draft(draft_id)
+
     def test_send_draft_records_sent_action_and_closes_draft(self):
         draft_id = self.db.create_draft({
             "thread_id": "thread-a",
@@ -150,6 +184,18 @@ class DraftServiceTest(unittest.TestCase):
         finally:
             session.close()
         self.assertEqual([], self.db.get_drafts_for_email("email-a"))
+
+    def test_send_draft_rejects_an_empty_recipient(self):
+        draft_id = self.db.create_draft({
+            "thread_id": "thread-a",
+            "email_id": "email-a",
+            "recipient": "",
+            "subject": "Re: Weekly sync",
+            "body": "Not ready to send.",
+        })
+
+        with self.assertRaisesRegex(ValueError, "recipient is required"):
+            self.db.send_draft(draft_id)
 
     def test_sent_draft_cannot_be_sent_twice(self):
         draft_id = self.db.create_draft({

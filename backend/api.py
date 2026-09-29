@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
 import json
 import logging
@@ -13,7 +13,6 @@ from app.services.memory import MemoryService
 from app.services.cleaner import ContentCleaner
 from app.services.memory import MemoryService
 from app.services.database import DatabaseService
-from app.services.briefing import BriefingEngine
 from app.services.drafter import EmailDrafter
 from app.agent.runtime import open_agent_checkpointer
 from app.agent.context import EmailContextError
@@ -72,7 +71,15 @@ class DraftRequest(BaseModel):
     custom_prompt: Optional[str] = None
 
 class DraftUpdateRequest(BaseModel):
-    body: str
+    body: Optional[str] = None
+    recipient: Optional[str] = None
+    subject: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_update(self):
+        if self.body is None and self.recipient is None and self.subject is None:
+            raise ValueError("At least one draft field is required")
+        return self
 
 class ConfigSetupRequest(BaseModel):
     google_api_key: str
@@ -242,27 +249,6 @@ async def get_feed(limit: int = 5, q: Optional[str] = None):
         logger.error(f"Feed fetch failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/briefing")
-async def get_daily_briefing():
-    """
-    Returns an AI-generated daily briefing summarizing recent emails.
-    """
-    try:
-        engine = BriefingEngine()
-        # To avoid blocking the event loop on LLM generation, we run the synchronous
-        # model generation in a threadpool
-        briefing_text = await asyncio.to_thread(engine.generate_daily_briefing)
-        
-        # If the backend returns our default fallback string because of missing keys or errors
-        if "AI service is not configured" in briefing_text or "encountered an error" in briefing_text:
-             return {"briefing": "", "error": briefing_text}
-             
-        return {"briefing": briefing_text}
-    except Exception as e:
-        logger.error(f"Briefing generation failed: {e}")
-        # Return a graceful fallback instead of an HTTP 500 so the frontend banner handles it elegantly
-        return {"briefing": "", "error": "Daily Briefing is currently unavailable due to high AI service demand or API key issues."}
-
 async def run_sync_job():
     """
     Core synchronization logic.
@@ -404,9 +390,9 @@ def _draft_mutation_error(error: ValueError) -> HTTPException:
 
 @app.patch("/api/drafts/{draft_id}")
 async def update_draft(draft_id: int, request: DraftUpdateRequest):
-    """Persist edits to an active draft body."""
+    """Persist partial edits to an active draft."""
     try:
-        return db.update_draft(draft_id, request.body)
+        return db.update_draft(draft_id, **request.model_dump(exclude_none=True))
     except ValueError as e:
         raise _draft_mutation_error(e)
     except Exception as e:
@@ -423,6 +409,18 @@ async def discard_draft(draft_id: int):
         raise _draft_mutation_error(e)
     except Exception as e:
         logger.error(f"Draft discard failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/drafts/{draft_id}/restore")
+async def restore_draft(draft_id: int):
+    """Restore a locally discarded draft without touching Microsoft Graph."""
+    try:
+        return db.restore_draft(draft_id)
+    except ValueError as e:
+        raise _draft_mutation_error(e)
+    except Exception as e:
+        logger.error(f"Draft restore failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -209,27 +209,6 @@ export async function syncEmails(): Promise<{ synced: number }> {
 }
 
 /**
- * Daily Briefing Data
- */
-export interface BriefingResponse {
-    briefing: string;
-    error?: string;
-}
-
-/**
- * Fetch the AI-generated daily briefing
- */
-export async function getDailyBriefing(): Promise<BriefingResponse> {
-    const response = await fetch('/api/briefing');
-
-    if (!response.ok) {
-        throw new Error(`Failed to fetch briefing: ${response.statusText}`);
-    }
-
-    return response.json();
-}
-
-/**
  * Action-Oriented AI: Draft Generation
  */
 export interface DraftRequest {
@@ -272,11 +251,17 @@ export async function createReplyDraft(emailId: string): Promise<DraftReply> {
     return response.json();
 }
 
-export async function updateDraft(draftId: number, body: string): Promise<DraftReply> {
+export interface DraftUpdate {
+    body?: string;
+    recipient?: string;
+    subject?: string;
+}
+
+export async function updateDraft(draftId: number, updates: DraftUpdate): Promise<DraftReply> {
     const response = await fetch(`/api/drafts/${draftId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(updates),
     });
     if (!response.ok) {
         throw new Error(`Failed to update draft: ${response.statusText}`);
@@ -288,6 +273,14 @@ export async function discardDraft(draftId: number): Promise<DraftReply> {
     const response = await fetch(`/api/drafts/${draftId}`, { method: 'DELETE' });
     if (!response.ok) {
         throw new Error(`Failed to discard draft: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+export async function restoreDraft(draftId: number): Promise<DraftReply> {
+    const response = await fetch(`/api/drafts/${draftId}/restore`, { method: 'POST' });
+    if (!response.ok) {
+        throw new Error(`Failed to restore draft: ${response.statusText}`);
     }
     return response.json();
 }
@@ -378,6 +371,7 @@ export interface TraceEvent {
 }
 
 export interface AgentReference {
+    citation_key?: string;
     email_id: string;
     subject: string;
     sender: string;

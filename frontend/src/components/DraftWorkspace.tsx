@@ -1,16 +1,23 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type UIEvent } from 'react';
-import { Loader2, Pencil, Send, Sparkles, Trash2, Undo2 } from 'lucide-react';
+import { ChevronDown, Loader2, Pencil, Send, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { RecipientField } from '@/components/RecipientField';
+import {
+  getDraftDiscardMode,
+  removeDraftForDiscard,
+  restoreDraftAfterDiscard,
+} from '@/lib/draft-discard-state.mjs';
+import { DRAFT_SELECTION_PROMPT_INPUT_PROPS } from '@/lib/draft-selection-input-contract.mjs';
 import {
   askAgentStream,
-  createReplyDraft,
   discardDraft,
   getEmailDrafts,
+  restoreDraft,
   sendDraft,
   updateDraft,
   type AgentStreamCallbacks,
@@ -25,6 +32,8 @@ interface DraftWorkspaceProps {
   autoDraft?: boolean;
   focusDraftId?: number | null;
   refreshToken?: number;
+  isFocusMode?: boolean;
+  onCollapse?: () => void;
   onDraftsChange?: (drafts: DraftReply[]) => void;
   onDraftFocus?: (draftId: number | null) => void;
 }
@@ -52,10 +61,13 @@ export function DraftWorkspace({
   autoDraft = false,
   focusDraftId = null,
   refreshToken = 0,
+  isFocusMode = false,
+  onCollapse,
   onDraftsChange,
   onDraftFocus,
 }: DraftWorkspaceProps) {
   const [drafts, setDrafts] = useState<DraftReply[]>([]);
+  const draftsRef = useRef<DraftReply[]>([]);
   const [editingDraftId, setEditingDraftId] = useState<number | null>(null);
   const [customPrompt, setCustomPrompt] = useState('');
   const [selectionPrompt, setSelectionPrompt] = useState('');
@@ -66,9 +78,10 @@ export function DraftWorkspace({
   const [undoState, setUndoState] = useState<{ draftId: number; body: string } | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [isDrafting, setIsDrafting] = useState(false);
-  const [isCreatingManualDraft, setIsCreatingManualDraft] = useState(false);
   const [showAiTools, setShowAiTools] = useState(false);
   const [busyDraftId, setBusyDraftId] = useState<number | null>(null);
+  const [confirmingDiscardId, setConfirmingDiscardId] = useState<number | null>(null);
+  const [pendingRecipients, setPendingRecipients] = useState<Record<number, boolean>>({});
   const workspaceRef = useRef<HTMLDivElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -153,6 +166,7 @@ export function DraftWorkspace({
   const loadDrafts = async (selectId?: number): Promise<DraftReply[]> => {
     try {
       const nextDrafts = await getEmailDrafts(emailId);
+      draftsRef.current = nextDrafts;
       setDrafts(nextDrafts);
       onDraftsChange?.(nextDrafts);
       if (selectId && nextDrafts.some((draft) => draft.id === selectId)) {
@@ -167,6 +181,7 @@ export function DraftWorkspace({
   };
 
   useEffect(() => {
+    draftsRef.current = [];
     setDrafts([]);
     setEditingDraftId(null);
     clearSelection();
@@ -174,6 +189,8 @@ export function DraftWorkspace({
     setRecentChangeFading(false);
     clearUndo();
     setShowAiTools(false);
+    setConfirmingDiscardId(null);
+    setPendingRecipients({});
     if (recentChangeTimerRef.current !== null) {
       window.clearTimeout(recentChangeTimerRef.current);
       recentChangeTimerRef.current = null;
@@ -188,6 +205,10 @@ export function DraftWorkspace({
       saveTimers.current = {};
     };
   }, [emailId, refreshToken]);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   useEffect(() => {
     if (focusDraftId && drafts.some((draft) => draft.id === focusDraftId)) {
@@ -235,6 +256,11 @@ export function DraftWorkspace({
     setIsDrafting(true);
     const target = senderEmail ? `${sender} <${senderEmail}>` : sender;
     const currentDraft = drafts.find((draft) => draft.id === editingDraftId) ?? drafts[0];
+    if (currentDraft && !currentDraft.recipient.trim()) {
+      setIsDrafting(false);
+      toast.error('A recipient is required.');
+      return;
+    }
     const prompt = currentDraft ? [
       `Revise existing draft ${currentDraft.id} for the email with id "${emailId}".`,
       `Find the email from ${target} with subject "${subject}" and use that exact email id when calling save_reply_draft.`,
@@ -267,6 +293,13 @@ export function DraftWorkspace({
     };
 
     try {
+      if (currentDraft) {
+        await updateDraft(currentDraft.id, {
+          body: currentDraft.body,
+          recipient: currentDraft.recipient,
+          subject: currentDraft.subject,
+        });
+      }
       await askAgentStream(crypto.randomUUID(), prompt, callbacks);
     } catch {
       setIsDrafting(false);
@@ -294,19 +327,33 @@ export function DraftWorkspace({
     const existing = saveTimers.current[draftId];
     if (existing) clearTimeout(existing);
     saveTimers.current[draftId] = setTimeout(() => {
-      void updateDraft(draftId, body).catch(() => toast.error('Draft autosave failed.'));
+      void updateDraft(draftId, { body }).catch(() => toast.error('Draft autosave failed.'));
     }, 600);
   };
 
-  const handleManualReply = async () => {
-    setIsCreatingManualDraft(true);
+  const handleMetadataChange = (
+    draftId: number,
+    field: 'recipient' | 'subject',
+    value: string,
+  ) => {
+    setDrafts((current) => current.map((draft) => draft.id === draftId ? {
+      ...draft,
+      [field]: value,
+    } : draft));
+  };
+
+  const persistDraftMetadata = async (
+    draftId: number,
+    updates: { recipient?: string; subject?: string },
+  ) => {
     try {
-      const draft = await createReplyDraft(emailId);
-      await loadDrafts(draft.id);
+      const saved = await updateDraft(draftId, updates);
+      setDrafts((current) => current.map((item) => item.id === draftId ? {
+        ...item,
+        updated_at: saved.updated_at,
+      } : item));
     } catch {
-      toast.error('Failed to start a reply draft.');
-    } finally {
-      setIsCreatingManualDraft(false);
+      toast.error('Draft autosave failed.');
     }
   };
 
@@ -379,10 +426,18 @@ export function DraftWorkspace({
 
   const requestSelectionRewrite = async (draft: DraftReply) => {
     if (!selection || selection.draftId !== draft.id || !selectionPrompt.trim()) return;
+    if (!draft.recipient.trim()) {
+      toast.error('A recipient is required.');
+      return;
+    }
     setBusyDraftId(draft.id);
     setSelectionNotice(null);
     try {
-      await updateDraft(draft.id, draft.body);
+      await updateDraft(draft.id, {
+        body: draft.body,
+        recipient: draft.recipient,
+        subject: draft.subject,
+      });
       const target = senderEmail ? `${sender} <${senderEmail}>` : sender;
       const prompt = [
         `Rewrite only the selected text in draft ${draft.id} for the email with id "${emailId}".`,
@@ -470,7 +525,7 @@ export function DraftWorkspace({
     if (!undoState || undoState.draftId !== draftId) return;
     setBusyDraftId(draftId);
     try {
-      const restored = await updateDraft(draftId, undoState.body);
+      const restored = await updateDraft(draftId, { body: undoState.body });
       setDrafts((current) => current.map((draft) => draft.id === draftId ? restored : draft));
       clearUndo();
       setRecentChange(null);
@@ -482,14 +537,23 @@ export function DraftWorkspace({
     }
   };
 
-  const handleSend = async (draftId: number) => {
-    setBusyDraftId(draftId);
+  const handleSend = async (draft: DraftReply) => {
+    if (!draft.recipient.trim()) {
+      toast.error('A recipient is required.');
+      return;
+    }
+    setBusyDraftId(draft.id);
     try {
-      await sendDraft(draftId);
-      if (undoState?.draftId === draftId) clearUndo();
-      setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
-      if (editingDraftId === draftId) {
+      await updateDraft(draft.id, {
+        body: draft.body,
+        recipient: draft.recipient.trim(),
+        subject: draft.subject,
+      });
+      await sendDraft(draft.id);
+      if (undoState?.draftId === draft.id) clearUndo();
+      setDrafts((current) => current.filter((item) => item.id !== draft.id));
+      onDraftsChange?.(drafts.filter((item) => item.id !== draft.id));
+      if (editingDraftId === draft.id) {
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
@@ -506,13 +570,38 @@ export function DraftWorkspace({
     try {
       await discardDraft(draftId);
       if (undoState?.draftId === draftId) clearUndo();
-      setDrafts((current) => current.filter((draft) => draft.id !== draftId));
-      onDraftsChange?.(drafts.filter((draft) => draft.id !== draftId));
+      const removal = removeDraftForDiscard(draftsRef.current, draftId);
+      draftsRef.current = removal.drafts;
+      setDrafts(removal.drafts);
+      onDraftsChange?.(removal.drafts);
+      setConfirmingDiscardId(null);
       if (editingDraftId === draftId) {
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
-      toast.success('Draft discarded.');
+      toast.success('Draft deleted', {
+        duration: 6000,
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              const restoredDraft = await restoreDraft(draftId);
+              const nextDrafts = restoreDraftAfterDiscard(
+                draftsRef.current,
+                restoredDraft,
+                removal.discardedIndex,
+              );
+              draftsRef.current = nextDrafts;
+              setDrafts(nextDrafts);
+              onDraftsChange?.(nextDrafts);
+              setEditingDraftId(restoredDraft.id);
+              onDraftFocus?.(restoredDraft.id);
+            } catch {
+              toast.error('Failed to restore draft.');
+            }
+          },
+        },
+      });
     } catch {
       toast.error('Failed to discard draft.');
     } finally {
@@ -521,51 +610,59 @@ export function DraftWorkspace({
   };
 
   return (
-      <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full w-full min-w-0 flex-col gap-3 overflow-y-auto p-6">
+      <div ref={workspaceRef} onScroll={scheduleToolbarPosition} className="relative flex h-full w-full min-w-0 flex-col gap-2.5 overflow-y-auto p-4">
       <div className="flex w-full shrink-0 items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Pencil className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">Reply</h3>
+          <Pencil className="h-4 w-4 text-primary" />
+          <h3 className="text-base font-semibold text-foreground">Draft</h3>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {drafts.length === 0 && !isDrafting && (
-            <Button size="sm" onClick={() => void handleManualReply()} disabled={isCreatingManualDraft}>
-              <Pencil className="h-3.5 w-3.5" /> Reply
-            </Button>
-          )}
+        <div className="ml-auto flex items-center gap-1.5">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowAiTools((visible) => !visible)}
             disabled={isDrafting}
-            className="transition-all hover:bg-accent hover:shadow-md"
+            className="h-7 px-2 text-sm transition-all hover:bg-accent hover:shadow-md"
           >
             <Sparkles className="h-3.5 w-3.5" /> {showAiTools ? 'Hide AI' : 'Help me write'}
           </Button>
+          {onCollapse && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onCollapse}
+              disabled={isDrafting}
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              aria-label="Collapse draft workspace"
+              title="Collapse draft workspace"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 
       {showAiTools && (
-        <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <div className="w-full shrink-0 rounded-lg border border-border/70 bg-background/60 p-2.5">
+          <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Help me write
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             {intents.map((intent) => (
-              <Button key={intent.prompt} variant="outline" size="sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
+              <Button key={intent.prompt} variant="outline" size="sm" className="h-8 px-2 text-sm" onClick={() => void requestDraft(intent.prompt)} disabled={isDrafting}>
                 {intent.label}
               </Button>
             ))}
-            <div className="flex min-w-[200px] flex-1 gap-2">
+            <div className="flex min-w-[200px] flex-1 gap-1.5">
               <Input
                 placeholder={editingDraftId ? 'Ask AI to revise this draft...' : 'Or type custom instructions...'}
                 value={customPrompt}
                 onChange={(event) => setCustomPrompt(event.target.value)}
                 onKeyDown={(event) => event.key === 'Enter' && void requestDraft('Follow custom instructions')}
-                className="h-9 bg-background"
+                className="h-8 bg-background text-sm"
                 disabled={isDrafting}
               />
-              <Button variant="outline" size="sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
+              <Button variant="outline" size="sm" className="h-8 px-2 text-sm" onClick={() => void requestDraft('Follow custom instructions')} disabled={isDrafting}>
                 Generate
               </Button>
             </div>
@@ -574,7 +671,7 @@ export function DraftWorkspace({
       )}
 
       {isDrafting && (
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Drafting in the email workflow...
         </div>
       )}
@@ -584,52 +681,99 @@ export function DraftWorkspace({
           No active drafts for this email.
         </div>
       ) : (
-        <div className="space-y-3">
-          {drafts.length > 0 && (
-            <div className="text-xs text-muted-foreground">
-              AI actions revise this saved draft instead of creating another version.
-            </div>
-          )}
+        <div className="space-y-2">
           {drafts.map((draft) => {
             const editing = editingDraftId === draft.id;
             const busy = busyDraftId === draft.id;
+            const discardMode = getDraftDiscardMode(confirmingDiscardId, draft.id);
             const highlight = selection?.draftId === draft.id
               ? { start: selection.start, end: selection.end, recent: false }
               : recentChange?.draftId === draft.id
                 ? { start: recentChange.start, end: recentChange.end, recent: true }
                 : null;
             return (
-              <div key={draft.id} className="rounded-lg border border-border bg-background p-3 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-2">
+              <div key={draft.id} className="rounded-lg border border-border bg-background p-2.5 shadow-sm">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-muted-foreground">
                     Edited {formatDraftTime(draft.updated_at)}
                   </span>
-                  <div className="flex items-center gap-1">
-                    {undoState?.draftId === draft.id && (
-                      <Button variant="ghost" size="sm" onClick={() => void handleUndo(draft.id)} disabled={busy}>
-                        <Undo2 className="h-3.5 w-3.5" /> Undo
-                      </Button>
-                    )}
-                    {!editing && (
+                  {discardMode === 'confirm' ? (
+                    <div className="flex items-center gap-1">
+                      <span className="px-1 text-xs font-medium text-muted-foreground">Discard this draft?</span>
                       <Button
                         variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setEditingDraftId(draft.id);
-                          onDraftFocus?.(draft.id);
-                        }}
+                        size="xs"
+                        onClick={() => setConfirmingDiscardId(null)}
                         disabled={busy}
                       >
-                        <Pencil className="h-3.5 w-3.5" /> Edit
+                        Cancel
                       </Button>
-                    )}
-                    <Button variant="ghost" size="sm" onClick={() => void handleDiscard(draft.id)} disabled={busy}>
-                      <Trash2 className="h-3.5 w-3.5" /> Discard
-                    </Button>
-                    <Button size="sm" onClick={() => void handleSend(draft.id)} disabled={busy}>
-                      <Send className="h-3.5 w-3.5" /> Send
-                    </Button>
-                  </div>
+                      <Button
+                        variant="destructive"
+                        size="xs"
+                        onClick={() => void handleDiscard(draft.id)}
+                        disabled={busy}
+                      >
+                        Discard
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      {undoState?.draftId === draft.id && (
+                        <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => void handleUndo(draft.id)} disabled={busy}>
+                          <Undo2 className="h-3.5 w-3.5" /> Undo
+                        </Button>
+                      )}
+                      {!editing && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-sm"
+                          onClick={() => {
+                            setEditingDraftId(draft.id);
+                            onDraftFocus?.(draft.id);
+                          }}
+                          disabled={busy}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-sm" onClick={() => setConfirmingDiscardId(draft.id)} disabled={busy}>
+                        <Trash2 className="h-3.5 w-3.5" /> Discard
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-sm"
+                        onClick={() => void handleSend(draft)}
+                        disabled={busy || !draft.recipient.trim() || pendingRecipients[draft.id]}
+                      >
+                        <Send className="h-3.5 w-3.5" /> Send
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div className="mb-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md bg-muted/30 px-2.5 py-2 text-sm">
+                  <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-recipient`}>To</label>
+                  <RecipientField
+                    id={`draft-${draft.id}-recipient`}
+                    value={draft.recipient}
+                    disabled={busy}
+                    onChange={(value) => handleMetadataChange(draft.id, 'recipient', value)}
+                    onCommit={(value) => void persistDraftMetadata(draft.id, { recipient: value })}
+                    onPendingChange={(pending) => setPendingRecipients((current) => ({
+                      ...current,
+                      [draft.id]: pending,
+                    }))}
+                  />
+                  <label className="self-center font-medium text-muted-foreground" htmlFor={`draft-${draft.id}-subject`}>Subject</label>
+                  <Input
+                    id={`draft-${draft.id}-subject`}
+                    value={draft.subject}
+                    onChange={(event) => handleMetadataChange(draft.id, 'subject', event.target.value)}
+                    onBlur={(event) => void persistDraftMetadata(draft.id, { subject: event.currentTarget.value })}
+                    disabled={busy}
+                    className="h-7 min-w-0 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-1"
+                  />
                 </div>
                 {editing ? (
                   <div className="relative rounded-md bg-muted/20">
@@ -668,7 +812,7 @@ export function DraftWorkspace({
                       onScroll={(event) => handleTextareaScroll(draft.id, event)}
                       rows={8}
                       disabled={busy}
-                      className="relative z-10 resize-y bg-transparent text-sm"
+                      className={`relative z-10 resize-none bg-transparent text-sm ${isFocusMode ? 'min-h-[min(40vh,28rem)]' : ''}`}
                     />
                   </div>
                 ) : (
@@ -692,10 +836,11 @@ export function DraftWorkspace({
           style={{ left: selectionPosition.left, top: selectionPosition.top }}
         >
           <Input
+            {...DRAFT_SELECTION_PROMPT_INPUT_PROPS}
             value={selectionPrompt}
             onChange={(event) => setSelectionPrompt(event.target.value)}
             placeholder="How should AI rewrite it?"
-            className="h-8 min-w-0 flex-1 text-xs"
+            className="h-8 min-w-0 flex-1 text-sm"
             disabled={busyDraftId === selection.draftId}
           />
           {selectionNotice && (
