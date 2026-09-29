@@ -341,6 +341,35 @@ async def get_email_detail(email_id: str):
         logger.error(f"Error fetching email detail: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/emails/{email_id}/read")
+async def mark_email_read_on_open(email_id: str):
+    """Mark an email as read locally when the user opens it.
+
+    Idempotent: if the email is already read, nothing is written. Otherwise
+    a mark_read action is recorded via the shared triage state channel so
+    Undo semantics stay uniform with batch triage. Dry-run in Phase 1 —
+    local SQLite only, never Microsoft Graph.
+    """
+    try:
+        email = db.get_email_by_id(email_id)
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        if email.get("is_read"):
+            return {"ok": True, "row_id": None, "already_read": True}
+        row_id = db.apply_email_action(
+            email_id=email_id,
+            kind="mark_read",
+            thread_id="read-on-open",
+        )
+        return {"ok": True, "row_id": row_id, "already_read": False}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"mark_email_read_on_open failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/emails/{email_id}/drafts")
 async def list_email_drafts(email_id: str):
     """List active reply drafts belonging to an email."""
