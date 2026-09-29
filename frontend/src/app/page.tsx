@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, createReplyDraft, getEmailDrafts, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
+import { getFeed, summarizeEmail, getEmailDetail, syncEmails, askAgentStream, resumeAgent, getConfigStatus, setupConfig, mockLogin, triageAction, triageUndo, markEmailReadOnOpen, createReplyDraft, getEmailDrafts, type FeedItem, type SummaryResponse, type EmailDetail, type SourceItem, type TraceEvent, type InterruptEvent, type AgentStreamCallbacks, type AgentReference, type BulkTriageItem, type NeedsReplyItem, type TriagePlan, type TriageActionKind, type DraftReply } from '@/lib/api';
 import { AppHeader } from '@/components/AppHeader';
 import { AgentSidebar } from '@/components/AgentSidebar';
 import { AgentMessageMarkdown } from '@/components/AgentMessageMarkdown';
@@ -1066,6 +1066,13 @@ export default function Home() {
     }
     setActiveEmailId(id);
     setMountedEmailIds((current) => current.includes(id) ? current : [...current, id]);
+    const currentFeedItem = feed.find((item) => item.id === id);
+    if (currentFeedItem && !currentFeedItem.is_read) {
+      setFeed((current) => current.map((item) => item.id === id ? { ...item, is_read: true } : item));
+      markEmailReadOnOpen(id).catch(() => {
+        setFeed((current) => current.map((item) => item.id === id ? { ...item, is_read: false } : item));
+      });
+    }
     if (emailDetailsById[id]) {
       setLoadingEmailIds((current) => ({ ...current, [id]: false }));
       return;
