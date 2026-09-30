@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from sqlalchemy import create_engine, desc, or_, text
 from sqlalchemy.orm import sessionmaker
+from app.core.config import Config
 from app.models.email import Base, DraftReply, Email, SentAction, LabelAction
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.tool_execution import ToolExecution
@@ -11,17 +12,14 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Get project root directory (4 levels up from this file)
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
 
 class DatabaseService:
     """Service for database operations"""
-    
+
     def __init__(self, db_path: str = None):
         """Initialize database connection and create tables"""
         if db_path is None:
-            db_path = os.getenv("FEEDFLUX_DB_PATH") or str(DATA_DIR / "emails.db")
+            db_path = os.getenv("FEEDFLUX_DB_PATH") or str(Config.DATA_DIR / "emails.db")
 
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         
