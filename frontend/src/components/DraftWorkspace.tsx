@@ -557,7 +557,7 @@ export function DraftWorkspace({
         setEditingDraftId(null);
         onDraftFocus?.(null);
       }
-      toast.success('Reply recorded as sent (dry-run).');
+      toast.success('Reply sent.');
     } catch {
       toast.error('Failed to send draft.');
     } finally {

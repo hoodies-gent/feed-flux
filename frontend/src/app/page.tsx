@@ -553,7 +553,7 @@ function BatchTriageReviewCard({
       </div>
 
       <div className="text-[10px] text-muted-foreground italic pt-1">
-        Dry-run mode · click any action to apply immediately
+        Click any action to apply immediately
       </div>
     </div>
   );
