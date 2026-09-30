@@ -1352,9 +1352,12 @@ export default function Home() {
           <Skeleton className="h-4 w-[90%]" />
         </div>
       ) : emailDetailData ? (
-        <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none text-foreground">
+        <div className="max-w-none text-foreground leading-relaxed">
           {emailDetailData.body_html ? (
-            <div dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }} />
+            <div
+              className="[&_p]:mb-4 [&_p:last-child]:mb-0 [&_ol]:mb-4 [&_ol]:pl-6 [&_ol]:list-decimal [&_ul]:mb-4 [&_ul]:pl-6 [&_ul]:list-disc [&_a]:text-blue-600 [&_a]:underline dark:[&_a]:text-blue-400"
+              dangerouslySetInnerHTML={{ __html: emailDetailData.body_html }}
+            />
           ) : (
             <div className="whitespace-pre-wrap">{emailDetailData.body_content}</div>
           )}
