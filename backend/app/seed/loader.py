@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.config import Config
-from app.models.email import Email
+from app.models.email import DraftReply, Email, LabelAction, SentAction
 from app.services.database import DatabaseService
 from app.services.memory import MemoryService
 
@@ -97,6 +97,43 @@ def _wipe(db: DatabaseService, mem: MemoryService | None, kind: Kind) -> None:
             logger.warning(f"Chroma wipe skipped: {ex}")
 
 
+def _reset_domain_state(db: DatabaseService, kind: Kind) -> dict:
+    """Clear fixture-derived label_actions, draft_replies, and sent_actions.
+
+    Plain --kind dev only wipes Email rows and lets rows that reference them
+    (mark_read history from previous takes, drafts the user wrote, dry-run
+    sent replies) go orphaned. --reset also cleans those so a demo recording
+    starts from a truly identical state each time.
+    """
+    prefix = f"{kind}-%"
+    session = db.Session()
+    try:
+        la = (
+            session.query(LabelAction)
+            .filter(LabelAction.email_id.like(prefix))
+            .delete(synchronize_session=False)
+        )
+        dr = (
+            session.query(DraftReply)
+            .filter(DraftReply.email_id.like(prefix))
+            .delete(synchronize_session=False)
+        )
+        sa = (
+            session.query(SentAction)
+            .filter(SentAction.original_email_id.like(prefix))
+            .delete(synchronize_session=False)
+        )
+        session.commit()
+        counts = {"label_actions": la, "draft_replies": dr, "sent_actions": sa}
+        logger.info(
+            f"Reset domain state for prefix '{kind}-': "
+            f"label_actions={la}, draft_replies={dr}, sent_actions={sa}"
+        )
+        return counts
+    finally:
+        session.close()
+
+
 def _verify(db: DatabaseService, kind: Kind, expected: list[dict]) -> None:
     prefix = f"{kind}-"
     session = db.Session()
@@ -115,7 +152,9 @@ def _verify(db: DatabaseService, kind: Kind, expected: list[dict]) -> None:
     logger.info(f"Verify OK: {len(rows)} '{prefix}*' rows match fixture exactly")
 
 
-def load_fixtures(kind: Kind, wipe: bool = True, verify: bool = False) -> dict:
+def load_fixtures(
+    kind: Kind, wipe: bool = True, verify: bool = False, reset: bool = False
+) -> dict:
     if kind not in TARGETS:
         raise ValueError(f"Unknown kind: {kind!r}. Must be one of {list(TARGETS)}")
 
@@ -133,14 +172,18 @@ def load_fixtures(kind: Kind, wipe: bool = True, verify: bool = False) -> dict:
             persist_subdir=target["chroma_subdir"],
         )
     except ValueError as ex:
-        # Missing GOOGLE_API_KEY (Gemini embedding init). Dev tolerates it —
-        # UI still works from SQLite. Eval requires it — RAG is in scope.
+        # Missing GOOGLE_API_KEY (Gemini embedding init). Dev tolerates it,
+        # UI still works from SQLite. Eval requires it, RAG is in scope.
         if kind == "dev":
             logger.warning(
                 f"Chroma indexing skipped ({ex}); loading dev fixtures into SQLite only"
             )
         else:
             raise
+
+    reset_counts: dict | None = None
+    if reset:
+        reset_counts = _reset_domain_state(db, kind)
 
     if wipe:
         _wipe(db, mem, kind)
@@ -167,7 +210,10 @@ def load_fixtures(kind: Kind, wipe: bool = True, verify: bool = False) -> dict:
     if verify:
         _verify(db, kind, emails)
 
-    return {"kind": kind, "inserted": inserted, "indexed": indexed}
+    result = {"kind": kind, "inserted": inserted, "indexed": indexed}
+    if reset_counts is not None:
+        result["reset"] = reset_counts
+    return result
 
 
 def main() -> int:
@@ -189,10 +235,24 @@ def main() -> int:
         action="store_true",
         help="After load, assert DB row set equals fixture id set.",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help=(
+            "Also delete label_actions, draft_replies, and sent_actions rows "
+            "that reference fixture emails. Use between demo takes to restore "
+            "a truly identical starting state."
+        ),
+    )
     args = parser.parse_args()
 
     try:
-        result = load_fixtures(kind=args.kind, wipe=not args.no_wipe, verify=args.verify)
+        result = load_fixtures(
+            kind=args.kind,
+            wipe=not args.no_wipe,
+            verify=args.verify,
+            reset=args.reset,
+        )
         print(json.dumps(result))
         return 0
     except AssertionError as e:

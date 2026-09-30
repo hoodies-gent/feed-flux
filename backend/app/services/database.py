@@ -12,6 +12,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# Module-level alias so tests can patch it (patch("app.services.database.DATA_DIR", ...)).
+# Sourced from Config so FEEDFLUX_DATA_DIR still shifts the default DB path.
+DATA_DIR = Config.DATA_DIR
+
 
 class DatabaseService:
     """Service for database operations"""
@@ -19,7 +23,7 @@ class DatabaseService:
     def __init__(self, db_path: str = None):
         """Initialize database connection and create tables"""
         if db_path is None:
-            db_path = os.getenv("FEEDFLUX_DB_PATH") or str(Config.DATA_DIR / "emails.db")
+            db_path = os.getenv("FEEDFLUX_DB_PATH") or str(DATA_DIR / "emails.db")
 
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         
