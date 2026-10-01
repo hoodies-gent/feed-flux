@@ -163,14 +163,9 @@
       "case_id": "en-security-rotate-codes",
       "language": "en",
       "source": {
-        "kind": "inline",
-        "email": {
-          "subject": "[Security] Rotate SSO recovery codes — due Sep 15",
-          "sender_name": "Acme IT Security",
-          "sender_email": "security-noreply@acme.co",
-          "received": "2026-08-26T11:00:00Z",
-          "body_preview": "Semi-annual rotation of your SSO recovery codes is required by Sep 15."
-        }
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-todo-004"
       },
       "reply_needed": false,
       "default_policy_action": "mark_read",
@@ -187,14 +182,9 @@
       "case_id": "en-ci-passed",
       "language": "en",
       "source": {
-        "kind": "inline",
-        "email": {
-          "subject": "[GitHub] Workflow run passed — atlas-api / build-and-test",
-          "sender_name": "GitHub Actions",
-          "sender_email": "noreply@github.com",
-          "received": "2026-09-08T17:22:00Z",
-          "body_preview": "Workflow 'build-and-test' completed successfully on main. Commit 8f8c31f by yifan."
-        }
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-noise-001"
       },
       "reply_needed": false,
       "default_policy_action": "delete",
@@ -210,14 +200,9 @@
       "case_id": "en-cloud-invoice",
       "language": "en",
       "source": {
-        "kind": "inline",
-        "email": {
-          "subject": "Your AWS invoice for August is available",
-          "sender_name": "AWS Billing",
-          "sender_email": "no-reply-aws@amazon.com",
-          "received": "2026-09-02T04:30:00Z",
-          "body_preview": "Invoice #4482911 for $1,247.32 is now available in the billing console."
-        }
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-noise-006"
       },
       "reply_needed": false,
       "default_policy_action": "archive",
@@ -234,14 +219,9 @@
       "case_id": "en-design-question",
       "language": "en",
       "source": {
-        "kind": "inline",
-        "email": {
-          "subject": "Re: shadow-write flag design — any thoughts?",
-          "sender_name": "Marcus Patel",
-          "sender_email": "marcus.patel@acme.co",
-          "received": "2026-08-29T10:47:00Z",
-          "body_preview": "Circling back on the flag-shape question from Wed — leaning toward per-table but wanted your read."
-        }
+        "kind": "fixture",
+        "fixture": "dev",
+        "email_id": "dev-fu-002"
       },
       "reply_needed": true,
       "default_policy_action": "needs_reply",

@@ -42,9 +42,6 @@ data/*.db
 data/agent_checkpoints.sqlite*
 data/chroma/
 
-# Demo recording data directory (FEEDFLUX_DATA_DIR=./demo-data)
-demo-data/
-
 # Testing & Temporary
 verify_setup.py
 test_cleaner.py

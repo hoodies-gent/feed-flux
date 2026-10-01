@@ -18,7 +18,7 @@ const TOOL_ACTIVITY_LABELS = {
 const INBOX_ACTIVITY_LABELS = {
   overview: ['Reviewing inbox', 'Reviewed inbox'],
   attention: ['Finding what needs attention', 'Found what needs attention'],
-  triage: ['Scanning unread', 'Scanned unread'],
+  triage: ['Preparing inbox plan', 'Prepared inbox plan'],
 };
 
 function resultSummary(tool, running, resultCount) {

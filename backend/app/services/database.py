@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from sqlalchemy import create_engine, desc, or_, text
 from sqlalchemy.orm import sessionmaker
-from app.core.config import Config
 from app.models.email import Base, DraftReply, Email, SentAction, LabelAction
 from app.models.agent_run import AgentRun, AgentRunEvent
 from app.models.tool_execution import ToolExecution
@@ -12,14 +11,13 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Module-level alias so tests can patch it (patch("app.services.database.DATA_DIR", ...)).
-# Sourced from Config so FEEDFLUX_DATA_DIR still shifts the default DB path.
-DATA_DIR = Config.DATA_DIR
-
+# Get project root directory (4 levels up from this file)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
 
 class DatabaseService:
     """Service for database operations"""
-
+    
     def __init__(self, db_path: str = None):
         """Initialize database connection and create tables"""
         if db_path is None:

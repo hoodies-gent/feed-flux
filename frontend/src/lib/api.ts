@@ -9,7 +9,6 @@ export interface FeedItem {
     sender: string;
     received_datetime: number;  // Unix timestamp
     body_preview: string;
-    is_read: boolean;
 }
 
 export interface SummaryResponse {
@@ -544,19 +543,6 @@ export function resumeAgent(
     const body: Record<string, unknown> = { thread_id: threadId, approve, note };
     if (editedBody !== undefined) body.edited_body = editedBody;
     return streamAgentNdjson('/api/agent/resume', body, cb);
-}
-
-export async function markEmailReadOnOpen(
-    emailId: string,
-): Promise<{ ok: boolean; row_id: number | null; already_read: boolean }> {
-    const res = await fetch(`/api/emails/${encodeURIComponent(emailId)}/read`, {
-        method: 'POST',
-    });
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`mark_email_read_on_open failed (${res.status}): ${text}`);
-    }
-    return res.json();
 }
 
 export async function triageAction(

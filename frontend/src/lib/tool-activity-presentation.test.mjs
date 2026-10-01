@@ -54,9 +54,9 @@ test('inbox listing labels reflect overview, attention, and triage intent', () =
     getToolActivityPresentation({
       tool: 'list_inbox_emails',
       running: false,
-      args: { scope: 'unread', purpose: 'triage', limit: 20 },
+      args: { scope: 'recent', purpose: 'triage', limit: 20 },
     }).label,
-    'Scanned unread',
+    'Prepared inbox plan',
   );
 });
 

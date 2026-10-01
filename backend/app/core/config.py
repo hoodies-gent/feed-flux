@@ -27,7 +27,7 @@ class Config:
     BACKEND_DIR = APP_DIR.parent
     ROOT_DIR = BACKEND_DIR.parent
     
-    DATA_DIR = Path(os.getenv("FEEDFLUX_DATA_DIR", str(ROOT_DIR / "data"))).resolve()
+    DATA_DIR = ROOT_DIR / "data"
     
     # Microsoft Graph OAuth
     # Register your app at: https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade
