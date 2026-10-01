@@ -373,8 +373,10 @@ class TriageActionItem(BaseModel):
     reason: str = Field(
         description=(
             "≤20-char short phrase explaining WHY this bucket, shown to the user for "
-            "auditing. Examples: '例行会议提醒'、'newsletter'、'状态更新 FYI'、'CI passed'. "
-            "Not a full sentence. Match the user's chat language."
+            "auditing. Examples: 'newsletter', 'CI passed', 'FYI status update', "
+            "'routine meeting ack', '例行会议提醒'. Not a full sentence. Match the "
+            "user's chat language — English prompt gets English reason, Chinese gets "
+            "Chinese."
         ),
         max_length=40,
     )
@@ -385,8 +387,9 @@ class NeedsReplyItem(BaseModel):
     reason: str = Field(
         description=(
             "≤20-char short phrase explaining WHY it needs a human reply. Examples: "
-            "'要求确认改期'、'技术设计提问'、'催第 2 次回复'、'discovery call 邀约'. "
-            "Not a full sentence. Match the user's chat language."
+            "'needs confirmation', 'technical question', '3rd follow-up', 'discovery "
+            "call ask', '要求确认改期'. Not a full sentence. Match the user's chat "
+            "language — English prompt gets English reason, Chinese gets Chinese."
         ),
         max_length=40,
     )
@@ -425,9 +428,10 @@ def apply_triage_batch(actions: list[dict], needs_reply: list[dict]) -> str:
     (b) needs a human reply — goes into `needs_reply` (id + short reason, no draft).
 
     Every item in both lists MUST have a `reason` — a ≤20-char phrase the user
-    reads to audit your classification (e.g. '例行会议提醒', 'newsletter',
-    'CI passed', '要求确认改期'). Reasons are the trust-builder — without them
-    the user has no way to know if you classified correctly.
+    reads to audit your classification (e.g. 'newsletter', 'CI passed',
+    'needs confirmation', '要求确认改期'). Match the user's chat language.
+    Reasons are the trust-builder — without them the user has no way to know
+    if you classified correctly.
 
     The user drives from here — they click mark-read / archive / delete / view /
     draft-reply per row on the card. You do NOT execute the actions. Give a
