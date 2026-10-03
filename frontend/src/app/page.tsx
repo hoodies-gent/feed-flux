@@ -1693,7 +1693,7 @@ export default function Home() {
           </div>
             </main>
           </ResizablePanel>
-          <ResizableHandle id="feed-detail-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />
+          <ResizableHandle id="feed-detail-divider" className="w-1.5 shrink-0 cursor-col-resize after:w-full outline-none" />
 
         {/* Right column: Email reading pane (master-detail) */}
         <ResizablePanel
@@ -1739,7 +1739,7 @@ export default function Home() {
               </ResizablePanel>
 
               {/* DRAGGABLE DIVIDER */}
-              <ResizableHandle id="email-divider" className="h-px shrink-0 cursor-row-resize bg-border/70 after:bg-transparent hover:bg-border outline-none" />
+              <ResizableHandle id="email-divider" className="h-px shrink-0 cursor-row-resize bg-border/70 hover:bg-border outline-none" />
 
               {/* BOTTOM PANEL: AI Action Panel (Draft Reply) */}
               <ResizablePanel
@@ -1826,7 +1826,7 @@ export default function Home() {
             )}
           </section>
         </ResizablePanel>
-        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-1.5 shrink-0 cursor-col-resize bg-transparent after:w-full after:bg-transparent hover:bg-transparent outline-none" />}
+        {isChatOpen && <ResizableHandle id="detail-chat-divider" className="w-1.5 shrink-0 cursor-col-resize after:w-full outline-none" />}
         {isChatOpen && (
           <ResizablePanel
             id="chat-panel"
