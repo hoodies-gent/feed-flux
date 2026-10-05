@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 524" width="1000" height="524" role="img" aria-labelledby="t d">
+  <title id="t">How a FeedFlux request is handled</title>
+  <desc id="d">The model proposes a tool call from bounded context. Code applies run-level limits, pauses sensitive actions for approval with a durable checkpoint, returns edits and rejections to the model, runs idempotent tools against local state, and records a trace that feeds the eval suite.</desc>
+  <style>
+    
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #e6edf3; }
+    .bg { fill: #0d1117; }
+    .zone-model { fill: #121d33; stroke: #35508a; stroke-width: 1.5; }
+    .zone-code { fill: #11241a; stroke: #2f6a45; stroke-width: 1.5; }
+    .zone-label-model { fill: #8fb0f2; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; }
+    .zone-label-code { fill: #7fcf9c; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; }
+    .box { fill: #161b22; stroke: #3a424d; stroke-width: 1.2; }
+    .warn { fill: #2b2210; stroke: #9a7425; stroke-width: 1.4; }
+    .t1 { font-size: 15px; font-weight: 600; text-anchor: middle; }
+    .t2 { font-size: 12.5px; text-anchor: middle; fill: #a3adba; }
+    .cap { font-size: 12.5px; fill: #a3adba; }
+    .edge { stroke: #8b949e; stroke-width: 1.5; fill: none; }
+    .edge-dash { stroke: #8b949e; stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+    .ah { fill: #8b949e; }
+    .lbl { font-size: 12.5px; fill: #a3adba; }
+  </style>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="ah" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="524" rx="12"/>
+
+  <!-- zones -->
+  <rect class="zone-model" x="124" y="88" width="240" height="242" rx="12"/>
+  <text class="zone-label-model" x="144" y="114">MODEL PROPOSES</text>
+  <rect class="zone-code" x="514" y="88" width="454" height="242" rx="12"/>
+  <text class="zone-label-code" x="534" y="114">CODE DECIDES</text>
+
+  <!-- model zone -->
+  <rect class="box" x="144" y="144" width="200" height="68" rx="8"/>
+  <text class="t1" x="244.0" y="173">Bounded context</text>
+  <text class="t2" x="244.0" y="192">email in focus + preferences</text>
+  <rect class="box" x="144" y="242" width="200" height="68" rx="8"/>
+  <text class="t1" x="244.0" y="271">LLM: next tool or reply</text>
+  <text class="t2" x="244.0" y="290">any provider, swappable</text>
+
+  <!-- code zone -->
+  <path class="box" d="M575 178 L629 144 L683 178 L629 212 Z"/>
+  <text class="t1" x="629" y="174" style="font-size:13.5px">Sensitive</text>
+  <text class="t1" x="629" y="191" style="font-size:13.5px">action?</text>
+  <rect class="box" x="748" y="144" width="200" height="68" rx="8"/>
+  <text class="t1" x="848.0" y="173">Run tool</text>
+  <text class="t2" x="848.0" y="192">idempotent, safe to replay</text>
+  <rect class="warn" x="534" y="242" width="190" height="68" rx="8"/>
+  <text class="t1" x="629.0" y="271">Pause for approval</text>
+  <text class="t2" x="629.0" y="290">you approve, edit or reject</text>
+
+  <!-- checkpoint store -->
+  <path class="box" d="M534 371 a95.0 9 0 0 1 190 0 V415 a95.0 9 0 0 1 -190 0 Z"/>
+  <path class="box" d="M534 371 a95.0 9 0 0 0 190 0" style="fill:none"/>
+  <text class="t1" x="629" y="394" style="font-size:14px">Checkpoint store</text>
+  <text class="t2" x="629" y="410">resumes after a restart</text>
+
+  <!-- trace strip -->
+  <rect class="box" x="124" y="446" width="844" height="46" rx="8"/>
+  <text class="t1" x="546.0" y="466" style="font-size:14px">Run and event trace</text>
+  <text class="t2" x="546.0" y="482">records every model call, tool call and approval; feeds the eval suite</text>
+
+
+  <!-- legend -->
+  <path class="edge" d="M284 382 h28"/>
+  <text class="lbl" x="322" y="386">control flow</text>
+  <path class="edge-dash" d="M284 402 h28"/>
+  <text class="lbl" x="322" y="406">state and records</text>
+
+  <!-- arrows and labels: drawn last so fills never cover arrowheads -->
+  <text class="lbl" x="32" y="168">your message</text>
+  <path class="edge" d="M32 178 H143" marker-end="url(#arr)"/>
+  <path class="edge" d="M244 212 V241" marker-end="url(#arr)"/>
+
+  <path class="edge" d="M344 262 H386 V178 H574" marker-end="url(#arr)"/>
+  <text class="lbl" x="450.0" y="168" text-anchor="middle">proposed tool call</text>
+
+  <path class="edge" d="M683 178 H747" marker-end="url(#arr)"/>
+  <text class="lbl" x="693" y="169">no</text>
+
+  <path class="edge" d="M629 212 V241" marker-end="url(#arr)"/>
+  <text class="lbl" x="638" y="232">yes</text>
+
+  <path class="edge" d="M724 276 H848 V213" marker-end="url(#arr)"/>
+  <text class="lbl" x="732" y="268">approve</text>
+
+  <path class="edge" d="M534 298 H345" marker-end="url(#arr)"/>
+  <text class="lbl" x="439.0" y="278" text-anchor="middle">edit or reject</text>
+  <text class="lbl" x="439.0" y="292" text-anchor="middle">returns to the model</text>
+
+  <path class="edge" d="M848 144 V52 H244 V87" marker-end="url(#arr)"/>
+  <text class="lbl" x="546.0" y="44" text-anchor="middle">next step, within run limits (steps, tokens, retries)</text>
+
+  <path class="edge-dash" d="M629 330 V361" marker-end="url(#arr)"/>
+  <text class="lbl" x="639" y="350">state saved every step</text>
+  <path class="edge-dash" d="M244 330 V445" marker-end="url(#arr)"/>
+  <path class="edge-dash" d="M848 330 V445" marker-end="url(#arr)"/>
+</svg>

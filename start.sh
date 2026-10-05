@@ -22,6 +22,15 @@ then
     echo -e "\n\033[1;32m[+] Docker detected! Starting FeedFlux via Docker Compose...\033[0m"
     docker compose up --build -d
 
+    if [ "$1" = "--sample" ]; then
+        echo -e "\n\033[1;36m[+] Loading the sample inbox...\033[0m"
+        for _ in $(seq 1 60); do
+            curl -fs http://localhost:8000/ >/dev/null && break
+            sleep 1
+        done
+        docker compose exec -T backend python -m app.seed.loader --kind dev --anchor auto
+    fi
+
     echo -e "\n\033[1;32m[✓] All services are booting up in the background!\033[0m"
     echo -e "\033[1;34m--------------------------------------------------------\033[0m"
     echo -e "🔗 Frontend Interface: \033[4;36mhttp://localhost:3000\033[0m"
