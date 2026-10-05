@@ -27,11 +27,11 @@ FeedFlux is a local web app. A Next.js interface talks to a FastAPI backend that
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-dark.svg">
-    <img alt="How a request is handled: the model proposes a tool call, code applies limits and pauses sensitive actions for approval, and every step is traced." src="assets/architecture-light.svg">
+    <img alt="Inside the agent harness: the model proposes a tool call, the harness applies limits and pauses sensitive actions for approval, and every step is traced." src="assets/architecture-light.svg">
   </picture>
 </p>
 
-The model chooses among registered tools, while the graph owns state transitions, approval pauses, budgets, and observable events. This is an agent implemented as a constrained, inspectable multi-step tool flow.
+The model proposes; the harness decides. It owns state transitions, approval pauses, budgets, and observable events, which keeps each agent turn constrained and inspectable.
 
 The model sees only bounded context, such as the email you are reading, and answers that cite emails link back to the original message.
 
@@ -81,7 +81,7 @@ You need Docker and a Gemini API key.
    ./start.sh --sample
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) and click "Login with Microsoft Outlook". With the sample inbox this is a simulated sign-in, and nothing touches a real mailbox.
+4. Open `http://localhost:3000` and click "Login with Microsoft Outlook". With the sample inbox this is a simulated sign-in, and nothing touches a real mailbox.
 
 Running step 3 again resets the sample inbox. To run the agent on DeepSeek or GLM instead, set `LLM_PROVIDER` to `deepseek` or `glm` and add `DEEPSEEK_API_KEY` or `GLM_API_KEY`. The Gemini key is still used for email summaries.
 
