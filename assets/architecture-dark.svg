@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 524" width="1000" height="524" role="img" aria-labelledby="t d">
-  <title id="t">How a FeedFlux request is handled</title>
-  <desc id="d">The model proposes a tool call from bounded context. Code applies run-level limits, pauses sensitive actions for approval with a durable checkpoint, returns edits and rejections to the model, runs idempotent tools against local state, and records a trace that feeds the eval suite.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 981 644" width="981" height="644" role="img" aria-labelledby="t d">
+  <title id="t">Inside the agent harness</title>
+  <desc id="d">The harness assembles bounded context from the email in focus and relevant preferences. The model proposes a tool call. The harness applies run-level limits, pauses sensitive actions for approval with a durable checkpoint, returns edits and rejections to the model, runs idempotent tools, writes preferences only after approval, and records a trace that feeds the eval suite.</desc>
   <style>
     
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #e6edf3; }
@@ -25,77 +25,84 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1000" height="524" rx="12"/>
+  <rect class="bg" x="0" y="0" width="981" height="644" rx="12"/>
 
-  <!-- zones -->
-  <rect class="zone-model" x="124" y="88" width="240" height="242" rx="12"/>
-  <text class="zone-label-model" x="144" y="114">MODEL PROPOSES</text>
-  <rect class="zone-code" x="514" y="88" width="454" height="242" rx="12"/>
-  <text class="zone-label-code" x="534" y="114">CODE DECIDES</text>
+  <!-- harness frame, then the model zone nested inside it -->
+  <rect class="zone-code" x="124" y="126" width="825" height="324" rx="12"/>
+  <text class="zone-label-code" x="536.5" y="152" text-anchor="middle">AGENT HARNESS</text>
+  <rect class="zone-model" x="144" y="304" width="240" height="126" rx="12"/>
+  <text class="zone-label-model" x="164" y="326">MODEL</text>
 
-  <!-- model zone -->
-  <rect class="box" x="144" y="144" width="200" height="68" rx="8"/>
-  <text class="t1" x="244.0" y="173">Bounded context</text>
-  <text class="t2" x="244.0" y="192">email in focus + preferences</text>
-  <rect class="box" x="144" y="242" width="200" height="68" rx="8"/>
-  <text class="t1" x="244.0" y="271">LLM: next tool or reply</text>
-  <text class="t2" x="244.0" y="290">any provider, swappable</text>
+  <!-- boxes -->
+  <rect class="box" x="144" y="210" width="240" height="68" rx="8"/>
+  <text class="t1" x="264.0" y="239">Bounded context</text>
+  <text class="t2" x="264.0" y="258">email in focus + preferences</text>
+  <rect class="box" x="164" y="342" width="200" height="68" rx="8"/>
+  <text class="t1" x="264.0" y="371">LLM: next tool or reply</text>
+  <text class="t2" x="264.0" y="390">any provider, swappable</text>
+  <path class="box" d="M556 244 L610 210 L664 244 L610 278 Z"/>
+  <text class="t1" x="610" y="240" style="font-size:13.5px">Sensitive</text>
+  <text class="t1" x="610" y="257" style="font-size:13.5px">action?</text>
+  <rect class="box" x="729" y="210" width="200" height="68" rx="8"/>
+  <text class="t1" x="829.0" y="239">Run tool</text>
+  <text class="t2" x="829.0" y="258">idempotent, safe to replay</text>
+  <rect class="warn" x="515" y="342" width="190" height="68" rx="8"/>
+  <text class="t1" x="610.0" y="371">Pause for approval</text>
+  <text class="t2" x="610.0" y="390">you approve, edit or reject</text>
 
-  <!-- code zone -->
-  <path class="box" d="M575 178 L629 144 L683 178 L629 212 Z"/>
-  <text class="t1" x="629" y="174" style="font-size:13.5px">Sensitive</text>
-  <text class="t1" x="629" y="191" style="font-size:13.5px">action?</text>
-  <rect class="box" x="748" y="144" width="200" height="68" rx="8"/>
-  <text class="t1" x="848.0" y="173">Run tool</text>
-  <text class="t2" x="848.0" y="192">idempotent, safe to replay</text>
-  <rect class="warn" x="534" y="242" width="190" height="68" rx="8"/>
-  <text class="t1" x="629.0" y="271">Pause for approval</text>
-  <text class="t2" x="629.0" y="290">you approve, edit or reject</text>
+  <!-- preference memory -->
+  <path class="box" d="M89 41 a95.0 9 0 0 1 190 0 V85 a95.0 9 0 0 1 -190 0 Z"/>
+  <path class="box" d="M89 41 a95.0 9 0 0 0 190 0" style="fill:none"/>
+  <text class="t1" x="184" y="63" style="font-size:14px">Preference memory</text>
+  <text class="t2" x="184" y="79">you can edit or forget</text>
 
   <!-- checkpoint store -->
-  <path class="box" d="M534 371 a95.0 9 0 0 1 190 0 V415 a95.0 9 0 0 1 -190 0 Z"/>
-  <path class="box" d="M534 371 a95.0 9 0 0 0 190 0" style="fill:none"/>
-  <text class="t1" x="629" y="394" style="font-size:14px">Checkpoint store</text>
-  <text class="t2" x="629" y="410">resumes after a restart</text>
+  <path class="box" d="M515 491 a95.0 9 0 0 1 190 0 V535 a95.0 9 0 0 1 -190 0 Z"/>
+  <path class="box" d="M515 491 a95.0 9 0 0 0 190 0" style="fill:none"/>
+  <text class="t1" x="610" y="514" style="font-size:14px">Checkpoint store</text>
+  <text class="t2" x="610" y="530">resumes after a restart</text>
 
   <!-- trace strip -->
-  <rect class="box" x="124" y="446" width="844" height="46" rx="8"/>
-  <text class="t1" x="546.0" y="466" style="font-size:14px">Run and event trace</text>
-  <text class="t2" x="546.0" y="482">records every model call, tool call and approval; feeds the eval suite</text>
-
+  <rect class="box" x="124" y="566" width="825" height="46" rx="8"/>
+  <text class="t1" x="536.5" y="586" style="font-size:14px">Run and event trace</text>
+  <text class="t2" x="536.5" y="602">records every model call, tool call and approval; feeds the eval suite</text>
 
   <!-- legend -->
-  <path class="edge" d="M284 382 h28"/>
-  <text class="lbl" x="322" y="386">control flow</text>
-  <path class="edge-dash" d="M284 402 h28"/>
-  <text class="lbl" x="322" y="406">state and records</text>
+  <path class="edge" d="M304 502 h28"/>
+  <text class="lbl" x="342" y="506">control flow</text>
+  <path class="edge-dash" d="M304 522 h28"/>
+  <text class="lbl" x="342" y="526">state and records</text>
 
   <!-- arrows and labels: drawn last so fills never cover arrowheads -->
-  <text class="lbl" x="32" y="168">your message</text>
-  <path class="edge" d="M32 178 H143" marker-end="url(#arr)"/>
-  <path class="edge" d="M244 212 V241" marker-end="url(#arr)"/>
+  <text class="lbl" x="32" y="234">your message</text>
+  <path class="edge" d="M32 244 H143" marker-end="url(#arr)"/>
+  <path class="edge" d="M340 278 V341" marker-end="url(#arr)"/>
 
-  <path class="edge" d="M344 262 H386 V178 H574" marker-end="url(#arr)"/>
-  <text class="lbl" x="450.0" y="168" text-anchor="middle">proposed tool call</text>
+  <path class="edge" d="M364 362 H406 V244 H555" marker-end="url(#arr)"/>
+  <text class="lbl" x="481.0" y="234" text-anchor="middle">proposed tool call</text>
 
-  <path class="edge" d="M683 178 H747" marker-end="url(#arr)"/>
-  <text class="lbl" x="693" y="169">no</text>
+  <path class="edge" d="M664 244 H728" marker-end="url(#arr)"/>
+  <text class="lbl" x="674" y="235">no</text>
 
-  <path class="edge" d="M629 212 V241" marker-end="url(#arr)"/>
-  <text class="lbl" x="638" y="232">yes</text>
+  <path class="edge" d="M610 278 V341" marker-end="url(#arr)"/>
+  <text class="lbl" x="619" y="314.0">yes</text>
 
-  <path class="edge" d="M724 276 H848 V213" marker-end="url(#arr)"/>
-  <text class="lbl" x="732" y="268">approve</text>
+  <path class="edge" d="M705 376 H829 V279" marker-end="url(#arr)"/>
+  <text class="lbl" x="713" y="368">approve</text>
 
-  <path class="edge" d="M534 298 H345" marker-end="url(#arr)"/>
-  <text class="lbl" x="439.0" y="278" text-anchor="middle">edit or reject</text>
-  <text class="lbl" x="439.0" y="292" text-anchor="middle">returns to the model</text>
+  <path class="edge" d="M515 398 H365" marker-end="url(#arr)"/>
+  <text class="lbl" x="449.5" y="378" text-anchor="middle">edit or reject</text>
+  <text class="lbl" x="449.5" y="392" text-anchor="middle">returns to the model</text>
 
-  <path class="edge" d="M848 144 V52 H244 V87" marker-end="url(#arr)"/>
-  <text class="lbl" x="546.0" y="44" text-anchor="middle">next step, within run limits (steps, tokens, retries)</text>
+  <path class="edge" d="M829 210 V186 H344 V209" marker-end="url(#arr)"/>
+  <text class="lbl" x="586.5" y="178" text-anchor="middle">next step, within run limits (steps, tokens, retries)</text>
 
-  <path class="edge-dash" d="M629 330 V361" marker-end="url(#arr)"/>
-  <text class="lbl" x="639" y="350">state saved every step</text>
-  <path class="edge-dash" d="M244 330 V445" marker-end="url(#arr)"/>
-  <path class="edge-dash" d="M848 330 V445" marker-end="url(#arr)"/>
+  <path class="edge-dash" d="M610 410 V481" marker-end="url(#arr)"/>
+  <text class="lbl" x="620" y="470">state saved every step</text>
+  <path class="edge-dash" d="M264 450 V565" marker-end="url(#arr)"/>
+
+  <path class="edge-dash" d="M184 94 V209" marker-end="url(#arr)"/>
+  <text class="lbl" x="194" y="118">relevant preferences</text>
+  <path class="edge-dash" d="M899 210 V63 H280" marker-end="url(#arr)"/>
+  <text class="lbl" x="589.0" y="55" text-anchor="middle">remember or forget, after approval</text>
 </svg>
